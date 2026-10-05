@@ -45,22 +45,36 @@ class DecodedVoxelRecord:
     def exact_voxel_payload(self) -> bool:
         return len(self.payload) == VOXELS_PER_CHUNK
 
+    @property
+    def material_counts(self) -> dict[int, int]:
+        if not self.exact_voxel_payload:
+            return {}
+
+        counts: Counter[int] = Counter(
+            (voxel & 0b11000000) >> 6
+            for voxel in self.payload
+        )
+        return dict(sorted(counts.items()))
+
+    @property
+    def zero_density_voxels(self) -> int:
+        if not self.exact_voxel_payload:
+            return 0
+
+        return sum(
+            1
+            for voxel in self.payload
+            if (voxel & 0b00111111) == 0
+        )
+
+    @property
+    def nonzero_density_voxels(self) -> int:
+        if not self.exact_voxel_payload:
+            return 0
+
+        return VOXELS_PER_CHUNK - self.zero_density_voxels
+
     def to_dict(self) -> dict[str, object]:
-        material_counts: Counter[int] = Counter()
-        zero_density_voxels = 0
-        nonzero_density_voxels = 0
-
-        if self.exact_voxel_payload:
-            for voxel in self.payload:
-                material = (voxel & 0b11000000) >> 6
-                density = voxel & 0b00111111
-                material_counts[material] += 1
-
-                if density == 0:
-                    zero_density_voxels += 1
-                else:
-                    nonzero_density_voxels += 1
-
         return {
             "id": self.record_id,
             "cell": {
@@ -78,9 +92,9 @@ class DecodedVoxelRecord:
             "voxel_payload_size": self.voxel_payload_size,
             "payload_prefix_hex": self.payload[:32].hex(),
             "exact_voxel_payload": self.exact_voxel_payload,
-            "material_counts": dict(sorted(material_counts.items())),
-            "zero_density_voxels": zero_density_voxels,
-            "nonzero_density_voxels": nonzero_density_voxels,
+            "material_counts": self.material_counts,
+            "zero_density_voxels": self.zero_density_voxels,
+            "nonzero_density_voxels": self.nonzero_density_voxels,
         }
 
 
