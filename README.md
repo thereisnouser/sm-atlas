@@ -9,7 +9,7 @@ Reads Survival save files locally and never modifies the original save.
 **v0.1 — Save inspection**
 
 - find local Survival saves;
-- validate SQLite saves;
+- discover and decode world definitions;
 - inspect table schemas and sample rows;
 - detect known Scrap Mechanic structures.
 
@@ -23,8 +23,7 @@ Python 3.12+ · SQLite · pytest
 pip install -e ".[dev]"
 sm-atlas saves
 sm-atlas inspect path/to/save.db
-sm-atlas schema path/to/save.db GenericData
-sm-atlas sample path/to/save.db GenericData
+sm-atlas worlds path/to/save.db
 pytest
 ```
 

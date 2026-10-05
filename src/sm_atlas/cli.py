@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .database import InvalidSaveFile, SaveDatabase
 from .discovery import find_survival_saves
+from .worlds import WorldDataError, discover_worlds
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +39,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_parser.add_argument("save", type=Path)
     inspect_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    worlds_parser = subparsers.add_parser(
+        "worlds",
+        help="Discover worlds stored in GenericData.",
+    )
+    worlds_parser.add_argument("save", type=Path)
+    worlds_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -119,6 +131,45 @@ def run_inspect(save: Path, as_json: bool) -> int:
     return 0
 
 
+def run_worlds(save: Path, as_json: bool) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        worlds = discover_worlds(database)
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        WorldDataError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(
+            json.dumps(
+                [world.to_dict() for world in worlds],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if not worlds:
+        print("No world definitions found.")
+        return 0
+
+    for world in worlds:
+        print(
+            f"[{world.world_id}] {world.label}\n"
+            f"    class: {world.classname}\n"
+            f"    seed: {world.seed}\n"
+            f"    file: {world.filename}"
+        )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -165,6 +216,9 @@ def main() -> None:
 
     if args.command == "inspect":
         raise SystemExit(run_inspect(args.save, args.json))
+
+    if args.command == "worlds":
+        raise SystemExit(run_worlds(args.save, args.json))
 
     if args.command == "schema":
         raise SystemExit(run_schema(args.save, args.table))

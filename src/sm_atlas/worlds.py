@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from struct import unpack_from
+from typing import Any
+
+from .database import SaveDatabase
+from .formats.generic_data import (
+    WORLD_MARKER_UID,
+    GenericDataError,
+    decode_envelope,
+)
+
+
+class WorldDataError(ValueError):
+    """Raised when a world definition cannot be decoded."""
+
+
+@dataclass(frozen=True)
+class WorldInfo:
+    world_id: int
+    seed: int
+    filename: str
+    classname: str
+    terrain_params: str
+
+    @property
+    def terrain(self) -> Any:
+        try:
+            return json.loads(self.terrain_params)
+        except (json.JSONDecodeError, TypeError):
+            return self.terrain_params
+
+    @property
+    def label(self) -> str:
+        terrain = self.terrain
+
+        if isinstance(terrain, dict):
+            path = terrain.get("path") or terrain.get("worldFilePath")
+            if isinstance(path, str) and path:
+                name = PurePosixPath(path.replace("\\", "/")).stem
+                if name:
+                    return name
+
+            depth = terrain.get("depth")
+            if depth is not None:
+                return f"{self.classname} depth {depth}"
+
+        return self.classname or f"World {self.world_id}"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "world_id": self.world_id,
+            "label": self.label,
+            "seed": self.seed,
+            "filename": self.filename,
+            "classname": self.classname,
+            "terrain_params": self.terrain,
+        }
+
+
+def _read_string(data: bytes, offset: int) -> tuple[str, int]:
+    if offset + 2 > len(data):
+        raise WorldDataError("truncated string length")
+
+    length = unpack_from(">H", data, offset)[0]
+    offset += 2
+    end = offset + length
+
+    if end > len(data):
+        raise WorldDataError("truncated string data")
+
+    try:
+        value = data[offset:end].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise WorldDataError("invalid UTF-8 in world data") from exc
+
+    return value, end
+
+
+def decode_world_payload(data: bytes) -> tuple[int, str, str, str]:
+    if len(data) < 4:
+        raise WorldDataError("world payload is too short")
+
+    seed = unpack_from(">I", data, 0)[0]
+    offset = 4
+
+    filename, offset = _read_string(data, offset)
+    classname, offset = _read_string(data, offset)
+    terrain_params, _ = _read_string(data, offset)
+
+    return seed, filename, classname, terrain_params
+
+
+def discover_worlds(database: SaveDatabase) -> list[WorldInfo]:
+    with database.connect() as connection:
+        if "GenericData" not in database._tables(connection):
+            return []
+
+        rows = connection.execute(
+            """
+            SELECT worldId, data
+            FROM GenericData
+            WHERE uid = ?
+              AND flags = 3
+            ORDER BY worldId
+            """,
+            (WORLD_MARKER_UID,),
+        ).fetchall()
+
+    worlds: list[WorldInfo] = []
+
+    for row in rows:
+        blob = row["data"]
+        if not isinstance(blob, bytes):
+            continue
+
+        try:
+            envelope = decode_envelope(blob)
+            seed, filename, classname, terrain_params = (
+                decode_world_payload(envelope.data)
+            )
+        except (GenericDataError, WorldDataError):
+            continue
+
+        sql_world_id = int(row["worldId"])
+        if envelope.world_id != sql_world_id:
+            raise WorldDataError(
+                "worldId mismatch between GenericData row and envelope"
+            )
+
+        worlds.append(
+            WorldInfo(
+                world_id=sql_world_id,
+                seed=seed,
+                filename=filename,
+                classname=classname,
+                terrain_params=terrain_params,
+            )
+        )
+
+    return worlds
