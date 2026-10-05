@@ -9,6 +9,7 @@ from .database import InvalidSaveFile, SaveDatabase
 from .discovery import find_survival_saves
 from .terrain import summarize_voxel_terrain
 from .terrain_probe import probe_voxel_terrain
+from .terrain_structure import probe_voxel_terrain_structure
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
 
@@ -114,6 +115,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum blob offset to test for an LZ4 block.",
     )
     probe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    structure_parser = subparsers.add_parser(
+        "terrain-structure",
+        help="Probe VoxelTerrain record structure and candidate chunk coordinates.",
+    )
+    structure_parser.add_argument("save", type=Path)
+    structure_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    structure_parser.add_argument(
+        "--limit",
+        type=int,
+        default=500,
+        help="Maximum records to scan (1-5000).",
+    )
+    structure_parser.add_argument(
+        "--examples",
+        type=int,
+        default=30,
+        help="Maximum example records to include (0-200).",
+    )
+    structure_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -374,6 +404,54 @@ def run_terrain_probe(
     return 0
 
 
+def run_terrain_structure(
+    save: Path,
+    world_id: int,
+    limit: int,
+    examples: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_voxel_terrain_structure(
+            database,
+            world_id=world_id,
+            limit=limit,
+            examples=examples,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"Marker matches: {result['marker_matches']}")
+    print(f"ID matches: {result['id_matches']}")
+    print(f"Sentinel matches: {result['sentinel_matches']}")
+    print(
+        "Direct coordinate candidates: "
+        f"{result['direct_coordinate_candidates']}"
+    )
+    print(f"Exact cell matches: {result['exact_cell_matches']}")
+    print(f"Boundary cell matches: {result['boundary_cell_matches']}")
+    print(f"Marker offsets: {result['marker_offsets']}")
+    print(f"ID offsets: {result['id_offsets']}")
+    print(f"Prefix signatures: {result['prefix_signatures']}")
+    print(f"Candidate Z range: {result['candidate_z_range']}")
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -449,6 +527,17 @@ def main() -> None:
                 args.world,
                 args.limit,
                 args.max_offset,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-structure":
+        raise SystemExit(
+            run_terrain_structure(
+                args.save,
+                args.world,
+                args.limit,
+                args.examples,
                 args.json,
             )
         )
