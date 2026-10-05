@@ -11,6 +11,7 @@ from .terrain import summarize_voxel_terrain
 from .terrain_chunks import summarize_voxel_chunks
 from .terrain_codec_probe import probe_voxel_codecs
 from .terrain_decode import probe_decompressed_voxel_terrain
+from .terrain_density_probe import probe_density_streams
 from .terrain_layout import scan_voxel_terrain_layout
 from .terrain_map import write_voxel_chunk_map
 from .terrain_mask_probe import probe_voxel_masks
@@ -421,6 +422,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of best-scoring mask models to print.",
     )
     mask_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    density_parser = subparsers.add_parser(
+        "terrain-density-probe",
+        help="Test packed 6-bit density streams using shared chunk faces.",
+    )
+    density_parser.add_argument("save", type=Path)
+    density_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    density_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum records to scan (1-5000).",
+    )
+    density_parser.add_argument(
+        "--max-byte-offset",
+        type=int,
+        default=4,
+        help="Maximum body byte prefix to skip before density bits.",
+    )
+    density_parser.add_argument(
+        "--max-pairs",
+        type=int,
+        default=600,
+        help="Maximum neighboring chunk-face pairs to compare per mode.",
+    )
+    density_parser.add_argument(
+        "--top",
+        type=int,
+        default=20,
+        help="Number of best-scoring density models to print.",
+    )
+    density_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1184,6 +1226,63 @@ def run_terrain_mask_probe(
     return 0
 
 
+def run_terrain_density_probe(
+    save: Path,
+    world_id: int,
+    limit: int,
+    max_byte_offset: int,
+    max_pairs: int,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_density_streams(
+            database,
+            world_id=world_id,
+            limit=limit,
+            max_byte_offset=max_byte_offset,
+            max_pairs=max_pairs,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"Decoded records: {result['decoded_records']}")
+    print(f"Decode failures: {result['decode_failures']}")
+    print(f"Density bits: {result['density_bits']}")
+    print(f"Face sample axis: {result['face_sample_axis']}")
+    print(f"Neighbor pairs: {result['neighbor_pairs']}")
+    print("Top density hypotheses:")
+
+    for model in result["models"][:top]:
+        print(
+            f"  mode={model['mode']} "
+            f"byte=+{model['byte_offset']} "
+            f"bit=+{model['bit_offset']} "
+            f"fill={model['fill']}: "
+            f"exact={model['exact_samples']}/"
+            f"{model['samples']} "
+            f"({model['exact_ratio']:.1%}), "
+            f"mae={model['mean_absolute_error']:.3f}, "
+            f"faces={model['face_pairs']}"
+        )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1363,6 +1462,19 @@ def main() -> None:
                 args.world,
                 args.limit,
                 args.max_offset,
+                args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-density-probe":
+        raise SystemExit(
+            run_terrain_density_probe(
+                args.save,
+                args.world,
+                args.limit,
+                args.max_byte_offset,
+                args.max_pairs,
                 args.top,
                 args.json,
             )
