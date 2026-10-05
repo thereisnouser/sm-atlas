@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .database import InvalidSaveFile, SaveDatabase
 from .discovery import find_survival_saves
+from .terrain import summarize_voxel_terrain
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
 
@@ -67,6 +68,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only show connections touching an Underground world.",
     )
     graph_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    terrain_parser = subparsers.add_parser(
+        "terrain",
+        help="Summarize saved voxel terrain by world.",
+    )
+    terrain_parser.add_argument("save", type=Path)
+    terrain_parser.add_argument(
+        "--underground",
+        action="store_true",
+        help="Only show Underground worlds.",
+    )
+    terrain_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -231,6 +248,55 @@ def run_graph(
     return 0
 
 
+def run_terrain(
+    save: Path,
+    underground_only: bool,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        summaries = summarize_voxel_terrain(
+            database,
+            underground_only=underground_only,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        WorldDataError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(
+            json.dumps(
+                [summary.to_dict() for summary in summaries],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if not summaries:
+        print("No matching voxel terrain records found.")
+        return 0
+
+    for summary in summaries:
+        print(
+            f"[{summary.world_id}] {summary.label} "
+            f"({summary.kind})\n"
+            f"    records: {summary.records}\n"
+            f"    unique coordinates: {summary.unique_coordinates}\n"
+            f"    bounds: x={summary.min_x}..{summary.max_x}, "
+            f"y={summary.min_y}..{summary.max_y}\n"
+            f"    blob bytes: {summary.total_blob_bytes}"
+        )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -284,6 +350,15 @@ def main() -> None:
     if args.command == "graph":
         raise SystemExit(
             run_graph(
+                args.save,
+                args.underground,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain":
+        raise SystemExit(
+            run_terrain(
                 args.save,
                 args.underground,
                 args.json,

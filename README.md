@@ -10,8 +10,8 @@ Reads Survival save files locally and never modifies the original save.
 
 - find local Survival saves;
 - discover worlds and portal connections;
-- inspect table schemas and sample rows;
-- detect known Scrap Mechanic structures.
+- summarize saved voxel terrain;
+- inspect table schemas and sample rows.
 
 ## Stack
 
@@ -24,6 +24,7 @@ pip install -e ".[dev]"
 sm-atlas saves
 sm-atlas worlds path/to/save.db
 sm-atlas graph path/to/save.db
+sm-atlas terrain path/to/save.db
 pytest
 ```
 
