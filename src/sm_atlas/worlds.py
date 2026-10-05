@@ -34,19 +34,58 @@ class WorldInfo:
             return self.terrain_params
 
     @property
+    def kind(self) -> str:
+        if self.classname == "Overworld":
+            return "overworld"
+        if self.classname == "DungeonWorld":
+            return "dungeon"
+        if self.classname == "WarehouseWorld":
+            return "warehouse"
+        if self.classname.startswith("UndergroundWorld"):
+            return "underground"
+
+        return "other"
+
+    @property
+    def depth(self) -> int | None:
+        terrain = self.terrain
+        if not isinstance(terrain, dict):
+            return None
+
+        value = terrain.get("depth")
+        if isinstance(value, (int, float)):
+            return int(value)
+
+        return None
+
+    @property
     def label(self) -> str:
         terrain = self.terrain
+
+        if self.kind == "warehouse" and isinstance(terrain, dict):
+            index = terrain.get("warehouseIndex")
+            level = terrain.get("level")
+            max_levels = terrain.get("maxLevels")
+            quest = terrain.get("isQuestWarehouse") is True
+
+            if (
+                isinstance(index, (int, float))
+                and isinstance(level, (int, float))
+            ):
+                prefix = "Quest Warehouse" if quest else "Warehouse"
+                label = f"{prefix} {int(index)} L{int(level)}"
+                if isinstance(max_levels, (int, float)):
+                    label += f"/{int(max_levels)}"
+                return label
 
         if isinstance(terrain, dict):
             path = terrain.get("path") or terrain.get("worldFilePath")
             if isinstance(path, str) and path:
                 name = PurePosixPath(path.replace("\\", "/")).stem
                 if name:
+                    if self.kind == "underground" and self.depth is not None:
+                        return f"D{self.depth} {name}"
                     return name
-
-            depth = terrain.get("depth")
-            if depth is not None:
-                return f"{self.classname} depth {depth}"
 
         return self.classname or f"World {self.world_id}"
 
@@ -54,6 +93,8 @@ class WorldInfo:
         return {
             "world_id": self.world_id,
             "label": self.label,
+            "kind": self.kind,
+            "depth": self.depth,
             "seed": self.seed,
             "filename": self.filename,
             "classname": self.classname,

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .database import InvalidSaveFile, SaveDatabase
 from .discovery import find_survival_saves
+from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
 
 
@@ -50,6 +51,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     worlds_parser.add_argument("save", type=Path)
     worlds_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    graph_parser = subparsers.add_parser(
+        "graph",
+        help="Show portal connections between worlds.",
+    )
+    graph_parser.add_argument("save", type=Path)
+    graph_parser.add_argument(
+        "--underground",
+        action="store_true",
+        help="Only show connections touching an Underground world.",
+    )
+    graph_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -160,11 +177,55 @@ def run_worlds(save: Path, as_json: bool) -> int:
         return 0
 
     for world in worlds:
+        extra = f" depth={world.depth}" if world.depth is not None else ""
         print(
-            f"[{world.world_id}] {world.label}\n"
+            f"[{world.world_id}] {world.label} "
+            f"({world.kind}{extra})\n"
             f"    class: {world.classname}\n"
             f"    seed: {world.seed}\n"
             f"    file: {world.filename}"
+        )
+
+    return 0
+
+
+def run_graph(
+    save: Path,
+    underground_only: bool,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        graph = build_world_graph(
+            database,
+            underground_only=underground_only,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        WorldDataError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(graph.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+
+    if not graph.connections:
+        print("No matching portal connections found.")
+        return 0
+
+    for connection in graph.connections:
+        print(
+            f"[portal {connection.portal_id}] "
+            f"{connection.a.label} #{connection.a.world_id} "
+            f"({connection.a.x}, {connection.a.y}) "
+            f"-> "
+            f"{connection.b.label} #{connection.b.world_id} "
+            f"({connection.b.x}, {connection.b.y})"
         )
 
     return 0
@@ -219,6 +280,15 @@ def main() -> None:
 
     if args.command == "worlds":
         raise SystemExit(run_worlds(args.save, args.json))
+
+    if args.command == "graph":
+        raise SystemExit(
+            run_graph(
+                args.save,
+                args.underground,
+                args.json,
+            )
+        )
 
     if args.command == "schema":
         raise SystemExit(run_schema(args.save, args.table))
