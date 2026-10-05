@@ -15,6 +15,7 @@ from .terrain_map import write_voxel_chunk_map
 from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
+from .terrain_tree_probe import probe_voxel_tree_encoding
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
 
@@ -313,6 +314,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum example payloads to include (0-100).",
     )
     payload_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    tree_parser = subparsers.add_parser(
+        "terrain-tree-probe",
+        help="Test recursive 8-way mask-tree hypotheses for voxel payload bodies.",
+    )
+    tree_parser.add_argument("save", type=Path)
+    tree_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    tree_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum records to scan (1-5000).",
+    )
+    tree_parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=6,
+        help="Maximum recursive depth to test (1-8).",
+    )
+    tree_parser.add_argument(
+        "--top",
+        type=int,
+        default=20,
+        help="Number of best-scoring models to print.",
+    )
+    tree_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -909,6 +945,63 @@ def run_terrain_payload(
     return 0
 
 
+def run_terrain_tree_probe(
+    save: Path,
+    world_id: int,
+    limit: int,
+    max_depth: int,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_voxel_tree_encoding(
+            database,
+            world_id=world_id,
+            limit=limit,
+            max_depth=max_depth,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"Decoded records: {result['decoded_records']}")
+    print(f"Decode failures: {result['decode_failures']}")
+    print("Top tree hypotheses:")
+
+    for model in result["models"][:top]:
+        direction = (
+            "1=child"
+            if model["one_means_child"]
+            else "0=child"
+        )
+        print(
+            f"  mode={model['mode']} "
+            f"depth={model['depth']} "
+            f"{direction}: "
+            f"exact={model['exact_records']}/{model['records']} "
+            f"({model['exact_ratio']:.1%}), "
+            f"nontrivial="
+            f"{model['exact_nontrivial_records']}/"
+            f"{model['nontrivial_records']} "
+            f"({model['exact_nontrivial_ratio']:.1%})"
+        )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1053,6 +1146,18 @@ def main() -> None:
                 args.limit,
                 args.max_offset,
                 args.examples,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-tree-probe":
+        raise SystemExit(
+            run_terrain_tree_probe(
+                args.save,
+                args.world,
+                args.limit,
+                args.max_depth,
+                args.top,
                 args.json,
             )
         )
