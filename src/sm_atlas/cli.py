@@ -12,6 +12,7 @@ from .terrain_chunks import summarize_voxel_chunks
 from .terrain_decode import probe_decompressed_voxel_terrain
 from .terrain_layout import scan_voxel_terrain_layout
 from .terrain_map import write_voxel_chunk_map
+from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .world_graph import build_world_graph
@@ -277,6 +278,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum decoded records to include (0-100).",
     )
     decode_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    payload_parser = subparsers.add_parser(
+        "terrain-payload",
+        help="Inspect the variable payload inside decompressed voxel records.",
+    )
+    payload_parser.add_argument("save", type=Path)
+    payload_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    payload_parser.add_argument(
+        "--limit",
+        type=int,
+        default=1000,
+        help="Maximum records to scan (1-5000).",
+    )
+    payload_parser.add_argument(
+        "--max-offset",
+        type=int,
+        default=16,
+        help="Maximum payload offset to test for an inner LZ4 block.",
+    )
+    payload_parser.add_argument(
+        "--examples",
+        type=int,
+        default=20,
+        help="Maximum example payloads to include (0-100).",
+    )
+    payload_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -804,6 +840,60 @@ def run_terrain_decode(
     return 0
 
 
+def run_terrain_payload(
+    save: Path,
+    world_id: int,
+    limit: int,
+    max_offset: int,
+    examples: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_voxel_payloads(
+            database,
+            world_id=world_id,
+            limit=limit,
+            max_offset=max_offset,
+            examples=examples,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"Decoded records: {result['decoded_records']}")
+    print(f"Decode failures: {result['decode_failures']}")
+    print(f"Payload size range: {result['payload_size_range']}")
+    print(f"Four-byte records: {result['four_byte_records']}")
+    print(f"Four-byte values: {result['four_byte_values']}")
+    print(f"First byte histogram: {result['first_byte_histogram']}")
+    print(f"First u16 BE histogram: {result['first_u16_be_histogram']}")
+    print(f"Payload prefixes: {result['payload_prefixes']}")
+    print(f"Inner LZ4 matches: {result['inner_lz4_matches']}")
+    print(
+        "Inner LZ4 offsets: "
+        f"{result['inner_lz4_offset_histogram']}"
+    )
+    print(
+        "Exact inner LZ4 records: "
+        f"{result['exact_inner_lz4_records']}"
+    )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -935,6 +1025,18 @@ def main() -> None:
                 args.save,
                 args.world,
                 args.limit,
+                args.examples,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-payload":
+        raise SystemExit(
+            run_terrain_payload(
+                args.save,
+                args.world,
+                args.limit,
+                args.max_offset,
                 args.examples,
                 args.json,
             )
