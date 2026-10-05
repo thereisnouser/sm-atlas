@@ -8,6 +8,7 @@ from pathlib import Path
 from .database import InvalidSaveFile, SaveDatabase
 from .discovery import find_survival_saves
 from .terrain import summarize_voxel_terrain
+from .terrain_chunks import summarize_voxel_chunks
 from .terrain_layout import scan_voxel_terrain_layout
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
@@ -192,6 +193,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Absolute Z value considered plausible.",
     )
     layout_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    chunks_parser = subparsers.add_parser(
+        "terrain-chunks",
+        help="Decode confident voxel chunk coordinates from save records.",
+    )
+    chunks_parser.add_argument("save", type=Path)
+    chunks_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    chunks_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum records to scan (1-5000).",
+    )
+    chunks_parser.add_argument(
+        "--examples",
+        type=int,
+        default=25,
+        help="Maximum decoded records to include (0-200).",
+    )
+    chunks_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -571,6 +601,60 @@ def run_terrain_layout(
     return 0
 
 
+def run_terrain_chunks(
+    save: Path,
+    world_id: int,
+    limit: int,
+    examples: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = summarize_voxel_chunks(
+            database,
+            world_id=world_id,
+            limit=limit,
+            examples=examples,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"Decoded records: {result['decoded_records']}")
+    print(f"Unresolved records: {result['unresolved_records']}")
+    print(f"Decode ratio: {result['decode_ratio']:.1%}")
+    print(
+        "Unique chunk coordinates: "
+        f"{result['unique_chunk_coordinates']}"
+    )
+    print(
+        "Duplicate coordinate records: "
+        f"{result['duplicate_coordinate_records']}"
+    )
+    print(
+        "Coordinates with duplicates: "
+        f"{result['duplicate_coordinates']}"
+    )
+    print(f"Chunk bounds: {result['chunk_bounds']}")
+    print(f"Z histogram: {result['z_histogram']}")
+    print(f"Prefix signatures: {result['prefix_signatures']}")
+    print(f"Payload prefixes: {result['payload_prefixes']}")
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -671,6 +755,17 @@ def main() -> None:
                 args.max_offset,
                 args.top,
                 args.z_limit,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-chunks":
+        raise SystemExit(
+            run_terrain_chunks(
+                args.save,
+                args.world,
+                args.limit,
+                args.examples,
                 args.json,
             )
         )
