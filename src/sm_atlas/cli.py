@@ -8,6 +8,7 @@ from pathlib import Path
 from .database import InvalidSaveFile, SaveDatabase
 from .discovery import find_survival_saves
 from .terrain import summarize_voxel_terrain
+from .terrain_layout import scan_voxel_terrain_layout
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .world_graph import build_world_graph
@@ -144,6 +145,53 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum example records to include (0-200).",
     )
     structure_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    layout_parser = subparsers.add_parser(
+        "terrain-layout",
+        help="Scan VoxelTerrain blobs for coordinate layout candidates.",
+    )
+    layout_parser.add_argument("save", type=Path)
+    layout_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    layout_parser.add_argument(
+        "--limit",
+        type=int,
+        default=1000,
+        help="Maximum records to scan (1-5000).",
+    )
+    layout_parser.add_argument(
+        "--min-offset",
+        type=int,
+        default=8,
+        help="Minimum offset relative to the embedded record ID.",
+    )
+    layout_parser.add_argument(
+        "--max-offset",
+        type=int,
+        default=64,
+        help="Maximum offset relative to the embedded record ID.",
+    )
+    layout_parser.add_argument(
+        "--top",
+        type=int,
+        default=25,
+        help="Number of highest-scoring layouts to show.",
+    )
+    layout_parser.add_argument(
+        "--z-limit",
+        type=int,
+        default=128,
+        help="Absolute Z value considered plausible.",
+    )
+    layout_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -452,6 +500,77 @@ def run_terrain_structure(
     return 0
 
 
+def run_terrain_layout(
+    save: Path,
+    world_id: int,
+    limit: int,
+    min_offset: int,
+    max_offset: int,
+    top: int,
+    z_limit: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = scan_voxel_terrain_layout(
+            database,
+            world_id=world_id,
+            limit=limit,
+            min_relative_offset=min_offset,
+            max_relative_offset=max_offset,
+            top=top,
+            z_limit=z_limit,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"Records with embedded ID: {result['records_with_id']}")
+    print(f"Marker offsets: {result['marker_offsets']}")
+    print()
+    print("Top layouts:")
+
+    for score in result["top_layouts"]:
+        print(
+            f"  {score['endian']:>6} "
+            f"{score['mapping']:>7} "
+            f"factor={score['factor']} "
+            f"offset=+{score['relative_offset']}: "
+            f"xy={score['exact_xy_matches']} "
+            f"z={score['plausible_z_matches']} "
+            f"m1={score['marker_1_matches']} "
+            f"m2={score['marker_2_matches']} "
+            f"zrange={score['z_range']}"
+        )
+
+    print()
+    print("Big-endian/direct/factor=4 offset peaks:")
+
+    for score in result["big_direct_factor4_offsets"]:
+        print(
+            f"  offset=+{score['relative_offset']}: "
+            f"xy={score['exact_xy_matches']} "
+            f"z={score['plausible_z_matches']} "
+            f"m1={score['marker_1_matches']} "
+            f"m2={score['marker_2_matches']} "
+            f"zrange={score['z_range']}"
+        )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -538,6 +657,20 @@ def main() -> None:
                 args.world,
                 args.limit,
                 args.examples,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-layout":
+        raise SystemExit(
+            run_terrain_layout(
+                args.save,
+                args.world,
+                args.limit,
+                args.min_offset,
+                args.max_offset,
+                args.top,
+                args.z_limit,
                 args.json,
             )
         )
