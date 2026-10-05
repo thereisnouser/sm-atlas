@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .database import SaveDatabase
-from .terrain_chunks import VoxelChunkRecord, decode_voxel_chunks
+from .terrain_decode import DecodedVoxelRecord, decode_voxel_records
 
 CELL_SIZE = 10
 PANEL_PADDING = 22
@@ -14,7 +14,7 @@ PANELS_PER_ROW = 4
 
 
 def _bounds(
-    records: list[VoxelChunkRecord],
+    records: list[DecodedVoxelRecord],
 ) -> tuple[int, int, int, int]:
     return (
         min(record.chunk_x for record in records),
@@ -25,7 +25,7 @@ def _bounds(
 
 
 def render_voxel_chunk_map_svg(
-    records: list[VoxelChunkRecord],
+    records: list[DecodedVoxelRecord],
     *,
     world_id: int,
 ) -> str:
@@ -44,7 +44,7 @@ def render_voxel_chunk_map_svg(
         + PANEL_PADDING
     )
 
-    levels: dict[int, list[VoxelChunkRecord]] = defaultdict(list)
+    levels: dict[int, list[DecodedVoxelRecord]] = defaultdict(list)
     for record in records:
         levels[record.chunk_z].append(record)
 
@@ -148,7 +148,7 @@ def write_voxel_chunk_map(
     output: str | Path,
     limit: int = 5000,
 ) -> dict[str, object]:
-    records = decode_voxel_chunks(
+    records, failures, scanned_records = decode_voxel_records(
         database,
         world_id=world_id,
         limit=limit,
@@ -157,6 +157,12 @@ def write_voxel_chunk_map(
     if not records:
         raise ValueError(
             f"no decoded voxel chunk coordinates for world {world_id}"
+        )
+
+    if failures:
+        raise ValueError(
+            "not all voxel records could be decoded: "
+            f"{dict(failures.most_common())}"
         )
 
     output_path = Path(output).expanduser().resolve()
@@ -175,6 +181,7 @@ def write_voxel_chunk_map(
     return {
         "world_id": world_id,
         "output": str(output_path),
+        "scanned_records": scanned_records,
         "decoded_chunks": len(records),
         "bounds": {
             "min_x": min_x,

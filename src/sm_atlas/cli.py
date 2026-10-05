@@ -702,9 +702,10 @@ def run_terrain_chunks(
         "Coordinates with duplicates: "
         f"{result['duplicate_coordinates']}"
     )
+    print(f"Failures: {result['failures']}")
     print(f"Chunk bounds: {result['chunk_bounds']}")
     print(f"Z histogram: {result['z_histogram']}")
-    print(f"Prefix signatures: {result['prefix_signatures']}")
+    print(f"Payload sizes: {result['payload_size_histogram']}")
     print(f"Payload prefixes: {result['payload_prefixes']}")
 
     return 0
@@ -799,7 +800,6 @@ def run_terrain_decode(
         f"{result['duplicate_coordinate_records']}"
     )
     print(f"Chunk bounds: {result['chunk_bounds']}")
-    print(f"Voxel totals: {result['voxel_totals']}")
 
     return 0
 
