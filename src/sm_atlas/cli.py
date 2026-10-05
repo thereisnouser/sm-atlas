@@ -43,6 +43,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print machine-readable JSON.",
     )
 
+    schema_parser = subparsers.add_parser(
+        "schema",
+        help="Show columns for a save table.",
+    )
+    schema_parser.add_argument("save", type=Path)
+    schema_parser.add_argument("table")
+
+    sample_parser = subparsers.add_parser(
+        "sample",
+        help="Show safe sample rows from a save table.",
+    )
+    sample_parser.add_argument("save", type=Path)
+    sample_parser.add_argument("table")
+    sample_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Number of rows to show (1-100).",
+    )
+
     return parser
 
 
@@ -99,6 +119,43 @@ def run_inspect(save: Path, as_json: bool) -> int:
     return 0
 
 
+def run_schema(save: Path, table: str) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = database.schema(table)
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        KeyError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def run_sample(save: Path, table: str, limit: int) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = database.sample(table, limit)
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        KeyError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -108,6 +165,12 @@ def main() -> None:
 
     if args.command == "inspect":
         raise SystemExit(run_inspect(args.save, args.json))
+
+    if args.command == "schema":
+        raise SystemExit(run_schema(args.save, args.table))
+
+    if args.command == "sample":
+        raise SystemExit(run_sample(args.save, args.table, args.limit))
 
 
 if __name__ == "__main__":
