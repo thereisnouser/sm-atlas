@@ -11,6 +11,7 @@ from .terrain import summarize_voxel_terrain
 from .terrain_chunks import summarize_voxel_chunks
 from .terrain_codec_probe import probe_voxel_codecs
 from .terrain_decode import probe_decompressed_voxel_terrain
+from .terrain_data_probe import probe_terrain_script_data
 from .terrain_density_probe import probe_density_streams
 from .terrain_layout import scan_voxel_terrain_layout
 from .terrain_map import write_voxel_chunk_map
@@ -463,6 +464,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of best-scoring density models to print.",
     )
     density_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    data_parser = subparsers.add_parser(
+        "terrain-data-probe",
+        help="Find LZ4-wrapped LUA terrain data in ScriptData.",
+    )
+    data_parser.add_argument("save", type=Path)
+    data_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    data_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    data_parser.add_argument(
+        "--examples",
+        type=int,
+        default=20,
+        help="Maximum decoded rows to print (0-100).",
+    )
+    data_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1294,6 +1324,58 @@ def run_terrain_density_probe(
     return 0
 
 
+def run_terrain_data_probe(
+    save: Path,
+    world_id: int,
+    limit: int,
+    examples: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_terrain_script_data(
+            database,
+            world_id=world_id,
+            limit=limit,
+            examples=examples,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned ScriptData rows: {result['scanned_records']}")
+    print(f"Decoded envelopes: {result['decoded_envelopes']}")
+    print(f"Decode failures: {result['decode_failures']}")
+    print(f"Raw prefixes: {result['raw_prefixes']}")
+    print(f"LUA records: {result['lua_records']}")
+
+    if result["largest_lua_records"]:
+        print()
+        print("Largest LUA records:")
+        for item in result["largest_lua_records"]:
+            print(
+                f"  rowid={item['row_id']} "
+                f"raw={item['raw_size']} "
+                f"compressed={item['compressed_size']} "
+                f"flags={item['envelope_flags']} "
+                f"key={item['envelope_key_hex']} "
+                f"prefix={item['raw_prefix_hex']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1487,6 +1569,17 @@ def main() -> None:
                 args.max_byte_offset,
                 args.max_pairs,
                 args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-data-probe":
+        raise SystemExit(
+            run_terrain_data_probe(
+                args.save,
+                args.world,
+                args.limit,
+                args.examples,
                 args.json,
             )
         )
