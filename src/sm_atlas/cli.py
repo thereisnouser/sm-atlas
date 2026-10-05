@@ -13,6 +13,7 @@ from .terrain_codec_probe import probe_voxel_codecs
 from .terrain_decode import probe_decompressed_voxel_terrain
 from .terrain_layout import scan_voxel_terrain_layout
 from .terrain_map import write_voxel_chunk_map
+from .terrain_mask_probe import probe_voxel_masks
 from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
@@ -385,6 +386,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of best-scoring codec models to print.",
     )
     codec_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    mask_parser = subparsers.add_parser(
+        "terrain-mask-probe",
+        help="Test sparse bitmask and packed-value hypotheses for voxel bodies.",
+    )
+    mask_parser.add_argument("save", type=Path)
+    mask_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    mask_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum records to scan (1-5000).",
+    )
+    mask_parser.add_argument(
+        "--max-offset",
+        type=int,
+        default=8,
+        help="Maximum body prefix length to skip before a 4913-bit mask.",
+    )
+    mask_parser.add_argument(
+        "--top",
+        type=int,
+        default=25,
+        help="Number of best-scoring mask models to print.",
+    )
+    mask_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1092,6 +1128,62 @@ def run_terrain_codec_probe(
     return 0
 
 
+def run_terrain_mask_probe(
+    save: Path,
+    world_id: int,
+    limit: int,
+    max_offset: int,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_voxel_masks(
+            database,
+            world_id=world_id,
+            limit=limit,
+            max_offset=max_offset,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"Decoded records: {result['decoded_records']}")
+    print(f"Framed records: {result['framed_records']}")
+    print(f"Decode failures: {result['decode_failures']}")
+    print(f"Voxel count: {result['voxel_count']}")
+    print(f"Mask bytes: {result['mask_bytes']}")
+    print(f"Packed width sizes: {result['packed_width_sizes']}")
+    print(f"Direct width matches: {result['direct_width_matches']}")
+    print(f"Plane buckets: {result['plane_buckets']}")
+    print("Top mask hypotheses:")
+
+    for model in result["models"][:top]:
+        print(
+            f"  mode={model['mode']} "
+            f"offset=+{model['offset']} "
+            f"{model['selected_bits']} "
+            f"value_bits={model['value_bits']}: "
+            f"exact={model['exact_records']}/"
+            f"{model['candidates']} "
+            f"({model['exact_ratio']:.1%})"
+        )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1259,6 +1351,18 @@ def main() -> None:
                 args.world,
                 args.limit,
                 args.max_body_offset,
+                args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-mask-probe":
+        raise SystemExit(
+            run_terrain_mask_probe(
+                args.save,
+                args.world,
+                args.limit,
+                args.max_offset,
                 args.top,
                 args.json,
             )
