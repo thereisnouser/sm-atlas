@@ -26,6 +26,16 @@ class InnerLz4Candidate:
         }
 
 
+def _payload_frame(payload: bytes) -> tuple[int, int, bytes] | None:
+    if len(payload) < 3:
+        return None
+
+    mode = payload[0]
+    declared_size = int.from_bytes(payload[1:3], "big")
+    body = payload[3:]
+    return mode, declared_size, body
+
+
 def _inner_lz4_candidates(
     payload: bytes,
     *,
@@ -126,8 +136,35 @@ def probe_voxel_payloads(
 
     format_group_sizes: dict[str, list[int]] = {}
     format_group_four_byte: Counter[str] = Counter()
+    frame_modes: Counter[int] = Counter()
+    frame_mode_body_sizes: dict[int, list[int]] = {}
+    frame_mode_single_zero: Counter[int] = Counter()
+    frame_declared_size_matches = 0
+    frame_declared_size_mismatches = 0
+    frame_too_short = 0
+    body_first_bytes: dict[int, Counter[str]] = {}
 
     for record in records:
+        frame = _payload_frame(record.payload)
+        if frame is None:
+            frame_too_short += 1
+        else:
+            mode, declared_size, body = frame
+            frame_modes[mode] += 1
+            frame_mode_body_sizes.setdefault(mode, []).append(len(body))
+            body_first_bytes.setdefault(mode, Counter())
+
+            if body:
+                body_first_bytes[mode][body[:1].hex()] += 1
+
+            if declared_size == len(body):
+                frame_declared_size_matches += 1
+            else:
+                frame_declared_size_mismatches += 1
+
+            if body == b"\x00":
+                frame_mode_single_zero[mode] += 1
+
         if len(record.payload) < 2:
             continue
 
@@ -255,6 +292,30 @@ def probe_voxel_payloads(
         "first_u16_be_histogram": {
             str(value): count
             for value, count in first_u16_be.most_common(30)
+        },
+        "frame": {
+            "too_short": frame_too_short,
+            "declared_size_matches": frame_declared_size_matches,
+            "declared_size_mismatches": frame_declared_size_mismatches,
+            "modes": {
+                f"{mode:02x}": {
+                    "count": count,
+                    "min_body_size": min(frame_mode_body_sizes[mode]),
+                    "max_body_size": max(frame_mode_body_sizes[mode]),
+                    "avg_body_size": round(
+                        sum(frame_mode_body_sizes[mode])
+                        / len(frame_mode_body_sizes[mode]),
+                        2,
+                    ),
+                    "single_zero_body_records": (
+                        frame_mode_single_zero[mode]
+                    ),
+                    "body_first_bytes": dict(
+                        body_first_bytes[mode].most_common(20)
+                    ),
+                }
+                for mode, count in sorted(frame_modes.items())
+            },
         },
         "format_groups": {
             signature: {

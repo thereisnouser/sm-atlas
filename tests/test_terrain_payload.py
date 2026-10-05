@@ -122,3 +122,55 @@ def test_payload_probe_finds_inner_lz4_and_four_byte_state(
     assert result["inner_lz4_matches"] == 1
     assert result["inner_lz4_offset_histogram"] == {"2": 1}
     assert result["exact_inner_lz4_records"] == 0
+
+def test_payload_frame_length_matches_body(tmp_path: Path) -> None:
+    save_path = tmp_path / "frame.db"
+    connection = sqlite3.connect(save_path)
+    connection.execute(
+        """
+        CREATE TABLE VoxelTerrain (
+            id INTEGER PRIMARY KEY,
+            worldId INTEGER,
+            x INTEGER,
+            y INTEGER,
+            data BLOB
+        )
+        """
+    )
+
+    body = b"\x98\x00\x44"
+    payload = b"\x05" + len(body).to_bytes(2, "big") + body
+
+    connection.execute(
+        """
+        INSERT INTO VoxelTerrain (id, worldId, x, y, data)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            7,
+            23,
+            0,
+            -1,
+            make_outer_record(
+                7,
+                chunk_x=1,
+                chunk_y=-2,
+                chunk_z=3,
+                payload=payload,
+            ),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    result = probe_voxel_payloads(
+        SaveDatabase(save_path),
+        world_id=23,
+        limit=10,
+        examples=0,
+    )
+
+    assert result["frame"]["declared_size_matches"] == 1
+    assert result["frame"]["declared_size_mismatches"] == 0
+    assert result["frame"]["modes"]["05"]["count"] == 1
+    assert result["frame"]["modes"]["05"]["min_body_size"] == 3

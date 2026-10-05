@@ -880,6 +880,7 @@ def run_terrain_payload(
     print(f"Four-byte values: {result['four_byte_values']}")
     print(f"First byte histogram: {result['first_byte_histogram']}")
     print(f"First u16 BE histogram: {result['first_u16_be_histogram']}")
+    print(f"Frame: {result['frame']}")
     print(f"Format groups: {result['format_groups']}")
     print(f"Payload prefixes: {result['payload_prefixes']}")
     print(f"Inner LZ4 matches: {result['inner_lz4_matches']}")
