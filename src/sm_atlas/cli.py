@@ -1263,6 +1263,7 @@ def run_terrain_density_probe(
     print(f"Decoded records: {result['decoded_records']}")
     print(f"Decode failures: {result['decode_failures']}")
     print(f"Density bits: {result['density_bits']}")
+    print(f"Voxel order: {result['voxel_order']}")
     print(f"Face sample axis: {result['face_sample_axis']}")
     print(f"Neighbor pairs: {result['neighbor_pairs']}")
     print("Top density hypotheses:")
@@ -1272,12 +1273,22 @@ def run_terrain_density_probe(
             f"  mode={model['mode']} "
             f"byte=+{model['byte_offset']} "
             f"bit=+{model['bit_offset']} "
+            f"order={model['bit_order']} "
             f"fill={model['fill']}: "
-            f"exact={model['exact_samples']}/"
-            f"{model['samples']} "
-            f"({model['exact_ratio']:.1%}), "
-            f"mae={model['mean_absolute_error']:.3f}, "
-            f"faces={model['face_pairs']}"
+            f"observed-active="
+            f"{model['observed_active_exact_samples']}/"
+            f"{model['observed_active_samples']} "
+            f"({model['observed_active_exact_ratio']:.1%}), "
+            f"observed="
+            f"{model['observed_exact_samples']}/"
+            f"{model['observed_samples']} "
+            f"({model['observed_exact_ratio']:.1%}), "
+            f"coverage={model['observed_coverage']:.1%}, "
+            f"active="
+            f"{model['active_exact_samples']}/"
+            f"{model['active_samples']} "
+            f"({model['active_exact_ratio']:.1%}), "
+            f"all={model['exact_ratio']:.1%}"
         )
 
     return 0

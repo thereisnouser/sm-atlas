@@ -19,30 +19,83 @@ class DensityModelScore:
     mode: str
     byte_offset: int
     bit_offset: int
+    bit_order: str
     fill: int
     face_pairs: int
     samples: int
     exact_samples: int
+    active_samples: int
+    active_exact_samples: int
+    observed_samples: int
+    observed_exact_samples: int
+    observed_active_samples: int
+    observed_active_exact_samples: int
     absolute_error: int
+    active_absolute_error: int
+    observed_absolute_error: int
+    observed_active_absolute_error: int
+
+    @staticmethod
+    def _ratio(numerator: int, denominator: int) -> float:
+        return round(numerator / denominator, 4) if denominator else 0.0
+
+    @staticmethod
+    def _mae(error: int, samples: int) -> float:
+        return round(error / samples, 4) if samples else 0.0
 
     def to_dict(self) -> dict[str, object]:
         return {
             "mode": self.mode,
             "byte_offset": self.byte_offset,
             "bit_offset": self.bit_offset,
+            "bit_order": self.bit_order,
             "fill": self.fill,
             "face_pairs": self.face_pairs,
             "samples": self.samples,
             "exact_samples": self.exact_samples,
-            "exact_ratio": (
-                round(self.exact_samples / self.samples, 4)
-                if self.samples
-                else 0.0
+            "exact_ratio": self._ratio(
+                self.exact_samples,
+                self.samples,
             ),
-            "mean_absolute_error": (
-                round(self.absolute_error / self.samples, 4)
-                if self.samples
-                else 0.0
+            "active_samples": self.active_samples,
+            "active_exact_samples": self.active_exact_samples,
+            "active_exact_ratio": self._ratio(
+                self.active_exact_samples,
+                self.active_samples,
+            ),
+            "observed_samples": self.observed_samples,
+            "observed_exact_samples": self.observed_exact_samples,
+            "observed_exact_ratio": self._ratio(
+                self.observed_exact_samples,
+                self.observed_samples,
+            ),
+            "observed_active_samples": self.observed_active_samples,
+            "observed_active_exact_samples": (
+                self.observed_active_exact_samples
+            ),
+            "observed_active_exact_ratio": self._ratio(
+                self.observed_active_exact_samples,
+                self.observed_active_samples,
+            ),
+            "mean_absolute_error": self._mae(
+                self.absolute_error,
+                self.samples,
+            ),
+            "active_mean_absolute_error": self._mae(
+                self.active_absolute_error,
+                self.active_samples,
+            ),
+            "observed_mean_absolute_error": self._mae(
+                self.observed_absolute_error,
+                self.observed_samples,
+            ),
+            "observed_active_mean_absolute_error": self._mae(
+                self.observed_active_absolute_error,
+                self.observed_active_samples,
+            ),
+            "observed_coverage": self._ratio(
+                self.observed_samples,
+                self.samples,
             ),
         }
 
@@ -58,8 +111,9 @@ def _read_density(
     voxel_index: int,
     byte_offset: int,
     bit_offset: int,
+    bit_order: str,
     fill: int,
-) -> int:
+) -> tuple[int, bool]:
     start_bit = (
         byte_offset * 8
         + bit_offset
@@ -68,15 +122,24 @@ def _read_density(
     end_bit = start_bit + DENSITY_BITS
 
     if end_bit > len(body) * 8:
-        return fill
+        return fill, False
 
     value = 0
-    for bit_index in range(start_bit, end_bit):
-        byte = body[bit_index // 8]
-        shift = 7 - (bit_index % 8)
-        value = (value << 1) | ((byte >> shift) & 1)
 
-    return value
+    if bit_order == "msb":
+        for bit_index in range(start_bit, end_bit):
+            byte = body[bit_index // 8]
+            shift = 7 - (bit_index % 8)
+            value = (value << 1) | ((byte >> shift) & 1)
+    elif bit_order == "lsb":
+        for bit_index in range(start_bit, end_bit):
+            byte = body[bit_index // 8]
+            shift = bit_index % 8
+            value |= ((byte >> shift) & 1) << (bit_index - start_bit)
+    else:
+        raise ValueError(f"unsupported bit order: {bit_order}")
+
+    return value, True
 
 
 def _face_indices(axis: str) -> list[tuple[int, int]]:
@@ -220,55 +283,118 @@ def probe_density_streams(
 
         for byte_offset in range(max_byte_offset + 1):
             for bit_offset in range(DENSITY_BITS):
-                for fill in (0, MAX_DENSITY):
-                    samples = 0
-                    exact_samples = 0
-                    absolute_error = 0
+                for bit_order in ("msb", "lsb"):
+                    for fill in (0, MAX_DENSITY):
+                        samples = 0
+                        exact_samples = 0
+                        active_samples = 0
+                        active_exact_samples = 0
+                        observed_samples = 0
+                        observed_exact_samples = 0
+                        observed_active_samples = 0
+                        observed_active_exact_samples = 0
+                        absolute_error = 0
+                        active_absolute_error = 0
+                        observed_absolute_error = 0
+                        observed_active_absolute_error = 0
 
-                    for axis, left_body, right_body in pairs:
-                        for left_index, right_index in FACE_INDICES[axis]:
-                            left = _read_density(
-                                left_body,
-                                voxel_index=left_index,
+                        for axis, left_body, right_body in pairs:
+                            for (
+                                left_index,
+                                right_index,
+                            ) in FACE_INDICES[axis]:
+                                left, left_observed = _read_density(
+                                    left_body,
+                                    voxel_index=left_index,
+                                    byte_offset=byte_offset,
+                                    bit_offset=bit_offset,
+                                    bit_order=bit_order,
+                                    fill=fill,
+                                )
+                                right, right_observed = _read_density(
+                                    right_body,
+                                    voxel_index=right_index,
+                                    byte_offset=byte_offset,
+                                    bit_offset=bit_offset,
+                                    bit_order=bit_order,
+                                    fill=fill,
+                                )
+
+                                samples += 1
+                                error = abs(left - right)
+                                absolute_error += error
+                                exact = left == right
+
+                                if exact:
+                                    exact_samples += 1
+
+                                active = left != 0 or right != 0
+                                if active:
+                                    active_samples += 1
+                                    active_absolute_error += error
+                                    if exact:
+                                        active_exact_samples += 1
+
+                                observed = (
+                                    left_observed
+                                    and right_observed
+                                )
+                                if observed:
+                                    observed_samples += 1
+                                    observed_absolute_error += error
+                                    if exact:
+                                        observed_exact_samples += 1
+
+                                    if active:
+                                        observed_active_samples += 1
+                                        observed_active_absolute_error += (
+                                            error
+                                        )
+                                        if exact:
+                                            observed_active_exact_samples += 1
+
+                        scores.append(
+                            DensityModelScore(
+                                mode=f"{mode:02x}",
                                 byte_offset=byte_offset,
                                 bit_offset=bit_offset,
+                                bit_order=bit_order,
                                 fill=fill,
+                                face_pairs=len(pairs),
+                                samples=samples,
+                                exact_samples=exact_samples,
+                                active_samples=active_samples,
+                                active_exact_samples=active_exact_samples,
+                                observed_samples=observed_samples,
+                                observed_exact_samples=observed_exact_samples,
+                                observed_active_samples=observed_active_samples,
+                                observed_active_exact_samples=(
+                                    observed_active_exact_samples
+                                ),
+                                absolute_error=absolute_error,
+                                active_absolute_error=active_absolute_error,
+                                observed_absolute_error=observed_absolute_error,
+                                observed_active_absolute_error=(
+                                    observed_active_absolute_error
+                                ),
                             )
-                            right = _read_density(
-                                right_body,
-                                voxel_index=right_index,
-                                byte_offset=byte_offset,
-                                bit_offset=bit_offset,
-                                fill=fill,
-                            )
-
-                            samples += 1
-                            if left == right:
-                                exact_samples += 1
-                            absolute_error += abs(left - right)
-
-                    scores.append(
-                        DensityModelScore(
-                            mode=f"{mode:02x}",
-                            byte_offset=byte_offset,
-                            bit_offset=bit_offset,
-                            fill=fill,
-                            face_pairs=len(pairs),
-                            samples=samples,
-                            exact_samples=exact_samples,
-                            absolute_error=absolute_error,
                         )
-                    )
 
     scores.sort(
         key=lambda score: (
-            score.exact_samples / score.samples
-            if score.samples
-            else 0.0,
-            -(
-                score.absolute_error / score.samples
-                if score.samples
-                else float("inf")
+            score.observed_active_samples >= 100,
+            (
+                score.observed_active_exact_samples
+                / score.observed_active_samples
+                if score.observed_active_samples
+                else 0.0
+            ),
+            score.observed_active_samples,
+            (
+                score.observed_exact_samples
+                / score.observed_samples
+                if score.observed_samples
+                else 0.0
             ),
         ),
         reverse=True,
@@ -280,6 +406,7 @@ def probe_density_streams(
         "decoded_records": len(records),
         "decode_failures": dict(failures.most_common()),
         "density_bits": DENSITY_BITS,
+        "voxel_order": "z + 17*y + 17^2*x",
         "face_sample_axis": list(FACE_SAMPLE_AXIS),
         "neighbor_pairs": pair_counts,
         "models": [score.to_dict() for score in scores],

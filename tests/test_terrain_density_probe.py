@@ -66,7 +66,7 @@ def test_density_probe_scores_matching_neighbor_faces(
 
     for y in range(axis):
         for z in range(axis):
-            value = (y + z) % 64
+            value = ((y + z) % 62) + 1
             left[z + axis * y + axis * axis * 16] = value
             right[z + axis * y] = value
 
@@ -131,11 +131,16 @@ def test_density_probe_scores_matching_neighbor_faces(
             model["mode"] == "05"
             and model["byte_offset"] == 0
             and model["bit_offset"] == 0
+            and model["bit_order"] == "msb"
             and model["fill"] == 0
         )
     ]
 
     assert matching
-    assert matching[0]["face_pairs"] == 1
-    assert matching[0]["exact_ratio"] == 1.0
-    assert matching[0]["mean_absolute_error"] == 0.0
+    model = matching[0]
+    assert model["face_pairs"] == 1
+    assert model["exact_ratio"] == 1.0
+    assert model["active_exact_ratio"] == 1.0
+    assert model["observed_exact_ratio"] == 1.0
+    assert model["observed_active_exact_ratio"] == 1.0
+    assert model["observed_coverage"] == 1.0
