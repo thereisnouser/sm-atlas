@@ -10,6 +10,7 @@ from .discovery import find_survival_saves
 from .terrain import summarize_voxel_terrain
 from .terrain_chunks import summarize_voxel_chunks
 from .terrain_layout import scan_voxel_terrain_layout
+from .terrain_map import write_voxel_chunk_map
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .world_graph import build_world_graph
@@ -225,6 +226,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
+    )
+
+    map_parser = subparsers.add_parser(
+        "terrain-map",
+        help="Render decoded voxel chunk occupancy as SVG slices.",
+    )
+    map_parser.add_argument("save", type=Path)
+    map_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to render.",
+    )
+    map_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="SVG output path.",
+    )
+    map_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum records to scan (1-5000).",
     )
 
     schema_parser = subparsers.add_parser(
@@ -655,6 +680,40 @@ def run_terrain_chunks(
     return 0
 
 
+def run_terrain_map(
+    save: Path,
+    world_id: int,
+    output: Path,
+    limit: int,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = write_voxel_chunk_map(
+            database,
+            world_id=world_id,
+            output=output,
+            limit=limit,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    print(f"World: {result['world_id']}")
+    print(f"Decoded chunks: {result['decoded_chunks']}")
+    print(f"Bounds: {result['bounds']}")
+    print(f"Levels: {result['levels']}")
+    print(f"SVG: {result['output']}")
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -767,6 +826,16 @@ def main() -> None:
                 args.limit,
                 args.examples,
                 args.json,
+            )
+        )
+
+    if args.command == "terrain-map":
+        raise SystemExit(
+            run_terrain_map(
+                args.save,
+                args.world,
+                args.output,
+                args.limit,
             )
         )
 

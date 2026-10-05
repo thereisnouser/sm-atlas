@@ -74,7 +74,11 @@ def parse_voxel_chunk_record(
         return None
 
     record_id_bytes = record_id.to_bytes(4, "big", signed=False)
-    id_offset = blob.find(record_id_bytes, marker_offset + len(VOXEL_MARKER), 32)
+    id_offset = blob.find(
+        record_id_bytes,
+        marker_offset + len(VOXEL_MARKER),
+        32,
+    )
     if id_offset < 0:
         return None
 
@@ -112,38 +116,24 @@ def parse_voxel_chunk_record(
         blob_size=len(blob),
         payload_offset=payload_offset,
         payload_size=len(blob) - payload_offset,
-        payload_prefix_hex=blob[payload_offset:payload_offset + 16].hex(),
+        payload_prefix_hex=blob[
+            payload_offset:payload_offset + 16
+        ].hex(),
     )
 
 
-def summarize_voxel_chunks(
+def decode_voxel_chunks(
     database: SaveDatabase,
     *,
     world_id: int,
     limit: int = 5000,
-    examples: int = 25,
-) -> dict[str, object]:
+) -> list[VoxelChunkRecord]:
     if not 1 <= limit <= 5000:
         raise ValueError("limit must be between 1 and 5000")
-    if not 0 <= examples <= 200:
-        raise ValueError("examples must be between 0 and 200")
 
     with database.connect() as connection:
         if "VoxelTerrain" not in database._tables(connection):
-            return {
-                "world_id": world_id,
-                "scanned_records": 0,
-                "decoded_records": 0,
-                "unresolved_records": 0,
-                "unique_chunk_coordinates": 0,
-                "duplicate_coordinate_records": 0,
-                "duplicate_coordinates": 0,
-                "chunk_bounds": None,
-                "z_histogram": {},
-                "prefix_signatures": {},
-                "payload_prefixes": {},
-                "examples": [],
-            }
+            return []
 
         rows = connection.execute(
             """
@@ -171,6 +161,46 @@ def summarize_voxel_chunks(
         )
         if record is not None:
             decoded.append(record)
+
+    return decoded
+
+
+def summarize_voxel_chunks(
+    database: SaveDatabase,
+    *,
+    world_id: int,
+    limit: int = 5000,
+    examples: int = 25,
+) -> dict[str, object]:
+    if not 1 <= limit <= 5000:
+        raise ValueError("limit must be between 1 and 5000")
+    if not 0 <= examples <= 200:
+        raise ValueError("examples must be between 0 and 200")
+
+    with database.connect() as connection:
+        if "VoxelTerrain" not in database._tables(connection):
+            total_rows = 0
+        else:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM (
+                    SELECT id
+                    FROM VoxelTerrain
+                    WHERE worldId = ?
+                    ORDER BY id
+                    LIMIT ?
+                )
+                """,
+                (world_id, limit),
+            ).fetchone()
+            total_rows = int(row["count"])
+
+    decoded = decode_voxel_chunks(
+        database,
+        world_id=world_id,
+        limit=limit,
+    )
 
     coordinate_counts = Counter(record.coordinate for record in decoded)
     z_histogram = Counter(record.chunk_z for record in decoded)
@@ -206,12 +236,12 @@ def summarize_voxel_chunks(
 
     return {
         "world_id": world_id,
-        "scanned_records": len(rows),
+        "scanned_records": total_rows,
         "decoded_records": len(decoded),
-        "unresolved_records": len(rows) - len(decoded),
+        "unresolved_records": total_rows - len(decoded),
         "decode_ratio": (
-            round(len(decoded) / len(rows), 4)
-            if rows
+            round(len(decoded) / total_rows, 4)
+            if total_rows
             else 0.0
         ),
         "unique_chunk_coordinates": len(coordinate_counts),

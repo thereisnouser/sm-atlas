@@ -10,7 +10,8 @@ Reads Survival save files locally and never modifies the original save.
 
 - find local Survival saves;
 - discover worlds and portal connections;
-- summarize saved voxel terrain;
+- decode confident voxel chunk coordinates;
+- render voxel chunk occupancy maps;
 - inspect table schemas and sample rows.
 
 ## Stack
@@ -25,6 +26,7 @@ sm-atlas saves
 sm-atlas worlds path/to/save.db
 sm-atlas graph path/to/save.db
 sm-atlas terrain path/to/save.db
+sm-atlas terrain-map path/to/save.db --world 23 --output d6.svg
 pytest
 ```
 
