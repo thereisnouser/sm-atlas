@@ -880,6 +880,7 @@ def run_terrain_payload(
     print(f"Four-byte values: {result['four_byte_values']}")
     print(f"First byte histogram: {result['first_byte_histogram']}")
     print(f"First u16 BE histogram: {result['first_u16_be_histogram']}")
+    print(f"Format groups: {result['format_groups']}")
     print(f"Payload prefixes: {result['payload_prefixes']}")
     print(f"Inner LZ4 matches: {result['inner_lz4_matches']}")
     print(
@@ -890,6 +891,19 @@ def run_terrain_payload(
         "Exact inner LZ4 records: "
         f"{result['exact_inner_lz4_records']}"
     )
+
+    if result["examples"]:
+        print()
+        print("Payload examples:")
+
+        for example in result["examples"]:
+            chunk = example["chunk"]
+            print(
+                f"  id={example['id']} "
+                f"chunk=({chunk['x']},{chunk['y']},{chunk['z']}) "
+                f"size={example['payload_size']} "
+                f"prefix={example['payload_prefix_hex']}"
+            )
 
     return 0
 

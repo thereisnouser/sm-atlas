@@ -124,6 +124,21 @@ def probe_voxel_payloads(
         if len(record.payload) == 4
     )
 
+    format_group_sizes: dict[str, list[int]] = {}
+    format_group_four_byte: Counter[str] = Counter()
+
+    for record in records:
+        if len(record.payload) < 2:
+            continue
+
+        signature = record.payload[:2].hex()
+        format_group_sizes.setdefault(signature, []).append(
+            len(record.payload)
+        )
+
+        if len(record.payload) == 4:
+            format_group_four_byte[signature] += 1
+
     candidate_records: list[
         tuple[DecodedVoxelRecord, list[InnerLz4Candidate]]
     ] = []
@@ -147,39 +162,75 @@ def probe_voxel_payloads(
                 if candidate.offset == 0 and candidate.trailing == 0:
                     exact_inner_lz4 += 1
 
-    four_byte_examples = [
-        (record, [])
-        for record in records
-        if len(record.payload) == 4
-    ]
-
-    other_examples = [
-        (record, [])
-        for record in records
-        if len(record.payload) != 4
-    ]
+    candidates_by_id = {
+        record.record_id: candidates
+        for record, candidates in candidate_records
+    }
 
     selected: list[
         tuple[DecodedVoxelRecord, list[InnerLz4Candidate]]
     ] = []
+    selected_ids: set[int] = set()
 
-    for group in (
-        candidate_records,
-        four_byte_examples,
-        other_examples,
+    def add_record(record: DecodedVoxelRecord) -> None:
+        if len(selected) >= examples:
+            return
+        if record.record_id in selected_ids:
+            return
+
+        selected_ids.add(record.record_id)
+        selected.append(
+            (
+                record,
+                candidates_by_id.get(record.record_id, []),
+            )
+        )
+
+    for record, _ in candidate_records:
+        add_record(record)
+
+    four_byte_seen: set[str] = set()
+    for record in records:
+        if len(record.payload) != 4:
+            continue
+
+        signature = record.payload.hex()
+        if signature in four_byte_seen:
+            continue
+
+        four_byte_seen.add(signature)
+        add_record(record)
+
+    group_records: dict[str, list[DecodedVoxelRecord]] = {}
+    for record in records:
+        if len(record.payload) < 2:
+            continue
+        group_records.setdefault(
+            record.payload[:2].hex(),
+            [],
+        ).append(record)
+
+    for signature, group in sorted(
+        group_records.items(),
+        key=lambda item: len(item[1]),
+        reverse=True,
     ):
-        for item in group:
-            if len(selected) >= examples:
-                break
-
-            record_id = item[0].record_id
-            if any(existing[0].record_id == record_id for existing in selected):
-                continue
-
-            selected.append(item)
-
         if len(selected) >= examples:
             break
+
+        group_by_size = sorted(
+            group,
+            key=lambda record: (
+                len(record.payload),
+                record.record_id,
+            ),
+        )
+
+        add_record(group_by_size[0])
+        if len(selected) >= examples:
+            break
+
+        add_record(group_by_size[-1])
 
     return {
         "world_id": world_id,
@@ -204,6 +255,20 @@ def probe_voxel_payloads(
         "first_u16_be_histogram": {
             str(value): count
             for value, count in first_u16_be.most_common(30)
+        },
+        "format_groups": {
+            signature: {
+                "count": len(sizes),
+                "min_size": min(sizes),
+                "max_size": max(sizes),
+                "avg_size": round(sum(sizes) / len(sizes), 2),
+                "four_byte_records": format_group_four_byte[signature],
+            }
+            for signature, sizes in sorted(
+                format_group_sizes.items(),
+                key=lambda item: len(item[1]),
+                reverse=True,
+            )
         },
         "payload_prefixes": dict(prefixes.most_common(40)),
         "inner_lz4_matches": inner_lz4_matches,
