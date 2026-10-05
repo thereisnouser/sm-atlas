@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from struct import pack
+
+from sm_atlas.database import SaveDatabase
+from sm_atlas.terrain_codec_probe import probe_voxel_codecs
+
+
+def literal_lz4_block(data: bytes) -> bytes:
+    length = len(data)
+    output = bytearray()
+
+    if length < 15:
+        output.append(length << 4)
+    else:
+        output.append(0xF0)
+        remaining = length - 15
+
+        while remaining >= 255:
+            output.append(255)
+            remaining -= 255
+
+        output.append(remaining)
+
+    output.extend(data)
+    return bytes(output)
+
+
+def make_outer_record(
+    record_id: int,
+    *,
+    payload: bytes,
+) -> bytes:
+    raw = b"".join(
+        [
+            b"\x0c\x00\x01",
+            pack(">I", record_id),
+            b"\xff\xff\xff\xff",
+            b"\x00\x00\x00\x00\x00",
+            b"\x17\x00\x17",
+            pack(">iii", 0, -1, 0),
+            payload,
+        ]
+    )
+    return literal_lz4_block(raw)
+
+
+def test_codec_probe_finds_rle8_count_value(tmp_path: Path) -> None:
+    save_path = tmp_path / "save.db"
+    connection = sqlite3.connect(save_path)
+    connection.execute(
+        """
+        CREATE TABLE VoxelTerrain (
+            id INTEGER PRIMARY KEY,
+            worldId INTEGER,
+            x INTEGER,
+            y INTEGER,
+            data BLOB
+        )
+        """
+    )
+
+    # 19 * 255 + 68 = 4913 voxels.
+    body = b"".join(
+        [bytes([255, 0x41])] * 19
+        + [bytes([68, 0x41])]
+    )
+    payload = b"\x05" + len(body).to_bytes(2, "big") + body
+
+    connection.execute(
+        """
+        INSERT INTO VoxelTerrain (id, worldId, x, y, data)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            1,
+            23,
+            0,
+            -1,
+            make_outer_record(1, payload=payload),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    result = probe_voxel_codecs(
+        SaveDatabase(save_path),
+        world_id=23,
+        limit=10,
+        max_body_offset=0,
+    )
+
+    matching = [
+        model
+        for model in result["models"]
+        if (
+            model["mode"] == "05"
+            and model["name"] == "rle8/count-value/count@+0"
+        )
+    ]
+
+    assert matching
+    assert matching[0]["exact_records"] == 1
+    assert matching[0]["exact_nontrivial_records"] == 1
