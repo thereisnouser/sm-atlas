@@ -38,44 +38,66 @@ class SaveDatabase:
 
     def connect(self) -> sqlite3.Connection:
         self.validate()
+
         uri_path = quote(self.path.as_posix(), safe="/:")
         connection = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+
         return connection
 
-    def tables(self) -> list[str]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT name
-                FROM sqlite_master
-                WHERE type = 'table'
-                  AND name NOT LIKE 'sqlite_%'
-                ORDER BY name
-                """
-            ).fetchall()
+    @staticmethod
+    def _tables(connection: sqlite3.Connection) -> list[str]:
+        rows = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+            """
+        ).fetchall()
 
         return [row["name"] for row in rows]
 
-    def row_count(self, table: str) -> int:
-        if table not in self.tables():
-            raise KeyError(f"Unknown table: {table}")
-
+    @staticmethod
+    def _row_count(connection: sqlite3.Connection, table: str) -> int:
         escaped_table = table.replace('"', '""')
-        with self.connect() as connection:
-            row = connection.execute(
-                f'SELECT COUNT(*) AS count FROM "{escaped_table}"'
-            ).fetchone()
+        row = connection.execute(
+            f'SELECT COUNT(*) AS count FROM "{escaped_table}"'
+        ).fetchone()
 
         return int(row["count"])
 
+    def tables(self) -> list[str]:
+        with self.connect() as connection:
+            return self._tables(connection)
+
+    def row_count(self, table: str) -> int:
+        with self.connect() as connection:
+            tables = self._tables(connection)
+            if table not in tables:
+                raise KeyError(f"Unknown table: {table}")
+
+            return self._row_count(connection, table)
+
     def inspect(self) -> dict[str, object]:
-        tables = self.tables()
-        counts = {table: self.row_count(table) for table in tables}
+        with self.connect() as connection:
+            tables = self._tables(connection)
+            counts = {
+                table: self._row_count(connection, table)
+                for table in tables
+            }
+            user_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            )
+
         detected = sorted(KNOWN_SCRAP_MECHANIC_TABLES.intersection(tables))
 
         return {
             "path": str(self.path),
+            "size_bytes": self.path.stat().st_size,
+            "user_version": user_version,
             "tables": counts,
             "known_tables": detected,
             "sm_signal": f"{len(detected)}/{len(KNOWN_SCRAP_MECHANIC_TABLES)}",
