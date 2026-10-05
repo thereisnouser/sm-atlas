@@ -11,6 +11,40 @@ def decompress_block(
     max_output_size: int = 1024 * 1024,
 ) -> bytes:
     """Decode a raw LZ4 block without a frame header."""
+    output, consumed = _decompress(
+        data,
+        max_output_size=max_output_size,
+        expected_output_size=None,
+    )
+
+    if consumed != len(data):
+        raise Lz4BlockError("trailing LZ4 data")
+
+    return output
+
+
+def decompress_block_prefix(
+    data: bytes,
+    *,
+    expected_output_size: int,
+) -> tuple[bytes, int]:
+    """Decode one raw LZ4 block from the start of a larger byte string."""
+    if expected_output_size <= 0:
+        raise ValueError("expected_output_size must be positive")
+
+    return _decompress(
+        data,
+        max_output_size=expected_output_size,
+        expected_output_size=expected_output_size,
+    )
+
+
+def _decompress(
+    data: bytes,
+    *,
+    max_output_size: int,
+    expected_output_size: int | None,
+) -> tuple[bytes, int]:
     source_index = 0
     output = bytearray()
 
@@ -40,6 +74,12 @@ def decompress_block(
 
         output.extend(data[source_index:literal_end])
         source_index = literal_end
+
+        if (
+            expected_output_size is not None
+            and len(output) == expected_output_size
+        ):
+            return bytes(output), source_index
 
         if source_index == len(data):
             break
@@ -78,4 +118,19 @@ def decompress_block(
         for index in range(match_length):
             output.append(output[match_start + index])
 
-    return bytes(output)
+        if (
+            expected_output_size is not None
+            and len(output) == expected_output_size
+        ):
+            return bytes(output), source_index
+
+    if (
+        expected_output_size is not None
+        and len(output) != expected_output_size
+    ):
+        raise Lz4BlockError(
+            "unexpected decompressed size: "
+            f"{len(output)} != {expected_output_size}"
+        )
+
+    return bytes(output), source_index

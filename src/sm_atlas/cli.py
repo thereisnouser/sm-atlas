@@ -8,6 +8,7 @@ from pathlib import Path
 from .database import InvalidSaveFile, SaveDatabase
 from .discovery import find_survival_saves
 from .terrain import summarize_voxel_terrain
+from .terrain_probe import probe_voxel_terrain
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
 
@@ -84,6 +85,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only show Underground worlds.",
     )
     terrain_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    probe_parser = subparsers.add_parser(
+        "terrain-probe",
+        help="Probe VoxelTerrain blobs for embedded LZ4 voxel chunks.",
+    )
+    probe_parser.add_argument("save", type=Path)
+    probe_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    probe_parser.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Maximum records to scan (1-5000).",
+    )
+    probe_parser.add_argument(
+        "--max-offset",
+        type=int,
+        default=96,
+        help="Maximum blob offset to test for an LZ4 block.",
+    )
+    probe_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -297,6 +327,53 @@ def run_terrain(
     return 0
 
 
+def run_terrain_probe(
+    save: Path,
+    world_id: int,
+    limit: int,
+    max_offset: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_voxel_terrain(
+            database,
+            world_id=world_id,
+            limit=limit,
+            max_offset=max_offset,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned records: {result['scanned_records']}")
+    print(f"LZ4 matches: {result['matched_records']}")
+    print(f"Offset histogram: {result['offset_histogram']}")
+
+    for record in result["records"]:
+        if not record["lz4_candidates"]:
+            continue
+
+        print(
+            f"[{record['id']}] ({record['x']}, {record['y']}) "
+            f"{record['blob_size']} bytes -> "
+            f"{record['lz4_candidates']}"
+        )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -361,6 +438,17 @@ def main() -> None:
             run_terrain(
                 args.save,
                 args.underground,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-probe":
+        raise SystemExit(
+            run_terrain_probe(
+                args.save,
+                args.world,
+                args.limit,
+                args.max_offset,
                 args.json,
             )
         )
