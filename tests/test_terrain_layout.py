@@ -15,6 +15,7 @@ def make_blob(
     chunk_y: int,
     chunk_z: int,
     coordinate_relative_offset: int,
+    axis_order: str,
     prefix: bytes = b"\xc0",
 ) -> bytes:
     base = b"".join(
@@ -32,17 +33,27 @@ def make_blob(
     if padding_length < 0:
         raise ValueError("coordinate offset overlaps header")
 
+    values = {
+        "x": chunk_x,
+        "y": chunk_y,
+        "z": chunk_z,
+    }
+    encoded_coordinates = b"".join(
+        pack(">i", values[axis])
+        for axis in axis_order
+    )
+
     return b"".join(
         [
             base,
             b"\xaa" * padding_length,
-            pack(">iii", chunk_x, chunk_y, chunk_z),
+            encoded_coordinates,
             b"payload",
         ]
     )
 
 
-def test_layout_scan_finds_dominant_big_endian_factor4_offset(
+def test_layout_scan_finds_dominant_zyx_layout(
     tmp_path: Path,
 ) -> None:
     save_path = tmp_path / "save.db"
@@ -60,7 +71,7 @@ def test_layout_scan_finds_dominant_big_endian_factor4_offset(
     )
 
     rows = []
-    for index in range(12):
+    for index in range(24):
         record_id = 2000 + index
         cell_x = index % 3
         cell_y = -1
@@ -79,7 +90,8 @@ def test_layout_scan_finds_dominant_big_endian_factor4_offset(
                     chunk_x=chunk_x,
                     chunk_y=chunk_y,
                     chunk_z=chunk_z,
-                    coordinate_relative_offset=20,
+                    coordinate_relative_offset=16,
+                    axis_order="zyx",
                     prefix=b"\xc0" if index % 2 == 0 else b"\xf0\x0c",
                 ),
             )
@@ -106,13 +118,13 @@ def test_layout_scan_finds_dominant_big_endian_factor4_offset(
 
     best = result["top_layouts"][0]
 
-    assert result["records_with_id"] == 12
+    assert result["records_with_id"] == 24
     assert best["endian"] == "big"
-    assert best["mapping"] == "direct"
+    assert best["axis_order"] == "zyx"
     assert best["factor"] == 4
-    assert best["relative_offset"] == 20
-    assert best["exact_xy_matches"] == 12
-    assert best["plausible_z_matches"] == 12
+    assert best["relative_offset"] == 16
+    assert best["exact_xy_matches"] == 24
+    assert best["plausible_z_matches"] == 24
 
 
 def test_layout_scan_reports_marker_offsets(tmp_path: Path) -> None:
@@ -146,6 +158,7 @@ def test_layout_scan_reports_marker_offsets(tmp_path: Path) -> None:
                     chunk_y=0,
                     chunk_z=1,
                     coordinate_relative_offset=16,
+                    axis_order="zyx",
                     prefix=b"\xc0",
                 ),
             ),
@@ -160,6 +173,7 @@ def test_layout_scan_reports_marker_offsets(tmp_path: Path) -> None:
                     chunk_y=1,
                     chunk_z=2,
                     coordinate_relative_offset=16,
+                    axis_order="zyx",
                     prefix=b"\xf0\x0c",
                 ),
             ),

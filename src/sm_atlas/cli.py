@@ -545,7 +545,7 @@ def run_terrain_layout(
     for score in result["top_layouts"]:
         print(
             f"  {score['endian']:>6} "
-            f"{score['mapping']:>7} "
+            f"{score['axis_order']:>3} "
             f"factor={score['factor']} "
             f"offset=+{score['relative_offset']}: "
             f"xy={score['exact_xy_matches']} "
@@ -556,9 +556,9 @@ def run_terrain_layout(
         )
 
     print()
-    print("Big-endian/direct/factor=4 offset peaks:")
+    print("Big-endian/ZYX/factor=4 offset peaks:")
 
-    for score in result["big_direct_factor4_offsets"]:
+    for score in result["big_zyx_factor4_offsets"]:
         print(
             f"  offset=+{score['relative_offset']}: "
             f"xy={score['exact_xy_matches']} "

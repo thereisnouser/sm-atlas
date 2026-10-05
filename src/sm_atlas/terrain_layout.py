@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from itertools import permutations
 from struct import unpack_from
 
 from .database import SaveDatabase
@@ -10,12 +11,13 @@ DEFAULT_FACTORS = (1, 2, 4, 8)
 DEFAULT_MIN_RELATIVE_OFFSET = 8
 DEFAULT_MAX_RELATIVE_OFFSET = 64
 DEFAULT_Z_LIMIT = 128
+AXIS_ORDERS = tuple("".join(order) for order in permutations("xyz"))
 
 
 @dataclass(frozen=True)
 class LayoutScore:
     endian: str
-    mapping: str
+    axis_order: str
     factor: int
     relative_offset: int
     exact_xy_matches: int
@@ -28,7 +30,7 @@ class LayoutScore:
     def to_dict(self) -> dict[str, object]:
         return {
             "endian": self.endian,
-            "mapping": self.mapping,
+            "axis_order": self.axis_order,
             "factor": self.factor,
             "relative_offset": self.relative_offset,
             "exact_xy_matches": self.exact_xy_matches,
@@ -61,7 +63,7 @@ def _score_layout(
     records: list[tuple[int, int, int, bytes, int, int]],
     *,
     endian: str,
-    mapping: str,
+    axis_order: str,
     factor: int,
     relative_offset: int,
     z_limit: int,
@@ -79,14 +81,15 @@ def _score_layout(
         if offset + 12 > len(blob):
             continue
 
-        x, y, z = unpack_from(format_string, blob, offset)
+        raw_values = unpack_from(format_string, blob, offset)
+        values = dict(zip(axis_order, raw_values))
 
-        if mapping == "direct":
-            x_matches = _matches_cell(x, cell_x, factor)
-            y_matches = _matches_cell(y, cell_y, factor)
-        else:
-            x_matches = _matches_cell(x, cell_y, factor)
-            y_matches = _matches_cell(y, cell_x, factor)
+        x = values["x"]
+        y = values["y"]
+        z = values["z"]
+
+        x_matches = _matches_cell(x, cell_x, factor)
+        y_matches = _matches_cell(y, cell_y, factor)
 
         if not (x_matches and y_matches):
             continue
@@ -104,7 +107,7 @@ def _score_layout(
 
     return LayoutScore(
         endian="big" if endian == ">" else "little",
-        mapping=mapping,
+        axis_order=axis_order,
         factor=factor,
         relative_offset=relative_offset,
         exact_xy_matches=exact_xy_matches,
@@ -144,7 +147,7 @@ def scan_voxel_terrain_layout(
                 "scanned_records": 0,
                 "records_with_id": 0,
                 "top_layouts": [],
-                "big_direct_factor4_offsets": [],
+                "big_zyx_factor4_offsets": [],
             }
 
         rows = connection.execute(
@@ -190,7 +193,7 @@ def scan_voxel_terrain_layout(
     scores: list[LayoutScore] = []
 
     for endian in (">", "<"):
-        for mapping in ("direct", "swapped"):
+        for axis_order in AXIS_ORDERS:
             for factor in DEFAULT_FACTORS:
                 for relative_offset in range(
                     min_relative_offset,
@@ -199,7 +202,7 @@ def scan_voxel_terrain_layout(
                     score = _score_layout(
                         records,
                         endian=endian,
-                        mapping=mapping,
+                        axis_order=axis_order,
                         factor=factor,
                         relative_offset=relative_offset,
                         z_limit=z_limit,
@@ -216,14 +219,14 @@ def scan_voxel_terrain_layout(
         reverse=True,
     )
 
-    default_offset_scores = [
+    zyx_scores = [
         score
         for score in scores
         if score.endian == "big"
-        and score.mapping == "direct"
+        and score.axis_order == "zyx"
         and score.factor == 4
     ]
-    default_offset_scores.sort(
+    zyx_scores.sort(
         key=lambda score: (
             score.plausible_z_matches,
             score.exact_xy_matches,
@@ -255,8 +258,8 @@ def scan_voxel_terrain_layout(
             score.to_dict()
             for score in scores[:top]
         ],
-        "big_direct_factor4_offsets": [
+        "big_zyx_factor4_offsets": [
             score.to_dict()
-            for score in default_offset_scores[:top]
+            for score in zyx_scores[:top]
         ],
     }
