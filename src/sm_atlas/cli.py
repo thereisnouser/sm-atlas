@@ -24,6 +24,7 @@ from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
 from .underground_graph import build_underground_graph
 from .underground_map import write_underground_map
+from .underground_tile_catalog import summarize_underground_tiles
 from .underground_tunnels import summarize_underground_tunnels
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
@@ -659,6 +660,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print full machine-readable graph JSON.",
+    )
+
+    underground_tiles_parser = subparsers.add_parser(
+        "underground-tiles",
+        help="Resolve underground tile UUIDs to semantic tile names.",
+    )
+    underground_tiles_parser.add_argument("save", type=Path)
+    underground_tiles_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    underground_tiles_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_tiles_parser.add_argument(
+        "--top",
+        type=int,
+        default=30,
+        help="Number of most-used tile placements to show (1-200).",
+    )
+    underground_tiles_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
     )
 
     schema_parser = subparsers.add_parser(
@@ -1857,6 +1887,93 @@ def run_underground_graph(
     return 0
 
 
+def run_underground_tiles(
+    save: Path,
+    world_id: int,
+    limit: int,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = summarize_underground_tiles(
+            database,
+            world_id=world_id,
+            limit=limit,
+            top=top,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Terrain row: {result['row_id']}")
+    print(f"Catalog entries: {result['catalog_entries']}")
+    print(
+        "Tile list coverage: "
+        f"{result['known_tile_list_entries']}/"
+        f"{result['tile_list_entries']} known "
+        f"({result['unknown_tile_list_entries']} unknown)"
+    )
+    print(
+        "Placement coverage: "
+        f"{result['known_placements']}/"
+        f"{result['placements']} known "
+        f"({result['unknown_placements']} unknown)"
+    )
+    print(f"Families: {result['family_counts']}")
+    print(f"Name tags: {result['name_tag_counts']}")
+
+    if result["notable_tiles"]:
+        print()
+        print("Notable tiles:")
+        for tile in result["notable_tiles"]:
+            tags = ",".join(tile["name_tags"]) or "-"
+            print(
+                f"  index={tile['tile_index']} "
+                f"family={tile['family']} "
+                f"tags={tags} "
+                f"name={tile['name']} "
+                f"uuid={tile['uuid']}"
+            )
+
+    if result["top_tiles"]:
+        print()
+        print("Most-used placements:")
+        for tile in result["top_tiles"]:
+            tags = ",".join(tile["name_tags"]) or "-"
+            name = tile["name"] or "<unknown>"
+            print(
+                f"  count={tile['placements']} "
+                f"index={tile['tile_index']} "
+                f"kind={tile['piece_kind']} "
+                f"family={tile['family'] or '-'} "
+                f"tags={tags} "
+                f"name={name}"
+            )
+
+    if result["unknown_tile_list"]:
+        print()
+        print("Unknown tile-list entries:")
+        for tile in result["unknown_tile_list"]:
+            print(
+                f"  index={tile['tile_index']} "
+                f"uuid={tile['uuid']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -2117,6 +2234,17 @@ def main() -> None:
                 args.limit,
                 args.region_tolerance,
                 args.endpoint_tolerance,
+                args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-tiles":
+        raise SystemExit(
+            run_underground_tiles(
+                args.save,
+                args.world,
+                args.limit,
                 args.top,
                 args.json,
             )
