@@ -2181,16 +2181,41 @@ def run_underground_topology(
     print(f"Contact axes: {result['contact_axes']}")
     print(f"Contact pairs: {result['contact_pairs']}")
     print(
-        "Connectivity: "
+        "Face-contact connectivity: "
         f"components={result['components']}, "
         f"largest={result['largest_component']} nodes, "
         f"isolated={result['isolated_nodes']}"
     )
-    print(f"Degree histogram: {result['degree_histogram']}")
+    print(f"Face-contact degree histogram: {result['degree_histogram']}")
+    print(
+        "Saved tunnel links: "
+        f"{result['tunnel_links']} "
+        f"types={result['tunnel_types']}"
+    )
+    print(f"Tunnel endpoint roles: {result['tunnel_pairs']}")
+    print(
+        "Tunnel endpoint attachment: "
+        f"attached={result['attached_tunnel_endpoints']}, "
+        f"unattached={result['unattached_tunnel_endpoints']}"
+    )
+    print(
+        "Combined candidate connectivity: "
+        f"components={result['combined_components']}, "
+        f"largest={result['combined_largest_component']} nodes, "
+        f"isolated={result['combined_isolated_nodes']}"
+    )
+    print(
+        "Combined degree histogram: "
+        f"{result['combined_degree_histogram']}"
+    )
     print(f"Elevator nodes: {result['elevator_nodes']}")
     print(
-        "Elevator components: "
+        "Elevator face-contact components: "
         f"{result['elevator_components']}"
+    )
+    print(
+        "Elevator combined components: "
+        f"{result['combined_elevator_components']}"
     )
 
     if result["top_hubs"]:

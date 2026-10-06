@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from math import sqrt
 from typing import Protocol
 
 from .database import SaveDatabase
@@ -14,7 +15,7 @@ from .underground_pockets import (
     LogicalPocketPlacement,
     reconstruct_logical_pockets,
 )
-from .underground_tunnels import _load_terrain_table
+from .underground_tunnels import _extract_tunnels, _load_terrain_table
 
 EPSILON = 1e-6
 
@@ -82,20 +83,48 @@ class LayoutContact:
 
 
 @dataclass(frozen=True)
+class LayoutTunnelLink:
+    tunnel_id: int
+    tunnel_type: str
+    left: int
+    right: int
+    length: float
+
+
+@dataclass(frozen=True)
 class LayoutTopology:
     world_id: int
     nodes: tuple[LayoutNode, ...]
     contacts: tuple[LayoutContact, ...]
+    tunnel_links: tuple[LayoutTunnelLink, ...]
+    attached_tunnel_endpoints: int
+    unattached_tunnel_endpoints: int
 
-    def adjacency(self) -> dict[int, set[int]]:
+    def adjacency(
+        self,
+        *,
+        include_tunnels: bool = False,
+    ) -> dict[int, set[int]]:
         out = {node.node_id: set() for node in self.nodes}
         for contact in self.contacts:
             out[contact.left].add(contact.right)
             out[contact.right].add(contact.left)
+
+        if include_tunnels:
+            for link in self.tunnel_links:
+                out[link.left].add(link.right)
+                out[link.right].add(link.left)
+
         return out
 
-    def components(self) -> list[list[int]]:
-        adjacency = self.adjacency()
+    def components(
+        self,
+        *,
+        include_tunnels: bool = False,
+    ) -> list[list[int]]:
+        adjacency = self.adjacency(
+            include_tunnels=include_tunnels,
+        )
         remaining = set(adjacency)
         components: list[list[int]] = []
 
@@ -122,6 +151,8 @@ class LayoutTopology:
     def summary(self, *, top: int = 15) -> dict[str, object]:
         adjacency = self.adjacency()
         components = self.components()
+        combined_adjacency = self.adjacency(include_tunnels=True)
+        combined_components = self.components(include_tunnels=True)
         lookup = {node.node_id: node for node in self.nodes}
 
         roles = Counter(node.semantic_role for node in self.nodes)
@@ -139,6 +170,21 @@ class LayoutTopology:
             len(adjacency[node.node_id])
             for node in self.nodes
         )
+        combined_degree_histogram = Counter(
+            len(combined_adjacency[node.node_id])
+            for node in self.nodes
+        )
+        tunnel_types = Counter(
+            link.tunnel_type
+            for link in self.tunnel_links
+        )
+        tunnel_pair_types: Counter[str] = Counter()
+
+        for link in self.tunnel_links:
+            left_role = lookup[link.left].semantic_role
+            right_role = lookup[link.right].semantic_role
+            pair = " <-> ".join(sorted((left_role, right_role)))
+            tunnel_pair_types[pair] += 1
 
         hubs = sorted(
             self.nodes,
@@ -162,6 +208,19 @@ class LayoutTopology:
             for node in elevator_nodes
         })
 
+        combined_component_by_node: dict[int, int] = {}
+        for index, component in enumerate(
+            combined_components,
+            start=1,
+        ):
+            for node_id in component:
+                combined_component_by_node[node_id] = index
+
+        combined_elevator_components = sorted({
+            combined_component_by_node[node.node_id]
+            for node in elevator_nodes
+        })
+
         return {
             "world_id": self.world_id,
             "nodes": len(self.nodes),
@@ -177,8 +236,27 @@ class LayoutTopology:
                 for node in self.nodes
             ),
             "degree_histogram": dict(sorted(degree_histogram.items())),
+            "tunnel_links": len(self.tunnel_links),
+            "tunnel_types": dict(tunnel_types.most_common()),
+            "tunnel_pairs": dict(tunnel_pair_types.most_common()),
+            "attached_tunnel_endpoints": self.attached_tunnel_endpoints,
+            "unattached_tunnel_endpoints": self.unattached_tunnel_endpoints,
+            "combined_components": len(combined_components),
+            "combined_largest_component": (
+                len(combined_components[0])
+                if combined_components
+                else 0
+            ),
+            "combined_isolated_nodes": sum(
+                not combined_adjacency[node.node_id]
+                for node in self.nodes
+            ),
+            "combined_degree_histogram": dict(
+                sorted(combined_degree_histogram.items())
+            ),
             "elevator_nodes": [node.node_id for node in elevator_nodes],
             "elevator_components": elevator_components,
+            "combined_elevator_components": combined_elevator_components,
             "top_hubs": [
                 {
                     "id": node.node_id,
@@ -259,6 +337,66 @@ def _node_from_pocket(
     )
 
 
+def _axis_distance(
+    value: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    if value < minimum:
+        return minimum - value
+    if value > maximum:
+        return value - maximum
+    return 0.0
+
+
+def _point_node_distance(
+    point: tuple[float, float, float],
+    node: LayoutNode,
+) -> float:
+    x, y, z = point
+    dx = _axis_distance(x, node.min_x, node.max_x)
+    dy = _axis_distance(y, node.min_y, node.max_y)
+    dz = _axis_distance(z, node.min_z, node.max_z)
+    return sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def _node_volume(node: LayoutNode) -> float:
+    return (
+        (node.max_x - node.min_x)
+        * (node.max_y - node.min_y)
+        * (node.max_z - node.min_z)
+    )
+
+
+def _nearest_layout_node(
+    point: tuple[float, float, float],
+    nodes: list[LayoutNode],
+    *,
+    tolerance: float = 4.0,
+) -> LayoutNode | None:
+    candidates = []
+
+    for node in nodes:
+        distance = _point_node_distance(point, node)
+        if distance > tolerance:
+            continue
+
+        candidates.append(
+            (
+                distance,
+                _node_volume(node),
+                node.node_id,
+                node,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[:3])
+    return candidates[0][3]
+
+
 def build_layout_topology(
     database: SaveDatabase,
     *,
@@ -276,6 +414,7 @@ def build_layout_topology(
 
     caves = extract_caves(value)
     pockets = extract_pockets(value)
+    tunnels = _extract_tunnels(value)
     structures = reconstruct_logical_structures(caves)
     logical_pockets = reconstruct_logical_pockets(
         pockets,
@@ -329,8 +468,45 @@ def build_layout_topology(
                 )
             )
 
+    tunnel_links: list[LayoutTunnelLink] = []
+    attached_tunnel_endpoints = 0
+    unattached_tunnel_endpoints = 0
+
+    for tunnel in tunnels:
+        start = _nearest_layout_node(
+            tunnel["points"][0],
+            nodes,
+            tolerance=4.0,
+        )
+        end = _nearest_layout_node(
+            tunnel["points"][-1],
+            nodes,
+            tolerance=4.0,
+        )
+
+        attached_tunnel_endpoints += int(start is not None)
+        attached_tunnel_endpoints += int(end is not None)
+        unattached_tunnel_endpoints += int(start is None)
+        unattached_tunnel_endpoints += int(end is None)
+
+        if start is None or end is None:
+            continue
+
+        tunnel_links.append(
+            LayoutTunnelLink(
+                tunnel_id=int(tunnel["id"]),
+                tunnel_type=str(tunnel["type"]),
+                left=start.node_id,
+                right=end.node_id,
+                length=float(tunnel["length"]),
+            )
+        )
+
     return LayoutTopology(
         world_id=world_id,
         nodes=tuple(nodes),
         contacts=tuple(contacts),
+        tunnel_links=tuple(tunnel_links),
+        attached_tunnel_endpoints=attached_tunnel_endpoints,
+        unattached_tunnel_endpoints=unattached_tunnel_endpoints,
     )

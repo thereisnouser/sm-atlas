@@ -3,6 +3,7 @@ from __future__ import annotations
 from sm_atlas.underground_topology import (
     LayoutNode,
     _face_contact,
+    _nearest_layout_node,
 )
 
 
@@ -63,3 +64,27 @@ def test_corner_touch_is_not_face_contact() -> None:
     )
 
     assert _face_contact(left, right) is None
+
+
+def test_nearest_layout_node_prefers_smaller_containing_volume() -> None:
+    cave = node(
+        1,
+        min_x=0, max_x=128,
+        min_y=0, max_y=128,
+        min_z=0, max_z=128,
+    )
+    pocket = node(
+        2,
+        min_x=16, max_x=48,
+        min_y=16, max_y=48,
+        min_z=16, max_z=48,
+    )
+
+    match = _nearest_layout_node(
+        (32.0, 32.0, 32.0),
+        [cave, pocket],
+        tolerance=4.0,
+    )
+
+    assert match is not None
+    assert match.node_id == 2
