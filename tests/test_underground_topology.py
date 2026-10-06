@@ -88,3 +88,48 @@ def test_nearest_layout_node_prefers_smaller_containing_volume() -> None:
 
     assert match is not None
     assert match.node_id == 2
+
+
+def test_adjacency_can_ignore_vertical_contacts() -> None:
+    from sm_atlas.underground_topology import (
+        LayoutContact,
+        LayoutTopology,
+    )
+
+    nodes = (
+        node(
+            1,
+            min_x=0, max_x=16,
+            min_y=0, max_y=16,
+            min_z=0, max_z=16,
+        ),
+        node(
+            2,
+            min_x=16, max_x=32,
+            min_y=0, max_y=16,
+            min_z=0, max_z=16,
+        ),
+        node(
+            3,
+            min_x=0, max_x=16,
+            min_y=0, max_y=16,
+            min_z=16, max_z=32,
+        ),
+    )
+    topology = LayoutTopology(
+        world_id=23,
+        nodes=nodes,
+        contacts=(
+            LayoutContact(1, 2, "x", 16.0, 16.0, 256.0),
+            LayoutContact(1, 3, "z", 16.0, 16.0, 256.0),
+        ),
+        tunnel_links=(),
+        attached_tunnel_endpoints=0,
+        unattached_tunnel_endpoints=0,
+    )
+
+    adjacency = topology.adjacency(contact_axes={"x", "y"})
+
+    assert adjacency[1] == {2}
+    assert adjacency[2] == {1}
+    assert adjacency[3] == set()

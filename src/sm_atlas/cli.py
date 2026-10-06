@@ -2208,6 +2208,18 @@ def run_underground_topology(
         "Combined degree histogram: "
         f"{result['combined_degree_histogram']}"
     )
+    print(
+        "Horizontal-only face connectivity: "
+        f"components={result['horizontal_components']}, "
+        f"largest={result['horizontal_largest_component']} nodes, "
+        f"isolated={result['horizontal_isolated_nodes']}"
+    )
+    print(
+        "Horizontal + tunnels connectivity: "
+        f"components={result['horizontal_combined_components']}, "
+        f"largest={result['horizontal_combined_largest_component']} nodes, "
+        f"isolated={result['horizontal_combined_isolated_nodes']}"
+    )
     print(f"Elevator nodes: {result['elevator_nodes']}")
     print(
         "Elevator face-contact components: "
@@ -2217,6 +2229,24 @@ def run_underground_topology(
         "Elevator combined components: "
         f"{result['combined_elevator_components']}"
     )
+    print(
+        "Elevator reachable: "
+        f"{result['elevator_reachable_nodes']} nodes "
+        f"roles={result['elevator_reachable_roles']}"
+    )
+
+    if result["combined_isolated"]:
+        print("Combined isolated nodes:")
+        for node in result["combined_isolated"]:
+            tags = ",".join(node["tags"]) or "-"
+            print(
+                f"  node={node['id']} "
+                f"role={node['role']} "
+                f"family={node['family']} "
+                f"tags={tags} "
+                f"center={node['center']} "
+                f"name={node['name']}"
+            )
 
     if result["top_hubs"]:
         print("Top layout hubs:")

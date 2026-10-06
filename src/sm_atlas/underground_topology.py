@@ -104,9 +104,15 @@ class LayoutTopology:
         self,
         *,
         include_tunnels: bool = False,
+        contact_axes: set[str] | None = None,
     ) -> dict[int, set[int]]:
         out = {node.node_id: set() for node in self.nodes}
         for contact in self.contacts:
+            if (
+                contact_axes is not None
+                and contact.axis not in contact_axes
+            ):
+                continue
             out[contact.left].add(contact.right)
             out[contact.right].add(contact.left)
 
@@ -121,9 +127,11 @@ class LayoutTopology:
         self,
         *,
         include_tunnels: bool = False,
+        contact_axes: set[str] | None = None,
     ) -> list[list[int]]:
         adjacency = self.adjacency(
             include_tunnels=include_tunnels,
+            contact_axes=contact_axes,
         )
         remaining = set(adjacency)
         components: list[list[int]] = []
@@ -153,6 +161,21 @@ class LayoutTopology:
         components = self.components()
         combined_adjacency = self.adjacency(include_tunnels=True)
         combined_components = self.components(include_tunnels=True)
+        horizontal_axes = {"x", "y"}
+        horizontal_adjacency = self.adjacency(
+            contact_axes=horizontal_axes,
+        )
+        horizontal_components = self.components(
+            contact_axes=horizontal_axes,
+        )
+        horizontal_combined_adjacency = self.adjacency(
+            include_tunnels=True,
+            contact_axes=horizontal_axes,
+        )
+        horizontal_combined_components = self.components(
+            include_tunnels=True,
+            contact_axes=horizontal_axes,
+        )
         lookup = {node.node_id: node for node in self.nodes}
 
         roles = Counter(node.semantic_role for node in self.nodes)
@@ -221,6 +244,27 @@ class LayoutTopology:
             for node in elevator_nodes
         })
 
+        elevator_reachable_ids: set[int] = set()
+        for component_index in combined_elevator_components:
+            elevator_reachable_ids.update(
+                combined_components[component_index - 1]
+            )
+
+        elevator_reachable_roles = Counter(
+            lookup[node_id].semantic_role
+            for node_id in elevator_reachable_ids
+        )
+        elevator_reachable_families = Counter(
+            lookup[node_id].family
+            for node_id in elevator_reachable_ids
+        )
+
+        combined_isolated = [
+            node
+            for node in self.nodes
+            if not combined_adjacency[node.node_id]
+        ]
+
         return {
             "world_id": self.world_id,
             "nodes": len(self.nodes),
@@ -254,9 +298,52 @@ class LayoutTopology:
             "combined_degree_histogram": dict(
                 sorted(combined_degree_histogram.items())
             ),
+            "horizontal_components": len(horizontal_components),
+            "horizontal_largest_component": (
+                len(horizontal_components[0])
+                if horizontal_components
+                else 0
+            ),
+            "horizontal_isolated_nodes": sum(
+                not horizontal_adjacency[node.node_id]
+                for node in self.nodes
+            ),
+            "horizontal_combined_components": len(
+                horizontal_combined_components
+            ),
+            "horizontal_combined_largest_component": (
+                len(horizontal_combined_components[0])
+                if horizontal_combined_components
+                else 0
+            ),
+            "horizontal_combined_isolated_nodes": sum(
+                not horizontal_combined_adjacency[node.node_id]
+                for node in self.nodes
+            ),
             "elevator_nodes": [node.node_id for node in elevator_nodes],
             "elevator_components": elevator_components,
             "combined_elevator_components": combined_elevator_components,
+            "elevator_reachable_nodes": len(elevator_reachable_ids),
+            "elevator_reachable_roles": dict(
+                elevator_reachable_roles.most_common()
+            ),
+            "elevator_reachable_families": dict(
+                elevator_reachable_families.most_common()
+            ),
+            "combined_isolated": [
+                {
+                    "id": node.node_id,
+                    "role": node.semantic_role,
+                    "family": node.family,
+                    "name": node.name,
+                    "tags": list(node.tags),
+                    "center": tuple(
+                        round(value, 3)
+                        for value in node.center
+                    ),
+                }
+                for node in combined_isolated
+            ],
             "top_hubs": [
                 {
                     "id": node.node_id,
