@@ -22,6 +22,7 @@ from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
+from .underground_tunnels import summarize_underground_tunnels, write_underground_tunnel_map
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
 
@@ -568,6 +569,53 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
+    )
+
+    underground_parser = subparsers.add_parser(
+        "underground-tunnels",
+        help="Summarize saved underground tunnel polylines.",
+    )
+    underground_parser.add_argument("save", type=Path)
+    underground_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    underground_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    underground_map_parser = subparsers.add_parser(
+        "underground-map",
+        help="Render saved underground tunnel polylines as SVG.",
+    )
+    underground_map_parser.add_argument("save", type=Path)
+    underground_map_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to render.",
+    )
+    underground_map_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="SVG output path.",
+    )
+    underground_map_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
     )
 
     schema_parser = subparsers.add_parser(
@@ -1585,6 +1633,83 @@ def run_terrain_data_structure(
     return 0
 
 
+def run_underground_tunnels(
+    save: Path,
+    world_id: int,
+    limit: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = summarize_underground_tunnels(
+            database,
+            world_id=world_id,
+            limit=limit,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Terrain row: {result['row_id']}")
+    print(f"Depth: {result['depth']}")
+    print(f"World path: {result['world_path']}")
+    print(f"Seed: {result['seed']}")
+    print(f"Tunnels: {result['tunnels']}")
+    print(f"Points: {result['points']}")
+    print(f"Total 3D length: {result['total_length']:.1f} m")
+    print(f"Tunnel types: {result['tunnel_types']}")
+    print(f"Geometry bounds: {result.get('geometry_bounds')}")
+
+    return 0
+
+
+def run_underground_map(
+    save: Path,
+    world_id: int,
+    output: Path,
+    limit: int,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = write_underground_tunnel_map(
+            database,
+            world_id=world_id,
+            output=output,
+            limit=limit,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    print(f"World: {result['world_id']}")
+    print(f"Tunnels: {result['tunnels']}")
+    print(f"Points: {result['points']}")
+    print(f"Total 3D length: {result['total_length']:.1f} m")
+    print(f"Tunnel types: {result['tunnel_types']}")
+    print(f"Geometry bounds: {result.get('geometry_bounds')}")
+    print(f"SVG: {result['output']}")
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1814,6 +1939,26 @@ def main() -> None:
                 args.depth,
                 args.max_items,
                 args.json,
+            )
+        )
+
+    if args.command == "underground-tunnels":
+        raise SystemExit(
+            run_underground_tunnels(
+                args.save,
+                args.world,
+                args.limit,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-map":
+        raise SystemExit(
+            run_underground_map(
+                args.save,
+                args.world,
+                args.output,
+                args.limit,
             )
         )
 
