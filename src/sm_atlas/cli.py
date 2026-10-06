@@ -11,6 +11,7 @@ from .terrain import summarize_voxel_terrain
 from .terrain_chunks import summarize_voxel_chunks
 from .terrain_codec_probe import probe_voxel_codecs
 from .terrain_decode import probe_decompressed_voxel_terrain
+from .terrain_data import decode_terrain_data_candidates
 from .terrain_data_probe import probe_terrain_script_data
 from .terrain_density_probe import probe_density_streams
 from .terrain_layout import scan_voxel_terrain_layout
@@ -493,6 +494,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum decoded rows to print (0-100).",
     )
     data_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    terrain_data_parser = subparsers.add_parser(
+        "terrain-data",
+        help="Decode saved LUA terrain tables from ScriptData.",
+    )
+    terrain_data_parser.add_argument("save", type=Path)
+    terrain_data_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    terrain_data_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    terrain_data_parser.add_argument(
+        "--examples",
+        type=int,
+        default=10,
+        help="Maximum terrain candidates to print (0-100).",
+    )
+    terrain_data_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1376,6 +1406,65 @@ def run_terrain_data_probe(
     return 0
 
 
+def run_terrain_data(
+    save: Path,
+    world_id: int,
+    limit: int,
+    examples: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = decode_terrain_data_candidates(
+            database,
+            world_id=world_id,
+            limit=limit,
+            examples=examples,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned ScriptData rows: {result['scanned_records']}")
+    print(f"Decoded LUA tables: {result['decoded_tables']}")
+    print(f"Envelope failures: {result['envelope_failures']}")
+    print(f"LUA failures: {result['lua_failures']}")
+    print(f"Terrain candidates: {result['terrain_candidates']}")
+
+    if result["candidates"]:
+        print()
+        print("Terrain candidates:")
+        for candidate in result["candidates"]:
+            print(
+                f"  rowid={candidate['row_id']} "
+                f"raw={candidate['raw_size']} "
+                f"key={candidate['sql_key_hex']}"
+            )
+            print(
+                "    signals: "
+                + ", ".join(candidate["signal_keys"])
+            )
+            print(
+                "    keys: "
+                + ", ".join(candidate["keys"])
+            )
+            for key, field in candidate["fields"].items():
+                print(f"    {key}: {field}")
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1576,6 +1665,17 @@ def main() -> None:
     if args.command == "terrain-data-probe":
         raise SystemExit(
             run_terrain_data_probe(
+                args.save,
+                args.world,
+                args.limit,
+                args.examples,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-data":
+        raise SystemExit(
+            run_terrain_data(
                 args.save,
                 args.world,
                 args.limit,
