@@ -22,6 +22,7 @@ from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
+from .underground_graph import build_underground_graph
 from .underground_map import write_underground_map
 from .underground_tunnels import summarize_underground_tunnels
 from .world_graph import build_world_graph
@@ -617,6 +618,47 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=5000,
         help="Maximum ScriptData rows to scan (1-5000).",
+    )
+
+    underground_graph_parser = subparsers.add_parser(
+        "underground-graph",
+        help="Build a conservative 3D connectivity graph for an underground world.",
+    )
+    underground_graph_parser.add_argument("save", type=Path)
+    underground_graph_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    underground_graph_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_graph_parser.add_argument(
+        "--region-tolerance",
+        type=float,
+        default=4.0,
+        help="Maximum 3D endpoint/spawner distance to a region in meters.",
+    )
+    underground_graph_parser.add_argument(
+        "--endpoint-tolerance",
+        type=float,
+        default=6.0,
+        help="Maximum 3D distance for clustering free tunnel endpoints.",
+    )
+    underground_graph_parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="Number of highest-degree graph nodes to show.",
+    )
+    underground_graph_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print full machine-readable graph JSON.",
     )
 
     schema_parser = subparsers.add_parser(
@@ -1719,6 +1761,85 @@ def run_underground_map(
     return 0
 
 
+def run_underground_graph(
+    save: Path,
+    world_id: int,
+    limit: int,
+    region_tolerance: float,
+    endpoint_tolerance: float,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        graph = build_underground_graph(
+            database,
+            world_id=world_id,
+            limit=limit,
+            region_tolerance=region_tolerance,
+            endpoint_tolerance=endpoint_tolerance,
+        )
+        result = (
+            graph.to_dict()
+            if as_json
+            else graph.summary(top_hubs=top)
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Regions: {result['regions']}")
+    print(f"Nodes: {result['nodes']}")
+    print(f"Edges: {result['edges']}")
+    print(f"Node kinds: {result['node_kinds']}")
+    print(f"Tunnel types: {result['tunnel_types']}")
+    print(
+        "Endpoint attachment: "
+        f"regions={result['region_endpoints']}, "
+        f"free={result['free_endpoints']}"
+    )
+    print(
+        "Spawners: "
+        f"attached={result['attached_spawners']}, "
+        f"unattached={result['unattached_spawners']}"
+    )
+    print(
+        "Connectivity: "
+        f"components={result['connected_components']}, "
+        f"largest={result['largest_component_nodes']} nodes, "
+        f"isolated={result['isolated_nodes']}, "
+        f"dead_ends={result['dead_ends']}, "
+        f"self_loops={result['self_loops']}"
+    )
+    print(f"Degree histogram: {result['degree_histogram']}")
+
+    if result["top_hubs"]:
+        print("Top graph hubs:")
+        for node in result["top_hubs"]:
+            print(
+                f"  node={node['id']} "
+                f"kind={node['kind']} "
+                f"degree={node['degree']} "
+                f"xyz=({node['x']}, {node['y']}, {node['z']}) "
+                f"caves={node['caves']} "
+                f"pockets={node['pockets']} "
+                f"spawners={node['spawners']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1968,6 +2089,19 @@ def main() -> None:
                 args.world,
                 args.output,
                 args.limit,
+            )
+        )
+
+    if args.command == "underground-graph":
+        raise SystemExit(
+            run_underground_graph(
+                args.save,
+                args.world,
+                args.limit,
+                args.region_tolerance,
+                args.endpoint_tolerance,
+                args.top,
+                args.json,
             )
         )
 
