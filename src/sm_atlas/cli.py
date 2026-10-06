@@ -1707,6 +1707,8 @@ def run_underground_map(
     print(f"Tunnel types: {result['tunnel_types']}")
     print(f"Caves: {result['caves']['count']}")
     print(f"Pockets: {result['pockets']['count']}")
+    print(f"Spawners: {result['spawners']['count']}")
+    print(f"Spawner tags: {result['spawners']['tags']}")
     print(f"Tunnel bounds: {result.get('geometry_bounds')}")
     print(
         "Combined bounds: "
