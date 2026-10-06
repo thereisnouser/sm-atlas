@@ -13,6 +13,7 @@ from .terrain_codec_probe import probe_voxel_codecs
 from .terrain_decode import probe_decompressed_voxel_terrain
 from .terrain_data import decode_terrain_data_candidates
 from .terrain_data_probe import probe_terrain_script_data
+from .terrain_data_structure import probe_terrain_data_structure
 from .terrain_density_probe import probe_density_streams
 from .terrain_layout import scan_voxel_terrain_layout
 from .terrain_map import write_voxel_chunk_map
@@ -523,6 +524,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum terrain candidates to print (0-100).",
     )
     terrain_data_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    terrain_structure_parser = subparsers.add_parser(
+        "terrain-data-structure",
+        help="Inspect nested shapes inside the saved terrain LUA table.",
+    )
+    terrain_structure_parser.add_argument("save", type=Path)
+    terrain_structure_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    terrain_structure_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    terrain_structure_parser.add_argument(
+        "--examples",
+        type=int,
+        default=3,
+        help="Examples to show per terrain field (0-20).",
+    )
+    terrain_structure_parser.add_argument(
+        "--depth",
+        type=int,
+        default=4,
+        help="Maximum nested preview depth (1-8).",
+    )
+    terrain_structure_parser.add_argument(
+        "--max-items",
+        type=int,
+        default=8,
+        help="Maximum items per previewed table (1-50).",
+    )
+    terrain_structure_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1465,6 +1507,84 @@ def run_terrain_data(
     return 0
 
 
+def run_terrain_data_structure(
+    save: Path,
+    world_id: int,
+    limit: int,
+    examples: int,
+    depth: int,
+    max_items: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = probe_terrain_data_structure(
+            database,
+            world_id=world_id,
+            limit=limit,
+            examples=examples,
+            depth=depth,
+            max_items=max_items,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Scanned ScriptData rows: {result['scanned_records']}")
+    print(f"Failures: {result['failures']}")
+
+    candidate = result["candidate"]
+    if candidate is None:
+        print("Terrain candidate: none")
+        return 0
+
+    print(
+        "Terrain candidate: "
+        f"rowid={candidate['row_id']} "
+        f"raw={candidate['raw_size']} "
+        f"key={candidate['sql_key_hex']}"
+    )
+    print(f"Root keys: {candidate['root_keys']}")
+    print(f"Scalar root: {candidate['scalar_root']}")
+
+    for name, profile in candidate["fields"].items():
+        print()
+        print(f"[{name}]")
+        print(f"  type: {profile['type']}")
+
+        if profile["type"] != "table":
+            print(f"  value: {profile.get('value')}")
+            continue
+
+        print(f"  items: {profile['items']}")
+        print(f"  key types: {profile['key_types']}")
+        print(f"  value types: {profile['value_types']}")
+        print(
+            "  nested signatures: "
+            f"{profile['nested_signatures']}"
+        )
+
+        for example in profile["examples"]:
+            print(
+                f"  example key={example['key']} "
+                f"type={example['value_type']}: "
+                f"{example['value']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -1680,6 +1800,19 @@ def main() -> None:
                 args.world,
                 args.limit,
                 args.examples,
+                args.json,
+            )
+        )
+
+    if args.command == "terrain-data-structure":
+        raise SystemExit(
+            run_terrain_data_structure(
+                args.save,
+                args.world,
+                args.limit,
+                args.examples,
+                args.depth,
+                args.max_items,
                 args.json,
             )
         )
