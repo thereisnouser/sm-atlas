@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .formats.lua_values import LuaQuat, LuaUuid, LuaVec3
+from .formats.lua_values import LuaUuid, LuaVec3
 
 CHUNK_SIZE_METERS = 16.0
 CHUNKS_PER_CELL = 4
