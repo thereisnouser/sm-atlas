@@ -26,6 +26,7 @@ from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import write_underground_map
 from .underground_tile_catalog import summarize_underground_tiles
+from .underground_topology import build_layout_topology
 from .underground_tunnels import summarize_underground_tunnels
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
@@ -710,6 +711,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum ScriptData rows to scan (1-5000).",
     )
     underground_layout_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    underground_topology_parser = subparsers.add_parser(
+        "underground-topology",
+        help="Build a 3D face-contact graph of reconstructed underground tiles.",
+    )
+    underground_topology_parser.add_argument("save", type=Path)
+    underground_topology_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    underground_topology_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_topology_parser.add_argument(
+        "--top",
+        type=int,
+        default=15,
+        help="Number of highest-degree layout nodes to show.",
+    )
+    underground_topology_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -2114,6 +2144,70 @@ def run_underground_layout(
     return 0
 
 
+def run_underground_topology(
+    save: Path,
+    world_id: int,
+    limit: int,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        topology = build_layout_topology(
+            database,
+            world_id=world_id,
+            limit=limit,
+        )
+        result = topology.summary(top=top)
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Logical nodes: {result['nodes']}")
+    print(f"Face contacts: {result['contacts']}")
+    print(f"Families: {result['families']}")
+    print(f"Semantic roles: {result['roles']}")
+    print(f"Contact axes: {result['contact_axes']}")
+    print(f"Contact pairs: {result['contact_pairs']}")
+    print(
+        "Connectivity: "
+        f"components={result['components']}, "
+        f"largest={result['largest_component']} nodes, "
+        f"isolated={result['isolated_nodes']}"
+    )
+    print(f"Degree histogram: {result['degree_histogram']}")
+    print(f"Elevator nodes: {result['elevator_nodes']}")
+    print(
+        "Elevator components: "
+        f"{result['elevator_components']}"
+    )
+
+    if result["top_hubs"]:
+        print("Top layout hubs:")
+        for node in result["top_hubs"]:
+            print(
+                f"  node={node['id']} "
+                f"role={node['role']} "
+                f"degree={node['degree']} "
+                f"component={node['component']} "
+                f"center={node['center']} "
+                f"name={node['name']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -2396,6 +2490,17 @@ def main() -> None:
                 args.save,
                 args.world,
                 args.limit,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-topology":
+        raise SystemExit(
+            run_underground_topology(
+                args.save,
+                args.world,
+                args.limit,
+                args.top,
                 args.json,
             )
         )
