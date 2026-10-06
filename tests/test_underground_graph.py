@@ -8,6 +8,7 @@ from sm_atlas.underground_graph import (
     _attach_spawners,
     _cluster_free_endpoints,
     cluster_underground_regions,
+    tunnel_role,
 )
 
 
@@ -106,3 +107,10 @@ def test_spawner_attaches_to_nearby_region() -> None:
 
     assert counts == {regions[0].region_id: 1}
     assert unattached == 0
+
+
+def test_tunnel_role_distinguishes_corridors_and_veins() -> None:
+    assert tunnel_role("TtDefault") == "corridor"
+    assert tunnel_role("TtVeinRich") == "vein"
+    assert tunnel_role("TtVeinSparkstone") == "vein"
+    assert tunnel_role("SomethingNew") == "unknown"

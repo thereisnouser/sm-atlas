@@ -19,6 +19,24 @@ DEFAULT_REGION_TOLERANCE = 4.0
 DEFAULT_ENDPOINT_TOLERANCE = 6.0
 _OVERLAP_EPSILON = 1e-6
 
+CORRIDOR_TUNNEL_TYPES = {"TtDefault"}
+VEIN_TUNNEL_TYPES = {
+    "MainVein",
+    "CrossVein",
+    "TtVeinRich",
+    "TtVeinT1",
+    "TtVeinT4",
+    "TtVeinSparkstone",
+}
+
+
+def tunnel_role(tunnel_type: str) -> str:
+    if tunnel_type in CORRIDOR_TUNNEL_TYPES:
+        return "corridor"
+    if tunnel_type in VEIN_TUNNEL_TYPES:
+        return "vein"
+    return "unknown"
+
 
 @dataclass(frozen=True)
 class UndergroundRegion:
@@ -175,6 +193,10 @@ class UndergroundGraph:
         node_kinds = Counter(node.kind for node in self.nodes)
         degree_histogram = Counter(degrees.values())
         tunnel_types = Counter(edge.tunnel_type for edge in self.edges)
+        edge_roles = Counter(
+            tunnel_role(edge.tunnel_type)
+            for edge in self.edges
+        )
 
         self_loops = sum(
             edge.start_node == edge.end_node
@@ -184,6 +206,7 @@ class UndergroundGraph:
             degree == 0
             for degree in degrees.values()
         )
+        active_nodes = len(self.nodes) - isolated_nodes
         dead_ends = sum(
             degree == 1
             for degree in degrees.values()
@@ -193,6 +216,20 @@ class UndergroundGraph:
             node.node_id: node
             for node in self.nodes
         }
+        nontrivial_components = [
+            component
+            for component in components
+            if any(degrees[node_id] > 0 for node_id in component)
+        ]
+        nontrivial_components.sort(
+            key=lambda component: (-len(component), component[0])
+        )
+
+        component_size_histogram = Counter(
+            len(component)
+            for component in nontrivial_components
+        )
+
         hubs = sorted(
             self.nodes,
             key=lambda node: (
@@ -208,17 +245,32 @@ class UndergroundGraph:
             "edges": len(self.edges),
             "node_kinds": dict(node_kinds.most_common()),
             "tunnel_types": dict(tunnel_types.most_common()),
+            "edge_roles": dict(edge_roles.most_common()),
+            "corridor_edges": edge_roles.get("corridor", 0),
+            "vein_edges": edge_roles.get("vein", 0),
+            "unknown_edges": edge_roles.get("unknown", 0),
+            "navigation_graph_ready": edge_roles.get("corridor", 0) > 0,
             "region_endpoints": self.region_endpoint_count,
             "free_endpoints": self.free_endpoint_count,
             "attached_spawners": self.attached_spawners,
             "unattached_spawners": self.unattached_spawners,
             "connected_components": len(components),
+            "active_components": len(nontrivial_components),
             "largest_component_nodes": (
                 len(components[0])
                 if components
                 else 0
             ),
+            "largest_active_component_nodes": (
+                len(nontrivial_components[0])
+                if nontrivial_components
+                else 0
+            ),
+            "active_nodes": active_nodes,
             "isolated_nodes": isolated_nodes,
+            "active_component_size_histogram": dict(
+                sorted(component_size_histogram.items())
+            ),
             "dead_ends": dead_ends,
             "self_loops": self_loops,
             "degree_histogram": dict(

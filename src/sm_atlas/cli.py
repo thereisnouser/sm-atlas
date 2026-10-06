@@ -1804,6 +1804,17 @@ def run_underground_graph(
     print(f"Edges: {result['edges']}")
     print(f"Node kinds: {result['node_kinds']}")
     print(f"Tunnel types: {result['tunnel_types']}")
+    print(f"Edge roles: {result['edge_roles']}")
+    print(
+        "Graph semantics: "
+        f"corridors={result['corridor_edges']}, "
+        f"veins={result['vein_edges']}, "
+        f"unknown={result['unknown_edges']}"
+    )
+    print(
+        "Navigation graph ready: "
+        f"{result['navigation_graph_ready']}"
+    )
     print(
         "Endpoint attachment: "
         f"regions={result['region_endpoints']}, "
@@ -1816,11 +1827,17 @@ def run_underground_graph(
     )
     print(
         "Connectivity: "
-        f"components={result['connected_components']}, "
-        f"largest={result['largest_component_nodes']} nodes, "
+        f"all_components={result['connected_components']}, "
+        f"active_components={result['active_components']}, "
+        f"active_nodes={result['active_nodes']}, "
+        f"largest_active={result['largest_active_component_nodes']} nodes, "
         f"isolated={result['isolated_nodes']}, "
         f"dead_ends={result['dead_ends']}, "
         f"self_loops={result['self_loops']}"
+    )
+    print(
+        "Active component sizes: "
+        f"{result['active_component_size_histogram']}"
     )
     print(f"Degree histogram: {result['degree_histogram']}")
 
