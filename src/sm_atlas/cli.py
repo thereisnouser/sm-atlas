@@ -23,6 +23,7 @@ from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
 from .underground_graph import build_underground_graph
+from .underground_layout import summarize_underground_layout
 from .underground_map import write_underground_map
 from .underground_tile_catalog import summarize_underground_tiles
 from .underground_tunnels import summarize_underground_tunnels
@@ -686,6 +687,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of most-used tile placements to show (1-200).",
     )
     underground_tiles_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    underground_layout_parser = subparsers.add_parser(
+        "underground-layout",
+        help="Reconstruct logical underground structures and validate tile dimensions.",
+    )
+    underground_layout_parser.add_argument("save", type=Path)
+    underground_layout_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    underground_layout_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_layout_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1974,6 +1998,97 @@ def run_underground_tiles(
     return 0
 
 
+def run_underground_layout(
+    save: Path,
+    world_id: int,
+    limit: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = summarize_underground_layout(
+            database,
+            world_id=world_id,
+            limit=limit,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Terrain row: {result['row_id']}")
+    print(f"Cave fragments: {result['cave_fragments']}")
+    print(f"Logical structures: {result['logical_structures']}")
+    print(f"Structure families: {result['structure_families']}")
+    print(
+        "Complete structures: "
+        f"{result['complete_structures']}/"
+        f"{result['logical_structures']}"
+    )
+    print(
+        "Dimension-matched structures: "
+        f"{result['dimension_matched_structures']}/"
+        f"{result['logical_structures']}"
+    )
+
+    pocket_validation = result["pocket_dimension_validation"]
+    print(
+        "Pocket dimension validation: "
+        f"{pocket_validation['matched']}/"
+        f"{pocket_validation['checked']} matched "
+        f"({pocket_validation['mismatched']} mismatched)"
+    )
+    print(
+        "Explicit passage placements: "
+        f"{result['explicit_passage_placements']}"
+    )
+    print(
+        "Pocket semantic counts: "
+        f"{result['pocket_semantic_counts']}"
+    )
+
+    if result["structures"]:
+        print()
+        print("Logical cave/elevator structures:")
+        for structure in result["structures"]:
+            print(
+                f"  id={structure['id']} "
+                f"family={structure['family']} "
+                f"name={structure['name']} "
+                f"fragments={structure['fragments']}/"
+                f"{structure['expected_fragments']} "
+                f"rotation={structure['rotation']} "
+                f"complete={structure['complete']} "
+                f"dimensions_match={structure['dimensions_match']} "
+                f"size={structure['size']} "
+                f"bounds={structure['bounds']}"
+            )
+
+    if pocket_validation["examples"]:
+        print()
+        print("Pocket dimension mismatches:")
+        for mismatch in pocket_validation["examples"]:
+            print(
+                f"  index={mismatch['tile_index']} "
+                f"name={mismatch['name']} "
+                f"rotation={mismatch['rotation']} "
+                f"actual={mismatch['actual']} "
+                f"expected={mismatch['expected']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -2246,6 +2361,16 @@ def main() -> None:
                 args.world,
                 args.limit,
                 args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-layout":
+        raise SystemExit(
+            run_underground_layout(
+                args.save,
+                args.world,
+                args.limit,
                 args.json,
             )
         )
