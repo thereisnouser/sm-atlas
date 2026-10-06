@@ -7,9 +7,12 @@ from pathlib import Path
 from .database import SaveDatabase
 from .underground_features import (
     UndergroundPiece,
+    UndergroundSpawner,
     extract_caves,
     extract_pockets,
+    extract_spawners,
     summarize_pieces,
+    summarize_spawners,
 )
 from .underground_tunnels import (
     _extract_tunnels,
@@ -61,10 +64,40 @@ def _geometry_bounds(
     tunnels: list[dict],
     caves: list[UndergroundPiece],
     pockets: list[UndergroundPiece],
+    spawners: list[UndergroundSpawner] | None = None,
 ) -> dict[str, float]:
     xs: list[float] = []
     ys: list[float] = []
     zs: list[float] = []
+
+    for index, spawner in enumerate(spawners, start=1):
+        x = sx(spawner.x)
+        y = sy(spawner.y)
+        opacity = 0.65 + 0.35 * z_ratio(spawner.z)
+        tags = ", ".join(spawner.tags) if spawner.tags else "untagged"
+        trigger = spawner.trigger_name or "unknown"
+        radius = 4.0
+
+        parts.append(
+            f'<g data-feature="spawner" data-index="{index}">'
+            f'<title>Spawner #{index} · {escape(tags)} · '
+            f'trigger {escape(trigger)} · '
+            f'XYZ {spawner.x:.1f}, {spawner.y:.1f}, {spawner.z:.1f} · '
+            f'scale {spawner.scale_x:.0f}×{spawner.scale_y:.0f}×'
+            f'{spawner.scale_z:.0f}</title>'
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius:.2f}" '
+            f'fill="#f85149" stroke="#ff7b72" stroke-width="1.5" '
+            f'opacity="{opacity:.3f}"/>'
+            f'<line x1="{x - 6:.2f}" y1="{y:.2f}" '
+            f'x2="{x + 6:.2f}" y2="{y:.2f}" '
+            f'stroke="#ff7b72" stroke-width="1.2" '
+            f'opacity="{opacity:.3f}"/>'
+            f'<line x1="{x:.2f}" y1="{y - 6:.2f}" '
+            f'x2="{x:.2f}" y2="{y + 6:.2f}" '
+            f'stroke="#ff7b72" stroke-width="1.2" '
+            f'opacity="{opacity:.3f}"/>'
+            "</g>"
+        )
 
     for tunnel in tunnels:
         for x, y, z in tunnel["points"]:
@@ -76,6 +109,11 @@ def _geometry_bounds(
         xs.extend((piece.x, piece.max_x))
         ys.extend((piece.y, piece.max_y))
         zs.extend((piece.z, piece.max_z))
+
+    for spawner in spawners or []:
+        xs.append(spawner.x)
+        ys.append(spawner.y)
+        zs.append(spawner.z)
 
     if not xs:
         raise ValueError("no underground geometry found")
@@ -104,6 +142,7 @@ def summarize_underground_world(
     tunnels = _extract_tunnels(value)
     caves = extract_caves(value)
     pockets = extract_pockets(value)
+    spawners = extract_spawners(value)
 
     tunnel_summary = summarize_underground_tunnels(
         database,
@@ -116,10 +155,12 @@ def summarize_underground_world(
         "row_id": row_id,
         "caves": summarize_pieces(caves),
         "pockets": summarize_pieces(pockets),
+        "spawners": summarize_spawners(spawners),
         "combined_geometry_bounds": _geometry_bounds(
             tunnels,
             caves,
             pockets,
+            spawners,
         ),
     }
 
@@ -147,8 +188,9 @@ def render_underground_map_svg(
     tunnels: list[dict],
     caves: list[UndergroundPiece],
     pockets: list[UndergroundPiece],
+    spawners: list[UndergroundSpawner],
 ) -> str:
-    bounds = _geometry_bounds(tunnels, caves, pockets)
+    bounds = _geometry_bounds(tunnels, caves, pockets, spawners)
 
     min_x = bounds["min_x"]
     max_x = bounds["max_x"]
@@ -219,7 +261,7 @@ def render_underground_map_svg(
         (
             f'<text class="meta" x="{MARGIN}" y="66">'
             f'{len(tunnels)} tunnels · {len(caves)} caves · '
-            f'{len(pockets)} pockets · '
+            f'{len(pockets)} pockets · {len(spawners)} spawners · '
             f'Z {min_z:.1f}..{max_z:.1f} m'
             "</text>"
         ),
@@ -334,8 +376,16 @@ def render_underground_map_svg(
         f'<text class="legend" x="{legend_x + 38}" '
         f'y="{legend_y + 56}">Pockets ({len(pockets)})</text>'
     )
+    parts.append(
+        f'<circle cx="{legend_x + 12}" cy="{legend_y + 82}" '
+        f'r="5" fill="#f85149" stroke="#ff7b72"/>'
+    )
+    parts.append(
+        f'<text class="legend" x="{legend_x + 38}" '
+        f'y="{legend_y + 87}">Spawners ({len(spawners)})</text>'
+    )
 
-    tunnel_legend_y = legend_y + 100
+    tunnel_legend_y = legend_y + 130
     parts.append(
         f'<text class="section" x="{legend_x}" '
         f'y="{tunnel_legend_y}">Tunnel types</text>'
@@ -388,6 +438,7 @@ def write_underground_map(
     tunnels = _extract_tunnels(value)
     caves = extract_caves(value)
     pockets = extract_pockets(value)
+    spawners = extract_spawners(value)
 
     output_path = Path(output).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -397,6 +448,7 @@ def write_underground_map(
             tunnels=tunnels,
             caves=caves,
             pockets=pockets,
+            spawners=spawners,
         ),
         encoding="utf-8",
     )
