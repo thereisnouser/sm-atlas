@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sm_atlas.underground_features import UndergroundPiece
+from sm_atlas.underground_features import UndergroundPiece, UndergroundSpawner
 from sm_atlas.underground_map import render_underground_map_svg
 
 
@@ -53,16 +53,34 @@ def test_render_underground_map_svg_includes_features() -> None:
         )
     ]
 
+    spawners = [
+        UndergroundSpawner(
+            cell_x=0,
+            cell_y=0,
+            x=20.0,
+            y=20.0,
+            z=24.0,
+            scale_x=48.0,
+            scale_y=48.0,
+            scale_z=48.0,
+            tags=("SPAWN_ENEMY_VOLUME_TRIGGER",),
+            trigger_name="Auto",
+            react_to_voxel_destruction=True,
+        )
+    ]
+
     svg = render_underground_map_svg(
         world_id=23,
         tunnels=tunnels,
         caves=caves,
         pockets=pockets,
+        spawners=spawners,
     )
 
-    assert "1 tunnels · 1 caves · 1 pockets" in svg
+    assert "1 tunnels · 1 caves · 1 pockets · 1 spawners" in svg
     assert 'data-feature="cave"' in svg
     assert 'data-feature="pocket"' in svg
+    assert 'data-feature="spawner"' in svg
     assert 'data-tunnel-id="1"' in svg
     assert "Caves (1)" in svg
     assert "Pockets (1)" in svg
