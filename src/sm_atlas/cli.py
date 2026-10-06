@@ -22,7 +22,8 @@ from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
-from .underground_tunnels import summarize_underground_tunnels, write_underground_tunnel_map
+from .underground_map import write_underground_map
+from .underground_tunnels import summarize_underground_tunnels
 from .world_graph import build_world_graph
 from .worlds import WorldDataError, discover_worlds
 
@@ -1683,7 +1684,7 @@ def run_underground_map(
     database = SaveDatabase(save)
 
     try:
-        result = write_underground_tunnel_map(
+        result = write_underground_map(
             database,
             world_id=world_id,
             output=output,
@@ -1704,7 +1705,13 @@ def run_underground_map(
     print(f"Points: {result['points']}")
     print(f"Total 3D length: {result['total_length']:.1f} m")
     print(f"Tunnel types: {result['tunnel_types']}")
-    print(f"Geometry bounds: {result.get('geometry_bounds')}")
+    print(f"Caves: {result['caves']['count']}")
+    print(f"Pockets: {result['pockets']['count']}")
+    print(f"Tunnel bounds: {result.get('geometry_bounds')}")
+    print(
+        "Combined bounds: "
+        f"{result.get('combined_geometry_bounds')}"
+    )
     print(f"SVG: {result['output']}")
 
     return 0
