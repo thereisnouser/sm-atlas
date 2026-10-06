@@ -12,7 +12,11 @@ from .underground_features import (
     extract_caves,
     extract_pockets,
 )
-from .underground_tile_catalog import _name_tags, _tile_family, _tile_name
+from .underground_pockets import (
+    reconstruct_logical_pockets,
+    summarize_logical_pockets,
+)
+from .underground_tile_catalog import _tile_family, _tile_name
 from .underground_tile_metadata import UNDERGROUND_TILE_METADATA
 from .underground_tunnels import _load_terrain_table
 
@@ -353,6 +357,10 @@ def summarize_underground_layout(
     caves = extract_caves(value)
     pockets = extract_pockets(value)
     structures = reconstruct_logical_structures(caves)
+    logical_pockets = reconstruct_logical_pockets(
+        pockets,
+        _dimensions_from_name,
+    )
 
     structure_families = Counter(
         structure.family
@@ -367,15 +375,6 @@ def summarize_underground_layout(
         for structure in structures
     )
 
-    semantic_counts: Counter[str] = Counter()
-    for piece in pockets:
-        uuid = piece.tile_uuid or ""
-        meta = UNDERGROUND_TILE_METADATA.get(uuid)
-        if meta is None:
-            continue
-        path = str(meta["path"])
-        semantic_counts.update(_name_tags(path))
-
     return {
         "world_id": world_id,
         "row_id": row_id,
@@ -388,7 +387,8 @@ def summarize_underground_layout(
             structure.to_dict()
             for structure in structures
         ],
-        "pocket_dimension_validation": _validate_pocket_dimensions(pockets),
-        "pocket_semantic_counts": dict(semantic_counts.most_common()),
-        "explicit_passage_placements": semantic_counts.get("passage", 0),
+        "pocket_reconstruction": summarize_logical_pockets(
+            logical_pockets,
+            len(pockets),
+        ),
     }
