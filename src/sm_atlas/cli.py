@@ -2041,20 +2041,42 @@ def run_underground_layout(
         f"{result['logical_structures']}"
     )
 
-    pocket_validation = result["pocket_dimension_validation"]
+    pocket_reconstruction = result["pocket_reconstruction"]
+    print(f"Pocket fragments: {pocket_reconstruction['fragments']}")
     print(
-        "Pocket dimension validation: "
-        f"{pocket_validation['matched']}/"
-        f"{pocket_validation['checked']} matched "
-        f"({pocket_validation['mismatched']} mismatched)"
+        "Logical pocket placements: "
+        f"{pocket_reconstruction['logical_placements']}"
+    )
+    print(
+        "Split pocket placements: "
+        f"{pocket_reconstruction['split_placements']}"
+    )
+    print(
+        "Complete pocket placements: "
+        f"{pocket_reconstruction['complete']}/"
+        f"{pocket_reconstruction['logical_placements']}"
+    )
+    print(
+        "Pocket source coverage: "
+        f"{pocket_reconstruction['source_complete']}/"
+        f"{pocket_reconstruction['logical_placements']}"
+    )
+    print(
+        "Pocket dimension matches: "
+        f"{pocket_reconstruction['dimensions_match']}/"
+        f"{pocket_reconstruction['logical_placements']}"
+    )
+    print(
+        "Pocket fragment histogram: "
+        f"{pocket_reconstruction['fragment_count_histogram']}"
     )
     print(
         "Explicit passage placements: "
-        f"{result['explicit_passage_placements']}"
+        f"{pocket_reconstruction['explicit_passage_placements']}"
     )
     print(
         "Pocket semantic counts: "
-        f"{result['pocket_semantic_counts']}"
+        f"{pocket_reconstruction['semantic_counts']}"
     )
 
     if result["structures"]:
@@ -2074,16 +2096,19 @@ def run_underground_layout(
                 f"bounds={structure['bounds']}"
             )
 
-    if pocket_validation["examples"]:
+    if pocket_reconstruction["failure_examples"]:
         print()
-        print("Pocket dimension mismatches:")
-        for mismatch in pocket_validation["examples"]:
+        print("Pocket reconstruction failures:")
+        for failure in pocket_reconstruction["failure_examples"]:
             print(
-                f"  index={mismatch['tile_index']} "
-                f"name={mismatch['name']} "
-                f"rotation={mismatch['rotation']} "
-                f"actual={mismatch['actual']} "
-                f"expected={mismatch['expected']}"
+                f"  id={failure['id']} "
+                f"name={failure['name']} "
+                f"rotation={failure['rotation']} "
+                f"fragments={failure['fragments']} "
+                f"source_complete={failure['source_complete']} "
+                f"source_overlap_chunks={failure['source_overlap_chunks']} "
+                f"dimensions_match={failure['dimensions_match']} "
+                f"origin_chunks={failure['origin_chunks']}"
             )
 
     return 0
