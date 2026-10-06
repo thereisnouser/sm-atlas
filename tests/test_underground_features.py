@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from sm_atlas.formats.lua_values import LuaQuat, LuaVec3
 from sm_atlas.underground_features import (
     CHUNK_SIZE_METERS,
     CELL_SIZE_METERS,
     _decode_cave,
     _decode_pocket,
+    extract_spawners,
 )
 
 
@@ -72,3 +74,44 @@ def test_decode_pocket_piece_and_rotation() -> None:
     assert piece.rotation == 1
     assert piece.source_x == 3
     assert piece.source_y == 2
+
+
+def test_extract_spawners_uses_cell_local_position() -> None:
+    value = {
+        "spawners": {
+            -6: {
+                -3: {
+                    1: {
+                        "scale": LuaVec3(48.0, 48.0, 48.0),
+                        "tags": {
+                            1: "SPAWN_ENEMY_VOLUME_TRIGGER",
+                            2: "AREA_REACTION_TRIGGER",
+                        },
+                        "params": {
+                            "reactToVoxelDestruction": True,
+                            "triggerName": "Auto",
+                        },
+                        "pos": LuaVec3(8.0, 24.0, 40.0),
+                        "rot": LuaQuat(0.0, 0.0, 0.0, 1.0),
+                    }
+                }
+            }
+        }
+    }
+
+    spawners = extract_spawners(value)
+
+    assert len(spawners) == 1
+    spawner = spawners[0]
+    assert spawner.cell_x == -3
+    assert spawner.cell_y == -6
+    assert spawner.x == -3 * CELL_SIZE_METERS + 8.0
+    assert spawner.y == -6 * CELL_SIZE_METERS + 24.0
+    assert spawner.z == 40.0
+    assert spawner.scale_x == 48.0
+    assert spawner.tags == (
+        "SPAWN_ENEMY_VOLUME_TRIGGER",
+        "AREA_REACTION_TRIGGER",
+    )
+    assert spawner.trigger_name == "Auto"
+    assert spawner.react_to_voxel_destruction is True
