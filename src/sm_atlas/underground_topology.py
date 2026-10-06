@@ -48,6 +48,8 @@ class LayoutNode:
     max_y: float
     min_z: float
     max_z: float
+    tile_uuid: str | None = None
+    rotation: int = 0
 
     @property
     def center(self) -> tuple[float, float, float]:
@@ -421,6 +423,8 @@ def _node_from_pocket(
         max_y=placement.max_y,
         min_z=placement.min_z,
         max_z=placement.max_z,
+        tile_uuid=placement.tile_uuid,
+        rotation=placement.rotation,
     )
 
 
@@ -524,6 +528,8 @@ def build_layout_topology(
                 max_y=structure.max_y,
                 min_z=structure.min_z,
                 max_z=structure.max_z,
+                tile_uuid=structure.tile_uuid,
+                rotation=structure.rotation,
             )
         )
 

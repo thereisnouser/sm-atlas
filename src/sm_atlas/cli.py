@@ -25,6 +25,7 @@ from .terrain_tree_probe import probe_voxel_tree_encoding
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import write_underground_map
+from .underground_portals import summarize_saved_tunnel_portals
 from .underground_tile_catalog import summarize_underground_tiles
 from .underground_topology import build_layout_topology
 from .underground_tunnels import summarize_underground_tunnels
@@ -740,6 +741,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of highest-degree layout nodes to show.",
     )
     underground_topology_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    underground_portals_parser = subparsers.add_parser(
+        "underground-portals",
+        help="Infer observed tile portals from saved tunnel endpoints.",
+    )
+    underground_portals_parser.add_argument("save", type=Path)
+    underground_portals_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    underground_portals_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_portals_parser.add_argument(
+        "--attach-tolerance",
+        type=float,
+        default=4.0,
+        help="Maximum endpoint-to-tile distance in meters.",
+    )
+    underground_portals_parser.add_argument(
+        "--top",
+        type=int,
+        default=30,
+        help="Number of tile/rotation portal profiles to show.",
+    )
+    underground_portals_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -2263,6 +2299,82 @@ def run_underground_topology(
     return 0
 
 
+def run_underground_portals(
+    save: Path,
+    world_id: int,
+    limit: int,
+    attach_tolerance: float,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = summarize_saved_tunnel_portals(
+            database,
+            world_id=world_id,
+            limit=limit,
+            attach_tolerance=attach_tolerance,
+            top=top,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Logical nodes: {result['logical_nodes']}")
+    print(f"Observed tunnel endpoints: {result['observed_endpoints']}")
+    print(f"Nodes with endpoints: {result['nodes_with_endpoints']}")
+    print(f"Nearest faces: {result['face_counts']}")
+    print(f"Face-distance buckets: {result['distance_buckets']}")
+    print(f"Endpoint roles: {result['endpoint_roles']}")
+
+    if result["profiles"]:
+        print()
+        print("Observed portal profiles:")
+        for profile in result["profiles"]:
+            tags = ",".join(profile["tags"]) or "-"
+            print(
+                f"  endpoints={profile['endpoints']} "
+                f"placements={profile['placements_with_endpoints']} "
+                f"rotation={profile['rotation']} "
+                f"family={profile['family']} "
+                f"tags={tags} "
+                f"faces={profile['faces']} "
+                f"distance={profile['face_distance']} "
+                f"name={profile['tile_name']}"
+            )
+            print(
+                "    clusters4m: "
+                f"{profile['portal_clusters_4m']}"
+            )
+
+    if result["furthest_examples"]:
+        print()
+        print("Furthest endpoint-to-face examples:")
+        for endpoint in result["furthest_examples"]:
+            print(
+                f"  tunnel={endpoint['tunnel_id']}:{endpoint['side']} "
+                f"node={endpoint['node_id']} "
+                f"face={endpoint['face']} "
+                f"distance={endpoint['face_distance']} "
+                f"uv=({endpoint['u']}, {endpoint['v']}) "
+                f"rotation={endpoint['rotation']} "
+                f"name={endpoint['tile_name']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -2555,6 +2667,18 @@ def main() -> None:
                 args.save,
                 args.world,
                 args.limit,
+                args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-portals":
+        raise SystemExit(
+            run_underground_portals(
+                args.save,
+                args.world,
+                args.limit,
+                args.attach_tolerance,
                 args.top,
                 args.json,
             )
