@@ -70,35 +70,6 @@ def _geometry_bounds(
     ys: list[float] = []
     zs: list[float] = []
 
-    for index, spawner in enumerate(spawners, start=1):
-        x = sx(spawner.x)
-        y = sy(spawner.y)
-        opacity = 0.65 + 0.35 * z_ratio(spawner.z)
-        tags = ", ".join(spawner.tags) if spawner.tags else "untagged"
-        trigger = spawner.trigger_name or "unknown"
-        radius = 4.0
-
-        parts.append(
-            f'<g data-feature="spawner" data-index="{index}">'
-            f'<title>Spawner #{index} · {escape(tags)} · '
-            f'trigger {escape(trigger)} · '
-            f'XYZ {spawner.x:.1f}, {spawner.y:.1f}, {spawner.z:.1f} · '
-            f'scale {spawner.scale_x:.0f}×{spawner.scale_y:.0f}×'
-            f'{spawner.scale_z:.0f}</title>'
-            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius:.2f}" '
-            f'fill="#f85149" stroke="#ff7b72" stroke-width="1.5" '
-            f'opacity="{opacity:.3f}"/>'
-            f'<line x1="{x - 6:.2f}" y1="{y:.2f}" '
-            f'x2="{x + 6:.2f}" y2="{y:.2f}" '
-            f'stroke="#ff7b72" stroke-width="1.2" '
-            f'opacity="{opacity:.3f}"/>'
-            f'<line x1="{x:.2f}" y1="{y - 6:.2f}" '
-            f'x2="{x:.2f}" y2="{y + 6:.2f}" '
-            f'stroke="#ff7b72" stroke-width="1.2" '
-            f'opacity="{opacity:.3f}"/>'
-            "</g>"
-        )
-
     for tunnel in tunnels:
         for x, y, z in tunnel["points"]:
             xs.append(x)
@@ -320,6 +291,35 @@ def render_underground_map_svg(
             f'{pocket.width:.0f}×{pocket.depth:.0f} m</title>'
             f'<rect class="pocket" x="{x:.2f}" y="{y:.2f}" '
             f'width="{width:.2f}" height="{height:.2f}" '
+            f'opacity="{opacity:.3f}"/>'
+            "</g>"
+        )
+
+    for index, spawner in enumerate(spawners, start=1):
+        x = sx(spawner.x)
+        y = sy(spawner.y)
+        opacity = 0.65 + 0.35 * z_ratio(spawner.z)
+        tags = ", ".join(spawner.tags) if spawner.tags else "untagged"
+        trigger = spawner.trigger_name or "unknown"
+        radius = 4.0
+
+        parts.append(
+            f'<g data-feature="spawner" data-index="{index}">'
+            f'<title>Spawner #{index} · {escape(tags)} · '
+            f'trigger {escape(trigger)} · '
+            f'XYZ {spawner.x:.1f}, {spawner.y:.1f}, {spawner.z:.1f} · '
+            f'scale {spawner.scale_x:.0f}×{spawner.scale_y:.0f}×'
+            f'{spawner.scale_z:.0f}</title>'
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius:.2f}" '
+            f'fill="#f85149" stroke="#ff7b72" stroke-width="1.5" '
+            f'opacity="{opacity:.3f}"/>'
+            f'<line x1="{x - 6:.2f}" y1="{y:.2f}" '
+            f'x2="{x + 6:.2f}" y2="{y:.2f}" '
+            f'stroke="#ff7b72" stroke-width="1.2" '
+            f'opacity="{opacity:.3f}"/>'
+            f'<line x1="{x:.2f}" y1="{y - 6:.2f}" '
+            f'x2="{x:.2f}" y2="{y + 6:.2f}" '
+            f'stroke="#ff7b72" stroke-width="1.2" '
             f'opacity="{opacity:.3f}"/>'
             "</g>"
         )
