@@ -5,6 +5,7 @@ from sm_atlas.underground_portals import (
     _distance_bucket,
     _nearest_face,
     _ray_exit,
+    _tile_local_to_world,
 )
 from sm_atlas.underground_topology import LayoutNode
 
@@ -93,3 +94,54 @@ def test_distance_bucket_boundaries() -> None:
     assert _distance_bucket(12.0) == "<=16m"
     assert _distance_bucket(20.0) == "<=32m"
     assert _distance_bucket(40.0) == ">32m"
+
+
+
+def test_tile_local_to_world_applies_rotated_placement() -> None:
+    node = make_node(
+        name="drill2_tunnelpocket_small_passage_08_2x3x2.tile",
+        rotation=1,
+        min_x=32.0,
+        max_x=80.0,
+        min_y=-112.0,
+        max_y=-80.0,
+        min_z=64.0,
+        max_z=96.0,
+    )
+
+    world = _tile_local_to_world(
+        node,
+        (18.666664, 2.666667, 8.0),
+    )
+
+    assert world is not None
+    assert world == (
+        77.333333,
+        -93.333336,
+        72.0,
+    )
+
+
+def test_tile_local_to_world_matches_elevator_cell_offset() -> None:
+    node = make_node(
+        name="drill2_elevator_12x8x8.tile",
+        rotation=0,
+        min_x=-64.0,
+        max_x=128.0,
+        min_y=-64.0,
+        max_y=64.0,
+        min_z=32.0,
+        max_z=160.0,
+    )
+
+    world = _tile_local_to_world(
+        node,
+        (157.333344, 2.666667, 34.666668),
+    )
+
+    assert world is not None
+    assert world == (
+        93.333344,
+        -61.333333,
+        66.666668,
+    )
