@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from .database import InvalidSaveFile, SaveDatabase
+from .portals import probe_portals, summarize_portal_probe
 from .discovery import find_survival_saves
 from .terrain import summarize_voxel_terrain
 from .terrain_chunks import summarize_voxel_chunks
@@ -94,6 +95,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only show connections touching an Underground world.",
     )
     graph_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    portal_probe_parser = subparsers.add_parser(
+        "portal-probe",
+        help="Inspect raw Portal rows and probe the serialized portal blob.",
+    )
+    portal_probe_parser.add_argument("save", type=Path)
+    portal_probe_parser.add_argument(
+        "--world",
+        type=int,
+        help="Only portals touching this world ID.",
+    )
+    portal_probe_parser.add_argument(
+        "--id",
+        type=int,
+        dest="portal_id",
+        help="Only inspect a specific portal ID.",
+    )
+    portal_probe_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -951,6 +974,65 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def run_portal_probe(
+    save: Path,
+    world_id: int | None,
+    portal_id: int | None,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = summarize_portal_probe(
+            probe_portals(
+                database,
+                world_id=world_id,
+                portal_id=portal_id,
+            )
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        KeyError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    if not result:
+        print("No matching portals.")
+        return 0
+
+    for portal in result:
+        world_a = portal["world_a"]
+        world_b = portal["world_b"]
+        print(
+            f"Portal {portal['id']}: "
+            f"world {world_a['id']} cell={tuple(world_a['cell'])} "
+            f"<-> world {world_b['id']} cell={tuple(world_b['cell'])}"
+        )
+        print(
+            f"  blob_size={portal['blob_size']} "
+            f"header_matches_columns={portal['header_matches_columns']}"
+        )
+        print(f"  header={portal['header']}")
+        print(f"  blob_hex={portal['blob_hex']}")
+        print("  float32_be_from_29:")
+        for item in portal["float32_be_from_29"]:
+            print(
+                f"    offset={item['offset']:3d} "
+                f"hex={item['hex']} "
+                f"value={item['value']}"
+            )
+
+    return 0
 
 
 def run_saves(root: Path | None, as_json: bool) -> int:
@@ -2935,6 +3017,16 @@ def main() -> None:
 
     if args.command == "inspect":
         raise SystemExit(run_inspect(args.save, args.json))
+
+    if args.command == "portal-probe":
+        raise SystemExit(
+            run_portal_probe(
+                args.save,
+                args.world,
+                args.portal_id,
+                args.json,
+            )
+        )
 
     if args.command == "worlds":
         raise SystemExit(run_worlds(args.save, args.json))
