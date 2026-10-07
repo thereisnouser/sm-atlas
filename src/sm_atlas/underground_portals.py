@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from math import sqrt
 
 from .database import SaveDatabase
+from .portals import discover_portals
 from .underground_features import extract_caves, extract_pockets
 from .underground_layout import (
     _dimensions_from_name,
@@ -697,4 +698,129 @@ def summarize_saved_tunnel_portals(
                 ),
             )[:10]
         ],
+    }
+
+
+def summarize_underground_node(
+    database: SaveDatabase,
+    *,
+    world_id: int,
+    node_id: int,
+    limit: int = 5000,
+    attach_tolerance: float = 4.0,
+) -> dict[str, object]:
+    nodes, observed = observe_saved_tunnel_portals(
+        database,
+        world_id=world_id,
+        limit=limit,
+        attach_tolerance=attach_tolerance,
+    )
+    node_lookup = {
+        node.node_id: node
+        for node in nodes
+    }
+    node = node_lookup.get(node_id)
+    if node is None:
+        raise ValueError(
+            f"unknown underground node {node_id}; "
+            f"known range: 1..{len(nodes)}"
+        )
+
+    tunnel_endpoints = [
+        portal.to_dict()
+        for portal in observed
+        if portal.node_id == node_id
+    ]
+
+    saved_portals = []
+    for portal in discover_portals(database):
+        decoded = portal.decoded
+        if decoded is None:
+            continue
+
+        candidates = [
+            (
+                "a",
+                portal.world_id_a,
+                decoded.position_a,
+                decoded.rotation_a,
+            )
+        ]
+        if (
+            decoded.position_b is not None
+            and decoded.rotation_b is not None
+        ):
+            candidates.append(
+                (
+                    "b",
+                    portal.world_id_b,
+                    decoded.position_b,
+                    decoded.rotation_b,
+                )
+            )
+
+        for side, endpoint_world, position, rotation in candidates:
+            if endpoint_world != world_id:
+                continue
+            if not _point_inside(position, node):
+                continue
+
+            saved_portals.append(
+                {
+                    "portal_id": portal.portal_id,
+                    "side": side,
+                    "position": tuple(
+                        round(value, 6)
+                        for value in position
+                    ),
+                    "rotation": tuple(
+                        round(value, 9)
+                        for value in rotation
+                    ),
+                    "dimensions": tuple(
+                        round(value, 6)
+                        for value in decoded.dimensions
+                    ),
+                }
+            )
+
+    tunnel_endpoints.sort(
+        key=lambda item: (
+            item["tunnel_id"],
+            item["side"],
+        )
+    )
+    saved_portals.sort(
+        key=lambda item: (
+            item["portal_id"],
+            item["side"],
+        )
+    )
+
+    return {
+        "world_id": world_id,
+        "node": {
+            "id": node.node_id,
+            "kind": node.kind,
+            "role": node.semantic_role,
+            "name": node.name,
+            "family": node.family,
+            "tags": list(node.tags),
+            "tile_uuid": node.tile_uuid,
+            "rotation": node.rotation,
+            "bounds": {
+                "min_x": node.min_x,
+                "max_x": node.max_x,
+                "min_y": node.min_y,
+                "max_y": node.max_y,
+                "min_z": node.min_z,
+                "max_z": node.max_z,
+            },
+            "center": tuple(
+                round(value, 6)
+                for value in node.center
+            ),
+        },
+        "saved_world_portals": saved_portals,
+        "observed_tunnel_endpoints": tunnel_endpoints,
     }
