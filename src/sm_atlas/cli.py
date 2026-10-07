@@ -1050,14 +1050,28 @@ def run_portal_probe(
             f"header_matches_columns={portal['header_matches_columns']}"
         )
         print(f"  header={portal['header']}")
-        print(f"  blob_hex={portal['blob_hex']}")
-        print("  float32_be_from_29:")
-        for item in portal["float32_be_from_29"]:
+        decoded = portal["decoded"]
+        print(
+            "  decoded_matches_columns="
+            f"{portal['decoded_matches_columns']}"
+        )
+        if decoded is not None:
+            print(f"  dimensions={tuple(decoded['dimensions'])}")
+            for side_name in ("side_a", "side_b"):
+                side = decoded[side_name]
+                print(
+                    f"  {side_name}: "
+                    f"prefix={side['prefix']} "
+                    f"world={side['world_id']} "
+                    f"cell={tuple(side['cell'])} "
+                    f"position={tuple(side['position'])} "
+                    f"rotation={tuple(side['rotation'])}"
+                )
             print(
-                f"    offset={item['offset']:3d} "
-                f"hex={item['hex']} "
-                f"value={item['value']}"
+                f"  tail_bit_offset={decoded['tail_bit_offset']} "
+                f"tail_bits={decoded['tail_bits']}"
             )
+        print(f"  blob_hex={portal['blob_hex']}")
 
     return 0
 
