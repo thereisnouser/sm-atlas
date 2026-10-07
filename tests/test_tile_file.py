@@ -183,3 +183,35 @@ def test_decode_tunnel_node_chunk_reads_transform_and_params() -> None:
         }
     }
     assert node["record_size"] == len(record)
+
+
+
+def test_decode_tunnel_node_chunk_finds_tunnels_in_mixed_groups() -> None:
+    transform = (
+        struct.pack("<3f", 34.666668, 2.666667, 29.333334)
+        + struct.pack("<4f", 1.0, 0.0, 0.0, 0.0)
+        + struct.pack("<3f", 4.0, 4.0, 4.0)
+    )
+    metadata = bytes.fromhex(
+        "0100470000004c554100000001050000000102000000030074756e6e656c"
+        "0c866c52e429a84bbf3341b2bf7b626186"
+    )
+    params = b'{"tunnel":{"type":"Main"}}'
+    record = (
+        transform
+        + metadata
+        + len(params).to_bytes(4, "big")
+        + params
+    )
+
+    mixed = b"\x03OTHERGROUPDATA" + record + b"TRAILER"
+    nodes = decode_tunnel_node_chunk(
+        mixed,
+        expected_count=15,
+    )
+
+    assert len(nodes) == 1
+    assert nodes[0]["position"] == pytest.approx(
+        (34.666668, 2.666667, 29.333334),
+    )
+    assert nodes[0]["params"]["tunnel"]["type"] == "Main"
