@@ -34,7 +34,10 @@ from .underground_map import (
     write_underground_route_map,
 )
 from .underground_navigation import build_navigation_candidate_graph
-from .underground_portals import summarize_saved_tunnel_portals
+from .underground_portals import (
+    summarize_saved_tunnel_portals,
+    summarize_underground_node,
+)
 from .underground_routes import find_transit_route
 from .underground_tile_catalog import summarize_underground_tiles
 from .underground_topology import build_layout_topology
@@ -831,6 +834,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of tile/rotation portal profiles to show.",
     )
     underground_portals_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    underground_node_parser = subparsers.add_parser(
+        "underground-node",
+        help="Inspect one reconstructed underground node and its portal endpoints.",
+    )
+    underground_node_parser.add_argument("save", type=Path)
+    underground_node_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID containing the node.",
+    )
+    underground_node_parser.add_argument(
+        "--node",
+        type=int,
+        required=True,
+        help="Reconstructed underground node ID.",
+    )
+    underground_node_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_node_parser.add_argument(
+        "--attach-tolerance",
+        type=float,
+        default=4.0,
+        help="Maximum tunnel endpoint-to-tile distance in meters.",
+    )
+    underground_node_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -2748,6 +2786,79 @@ def run_underground_portals(
     return 0
 
 
+def run_underground_node(
+    save: Path,
+    world_id: int,
+    node_id: int,
+    limit: int,
+    attach_tolerance: float,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = summarize_underground_node(
+            database,
+            world_id=world_id,
+            node_id=node_id,
+            limit=limit,
+            attach_tolerance=attach_tolerance,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    node = result["node"]
+    print(
+        f"World {result['world_id']} node {node['id']}: "
+        f"role={node['role']} family={node['family']} "
+        f"rotation={node['rotation']}"
+    )
+    print(f"  name={node['name']}")
+    print(f"  uuid={node['tile_uuid']}")
+    print(f"  tags={node['tags']}")
+    print(f"  bounds={node['bounds']}")
+    print(f"  center={node['center']}")
+
+    print("  saved world portals:")
+    if not result["saved_world_portals"]:
+        print("    none")
+    for portal in result["saved_world_portals"]:
+        print(
+            f"    portal={portal['portal_id']}:{portal['side']} "
+            f"position={portal['position']} "
+            f"rotation={portal['rotation']} "
+            f"dimensions={portal['dimensions']}"
+        )
+
+    print("  observed tunnel endpoints:")
+    if not result["observed_tunnel_endpoints"]:
+        print("    none")
+    for endpoint in result["observed_tunnel_endpoints"]:
+        print(
+            f"    tunnel={endpoint['tunnel_id']}:{endpoint['side']} "
+            f"method={endpoint['method']} "
+            f"endpoint={endpoint['endpoint']} "
+            f"portal={endpoint['portal']} "
+            f"world_face={endpoint['world_face']} "
+            f"canonical={endpoint['canonical_face']} "
+            f"uv=({endpoint['canonical_u']}, "
+            f"{endpoint['canonical_v']}) "
+            f"ray_distance={endpoint['ray_distance']}"
+        )
+
+    return 0
+
+
 def run_underground_navigation(
     save: Path,
     world_id: int,
@@ -3429,6 +3540,18 @@ def main() -> None:
                 args.limit,
                 args.attach_tolerance,
                 args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-node":
+        raise SystemExit(
+            run_underground_node(
+                args.save,
+                args.world,
+                args.node,
+                args.limit,
+                args.attach_tolerance,
                 args.json,
             )
         )
