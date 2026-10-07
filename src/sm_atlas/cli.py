@@ -34,6 +34,7 @@ from .tile_file import (
     probe_tile_nodes,
     probe_tile_voxels,
 )
+from .tile_voxel_space import probe_tile_voxel_space
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -153,6 +154,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of voxel records to print per chunk.",
     )
     tile_voxel_probe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    tile_voxel_space_parser = subparsers.add_parser(
+        "tile-voxel-space",
+        help="Find candidate connected voids and classify tile tunnel sockets.",
+    )
+    tile_voxel_space_parser.add_argument("tile", type=Path)
+    tile_voxel_space_parser.add_argument(
+        "--density-threshold",
+        type=int,
+        default=8,
+        help="Treat low density nibbles below this as candidate void (1..15).",
+    )
+    tile_voxel_space_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1294,6 +1312,61 @@ def run_tile_voxel_probe(
                 f"densities={item['density_histogram']}"
             )
 
+    return 0
+
+
+def run_tile_voxel_space(
+    tile: Path,
+    density_threshold: int,
+    as_json: bool,
+) -> int:
+    try:
+        result = probe_tile_voxel_space(
+            tile,
+            density_threshold=density_threshold,
+        )
+    except (
+        FileNotFoundError,
+        InvalidTileFile,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Tile: {result['tile']}")
+    print(
+        f"Candidate voxel space: dims={result['dimensions_m']} "
+        f"density_threshold={result['density_threshold']} "
+        f"components={result['component_count']} "
+        f"unknown={result['unknown_voxels']}"
+    )
+    for component in result["major_components"][:20]:
+        print(
+            f"  component={component['id']} "
+            f"voxels={component['voxels']} "
+            f"bounds={component['min']}..{component['max']}"
+        )
+    print("Tunnel socket -> candidate void component:")
+    for socket in result["sockets"]:
+        near = socket["nearest"]
+        detail = (
+            "unmatched"
+            if near is None
+            else (
+                f"component={near['component']} "
+                f"dist={near['distance_m']}m"
+            )
+        )
+        print(
+            f"  {socket['socket']} type={socket['type']} "
+            f"pos={socket['tile_position']} -> {detail}"
+        )
+    print("WARNING: voxel candidate connectivity is not a walkable-path test.")
     return 0
 
 
@@ -3632,6 +3705,15 @@ def main() -> None:
                 args.tile,
                 args.cell,
                 args.examples,
+                args.json,
+            )
+        )
+
+    if args.command == "tile-voxel-space":
+        raise SystemExit(
+            run_tile_voxel_space(
+                args.tile,
+                args.density_threshold,
                 args.json,
             )
         )
