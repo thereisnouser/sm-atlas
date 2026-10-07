@@ -3,8 +3,11 @@ from __future__ import annotations
 import struct
 
 from sm_atlas.portals import (
+    _common_prefix_length,
+    _common_suffix_length,
     _decode_portal_blob_header,
     _header_matches_columns,
+    _opening_a_position_candidate,
     _scan_aligned_be_floats,
 )
 
@@ -25,6 +28,7 @@ def portal_blob() -> bytes:
             (23).to_bytes(2, "big"),
             struct.pack(">f", 21.0),
             struct.pack(">f", -3.5),
+            struct.pack(">f", 0.0),
         )
     )
 
@@ -61,3 +65,22 @@ def test_scan_portal_floats_after_fixed_header() -> None:
     assert values[0]["value"] == 21.0
     assert values[1]["offset"] == 33
     assert values[1]["value"] == -3.5
+
+
+def test_opening_a_position_candidate_decodes_first_vec3() -> None:
+    assert _opening_a_position_candidate(portal_blob()) == (
+        21.0,
+        -3.5,
+        0.0,
+    )
+
+
+def test_common_prefix_and_suffix_lengths() -> None:
+    values = [
+        bytes.fromhex("aabbcc001122"),
+        bytes.fromhex("aabbddff1122"),
+        bytes.fromhex("aabbeeff1122"),
+    ]
+
+    assert _common_prefix_length(values) == 2
+    assert _common_suffix_length(values) == 2

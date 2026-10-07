@@ -6,7 +6,11 @@ import sqlite3
 from pathlib import Path
 
 from .database import InvalidSaveFile, SaveDatabase
-from .portals import probe_portals, summarize_portal_probe
+from .portals import (
+    compare_portal_payloads,
+    probe_portals,
+    summarize_portal_probe,
+)
 from .discovery import find_survival_saves
 from .terrain import summarize_voxel_terrain
 from .terrain_chunks import summarize_voxel_chunks
@@ -117,6 +121,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only inspect a specific portal ID.",
     )
     portal_probe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    portal_compare_parser = subparsers.add_parser(
+        "portal-compare",
+        help="Compare serialized portal payloads sharing the same world/cell side.",
+    )
+    portal_compare_parser.add_argument("save", type=Path)
+    portal_compare_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID used for grouping.",
+    )
+    portal_compare_parser.add_argument(
+        "--side",
+        choices=("a", "b"),
+        default="a",
+        help="Portal side to group by (default: a).",
+    )
+    portal_compare_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1030,6 +1057,77 @@ def run_portal_probe(
                 f"    offset={item['offset']:3d} "
                 f"hex={item['hex']} "
                 f"value={item['value']}"
+            )
+
+    return 0
+
+
+def run_portal_compare(
+    save: Path,
+    world_id: int,
+    side: str,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = compare_portal_payloads(
+            database,
+            world_id=world_id,
+            side=side,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        KeyError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    if not result:
+        print("No matching portal groups.")
+        return 0
+
+    for group in result:
+        print(
+            f"Side {group['side'].upper()} world={group['world_id']} "
+            f"cell={tuple(group['cell'])} "
+            f"portals={group['count']}"
+        )
+        if group["opening_a_position_candidate"] is not None:
+            print(
+                "  opening_a_position_candidate="
+                f"{tuple(group['opening_a_position_candidate'])}"
+            )
+        print(
+            "  payload common prefix: "
+            f"{group['payload_common_prefix_bytes']} bytes"
+        )
+        print(
+            "  payload common suffix: "
+            f"{group['payload_common_suffix_bytes']} bytes"
+        )
+        print(
+            "  prefix_hex="
+            f"{group['payload_common_prefix_hex']}"
+        )
+        print(
+            "  suffix_hex="
+            f"{group['payload_common_suffix_hex']}"
+        )
+        print("  members:")
+        for member in group["portals"]:
+            print(
+                f"    id={member['id']} "
+                f"other_world={member['other_world']} "
+                f"other_cell={tuple(member['other_cell'])} "
+                f"blob_size={member['blob_size']}"
             )
 
     return 0
@@ -3024,6 +3122,16 @@ def main() -> None:
                 args.save,
                 args.world,
                 args.portal_id,
+                args.json,
+            )
+        )
+
+    if args.command == "portal-compare":
+        raise SystemExit(
+            run_portal_compare(
+                args.save,
+                args.world,
+                args.side,
                 args.json,
             )
         )

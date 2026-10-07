@@ -72,6 +72,7 @@ class PortalProbe:
     header: dict[str, object] | None
     header_matches_columns: bool | None
     float32_be_from_29: tuple[dict[str, object], ...]
+    opening_a_position_candidate: tuple[float, float, float] | None
 
 
 def _decode_portal_blob_header(
@@ -150,6 +151,50 @@ def _header_matches_columns(
         and header["x_b"] == x_b
         and header["y_b"] == y_b
     )
+
+
+def _opening_a_position_candidate(
+    data: bytes,
+) -> tuple[float, float, float] | None:
+    if len(data) < 41:
+        return None
+
+    values = struct.unpack(
+        ">3f",
+        data[29:41],
+    )
+    if not all(math.isfinite(value) for value in values):
+        return None
+
+    return tuple(float(value) for value in values)
+
+
+def _common_prefix_length(
+    values: list[bytes],
+) -> int:
+    if not values:
+        return 0
+
+    limit = min(len(value) for value in values)
+    for index in range(limit):
+        byte = values[0][index]
+        if any(value[index] != byte for value in values[1:]):
+            return index
+    return limit
+
+
+def _common_suffix_length(
+    values: list[bytes],
+) -> int:
+    if not values:
+        return 0
+
+    limit = min(len(value) for value in values)
+    for size in range(1, limit + 1):
+        byte = values[0][-size]
+        if any(value[-size] != byte for value in values[1:]):
+            return size - 1
+    return limit
 
 
 def _scan_aligned_be_floats(
@@ -256,6 +301,9 @@ def probe_portals(
                 float32_be_from_29=_scan_aligned_be_floats(
                     data,
                 ),
+                opening_a_position_candidate=(
+                    _opening_a_position_candidate(data)
+                ),
             )
         )
 
@@ -282,9 +330,159 @@ def summarize_portal_probe(
             "header_matches_columns": (
                 probe.header_matches_columns
             ),
+            "opening_a_position_candidate": (
+                None
+                if probe.opening_a_position_candidate is None
+                else [
+                    round(value, 6)
+                    for value
+                    in probe.opening_a_position_candidate
+                ]
+            ),
             "float32_be_from_29": list(
                 probe.float32_be_from_29
             ),
         }
         for probe in probes
     ]
+
+
+def compare_portal_payloads(
+    database: SaveDatabase,
+    *,
+    world_id: int,
+    side: str = "a",
+) -> list[dict[str, object]]:
+    normalized_side = side.strip().lower()
+    if normalized_side not in {"a", "b"}:
+        raise ValueError("side must be 'a' or 'b'")
+
+    column = (
+        "worldIdA"
+        if normalized_side == "a"
+        else "worldIdB"
+    )
+
+    with database.connect() as connection:
+        database._require_table(connection, "Portal")
+        rows = connection.execute(
+            f"""
+            SELECT
+                id,
+                worldIdA,
+                xA,
+                yA,
+                worldIdB,
+                xB,
+                yB,
+                data
+            FROM Portal
+            WHERE {column} = ?
+            ORDER BY id
+            """,
+            (world_id,),
+        ).fetchall()
+
+    groups: dict[
+        tuple[int, int, int],
+        list[dict[str, object]],
+    ] = {}
+
+    for row in rows:
+        if normalized_side == "a":
+            key = (
+                int(row["worldIdA"]),
+                int(row["xA"]),
+                int(row["yA"]),
+            )
+        else:
+            key = (
+                int(row["worldIdB"]),
+                int(row["xB"]),
+                int(row["yB"]),
+            )
+
+        groups.setdefault(key, []).append(
+            {
+                "id": int(row["id"]),
+                "world_id_a": int(row["worldIdA"]),
+                "x_a": int(row["xA"]),
+                "y_a": int(row["yA"]),
+                "world_id_b": int(row["worldIdB"]),
+                "x_b": int(row["xB"]),
+                "y_b": int(row["yB"]),
+                "data": bytes(row["data"] or b""),
+            }
+        )
+
+    result = []
+
+    for key, items in sorted(groups.items()):
+        payloads = [
+            item["data"][29:]
+            for item in items
+            if len(item["data"]) >= 29
+        ]
+        prefix_length = _common_prefix_length(payloads)
+        suffix_length = _common_suffix_length(payloads)
+
+        first_payload = (
+            payloads[0]
+            if payloads
+            else b""
+        )
+        position_candidate = (
+            _opening_a_position_candidate(
+                items[0]["data"]
+            )
+            if normalized_side == "a"
+            else None
+        )
+
+        result.append(
+            {
+                "side": normalized_side,
+                "world_id": key[0],
+                "cell": [key[1], key[2]],
+                "portals": [
+                    {
+                        "id": item["id"],
+                        "other_world": (
+                            item["world_id_b"]
+                            if normalized_side == "a"
+                            else item["world_id_a"]
+                        ),
+                        "other_cell": (
+                            [item["x_b"], item["y_b"]]
+                            if normalized_side == "a"
+                            else [item["x_a"], item["y_a"]]
+                        ),
+                        "blob_size": len(item["data"]),
+                    }
+                    for item in items
+                ],
+                "count": len(items),
+                "payload_common_prefix_bytes": prefix_length,
+                "payload_common_prefix_hex": (
+                    first_payload[:prefix_length].hex()
+                ),
+                "payload_common_suffix_bytes": suffix_length,
+                "payload_common_suffix_hex": (
+                    first_payload[
+                        len(first_payload) - suffix_length:
+                    ].hex()
+                    if suffix_length
+                    else ""
+                ),
+                "opening_a_position_candidate": (
+                    None
+                    if position_candidate is None
+                    else [
+                        round(value, 6)
+                        for value in position_candidate
+                    ]
+                ),
+            }
+        )
+
+    return result
