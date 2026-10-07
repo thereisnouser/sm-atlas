@@ -672,6 +672,8 @@ def probe_tile_voxels(
             total_payload_bytes += len(payload)
 
             local_hist = [0] * 256
+            material_hist = [0] * 8
+            density_hist = [0] * 16
             for value in payload:
                 local_hist[value] += 1
                 global_histogram[value] += 1
