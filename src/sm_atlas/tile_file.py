@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -212,6 +214,187 @@ def _chunk_present(chunk: TileChunk) -> bool:
         and chunk.compressed_size > 0
         and chunk.uncompressed_size > 0
     )
+
+
+def _read_lz4_length(
+    data: bytes,
+    offset: int,
+    initial: int,
+) -> tuple[int, int]:
+    length = initial
+    if initial != 15:
+        return length, offset
+
+    while True:
+        if offset >= len(data):
+            raise InvalidTileFile("truncated LZ4 length")
+        value = data[offset]
+        offset += 1
+        length += value
+        if value != 255:
+            return length, offset
+
+
+def decompress_lz4_block(
+    data: bytes,
+    *,
+    expected_size: int | None = None,
+) -> bytes:
+    """Decode a raw LZ4 block without adding a runtime dependency."""
+
+    output = bytearray()
+    offset = 0
+
+    while offset < len(data):
+        token = data[offset]
+        offset += 1
+
+        literal_length, offset = _read_lz4_length(
+            data,
+            offset,
+            token >> 4,
+        )
+        literal_end = offset + literal_length
+        if literal_end > len(data):
+            raise InvalidTileFile("truncated LZ4 literals")
+
+        output.extend(data[offset:literal_end])
+        offset = literal_end
+
+        if offset == len(data):
+            break
+
+        if offset + 2 > len(data):
+            raise InvalidTileFile("truncated LZ4 match offset")
+        match_offset = int.from_bytes(
+            data[offset:offset + 2],
+            "little",
+        )
+        offset += 2
+        if match_offset <= 0 or match_offset > len(output):
+            raise InvalidTileFile(
+                f"invalid LZ4 match offset {match_offset}"
+            )
+
+        match_length, offset = _read_lz4_length(
+            data,
+            offset,
+            token & 0x0F,
+        )
+        match_length += 4
+
+        start = len(output) - match_offset
+        for index in range(match_length):
+            output.append(output[start + index])
+
+    result = bytes(output)
+    if (
+        expected_size is not None
+        and len(result) != expected_size
+    ):
+        raise InvalidTileFile(
+            "LZ4 size mismatch: "
+            f"expected {expected_size}, got {len(result)}"
+        )
+    return result
+
+
+def _ascii_strings(
+    data: bytes,
+    *,
+    minimum_length: int = 4,
+) -> list[str]:
+    pattern = rb"[ -~]{" + str(minimum_length).encode() + rb",}"
+    return [
+        match.group(0).decode("ascii")
+        for match in re.finditer(pattern, data)
+    ]
+
+
+def _float32_candidates(
+    data: bytes,
+    *,
+    limit: int = 64,
+) -> list[dict[str, object]]:
+    values: list[dict[str, object]] = []
+    for offset in range(0, len(data) - 3, 4):
+        value = struct.unpack_from("<f", data, offset)[0]
+        if not (-100000.0 <= value <= 100000.0):
+            continue
+        if value != value:
+            continue
+        if abs(value) < 1e-12 and value != 0.0:
+            continue
+        values.append(
+            {
+                "offset": offset,
+                "hex": data[offset:offset + 4].hex(),
+                "value": round(float(value), 9),
+            }
+        )
+        if len(values) >= limit:
+            break
+    return values
+
+
+def probe_tile_chunks(
+    path: str | Path,
+    *,
+    kind: str,
+    cell: int | None = None,
+    full_hex: bool = False,
+) -> dict[str, object]:
+    tile_path = Path(path).expanduser().resolve()
+    tile = probe_tile(tile_path)
+    data = tile_path.read_bytes()
+
+    selected = [
+        chunk
+        for chunk in tile["chunks"]
+        if chunk["kind"] == kind
+        and (cell is None or chunk["cell"] == cell)
+    ]
+    if not selected:
+        raise ValueError(
+            f"no {kind!r} chunks"
+            + (
+                ""
+                if cell is None
+                else f" in cell {cell}"
+            )
+        )
+
+    chunks = []
+    for meta in selected:
+        compressed = data[
+            meta["index"]:
+            meta["index"] + meta["compressed_size"]
+        ]
+        decoded = decompress_lz4_block(
+            compressed,
+            expected_size=meta["uncompressed_size"],
+        )
+
+        item = dict(meta)
+        item.update(
+            {
+                "sha256": hashlib.sha256(decoded).hexdigest(),
+                "decoded_size": len(decoded),
+                "hex_prefix": decoded[:128].hex(),
+                "hex_suffix": decoded[-64:].hex(),
+                "ascii_strings": _ascii_strings(decoded),
+                "float32_le_candidates": _float32_candidates(decoded),
+            }
+        )
+        if full_hex:
+            item["hex"] = decoded.hex()
+        chunks.append(item)
+
+    return {
+        "path": str(tile_path),
+        "kind": kind,
+        "chunks": chunks,
+    }
 
 
 def probe_tile(path: str | Path) -> dict[str, object]:
