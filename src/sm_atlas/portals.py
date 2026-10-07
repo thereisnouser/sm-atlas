@@ -59,6 +59,42 @@ def discover_portals(
 
 
 @dataclass(frozen=True)
+class DecodedPortalBlob:
+    dimensions: tuple[float, float, float]
+    side_a_prefix: int
+    world_id_a: int
+    position_a: tuple[float, float, float]
+    rotation_a: tuple[float, float, float, float]
+    side_b_prefix: int
+    world_id_b: int
+    position_b: tuple[float, float, float]
+    rotation_b: tuple[float, float, float, float]
+    tail_bit_offset: int
+    tail_bits: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "dimensions": list(self.dimensions),
+            "side_a": {
+                "prefix": self.side_a_prefix,
+                "world_id": self.world_id_a,
+                "position": list(self.position_a),
+                "rotation": list(self.rotation_a),
+                "cell": list(_position_to_cell(self.position_a)),
+            },
+            "side_b": {
+                "prefix": self.side_b_prefix,
+                "world_id": self.world_id_b,
+                "position": list(self.position_b),
+                "rotation": list(self.rotation_b),
+                "cell": list(_position_to_cell(self.position_b)),
+            },
+            "tail_bit_offset": self.tail_bit_offset,
+            "tail_bits": self.tail_bits,
+        }
+
+
+@dataclass(frozen=True)
 class PortalProbe:
     portal_id: int
     world_id_a: int
@@ -71,6 +107,8 @@ class PortalProbe:
     blob_hex: str
     header: dict[str, object] | None
     header_matches_columns: bool | None
+    decoded: DecodedPortalBlob | None
+    decoded_matches_columns: bool | None
     float32_be_from_29: tuple[dict[str, object], ...]
     opening_a_position_candidate: tuple[float, float, float] | None
 
@@ -150,6 +188,177 @@ def _header_matches_columns(
         and header["world_id_b"] == world_id_b
         and header["x_b"] == x_b
         and header["y_b"] == y_b
+    )
+
+
+def _read_unsigned_bits(
+    data: bytes,
+    bit_offset: int,
+    bit_count: int,
+) -> int:
+    if bit_offset < 0:
+        raise ValueError("bit_offset must be non-negative")
+    if bit_count < 0:
+        raise ValueError("bit_count must be non-negative")
+    if bit_offset + bit_count > len(data) * 8:
+        raise ValueError("requested bits exceed portal blob")
+
+    value = 0
+    for offset in range(bit_offset, bit_offset + bit_count):
+        byte = data[offset // 8]
+        shift = 7 - (offset % 8)
+        value = (value << 1) | ((byte >> shift) & 1)
+    return value
+
+
+def _read_float32_bits(
+    data: bytes,
+    bit_offset: int,
+) -> float:
+    raw = _read_unsigned_bits(data, bit_offset, 32)
+    return float(
+        struct.unpack(
+            ">f",
+            raw.to_bytes(4, "big"),
+        )[0]
+    )
+
+
+def _read_float_tuple(
+    data: bytes,
+    bit_offset: int,
+    count: int,
+) -> tuple[float, ...]:
+    return tuple(
+        _read_float32_bits(data, bit_offset + index * 32)
+        for index in range(count)
+    )
+
+
+def _position_to_cell(
+    position: tuple[float, float, float],
+    *,
+    cell_size: float = 64.0,
+) -> tuple[int, int]:
+    if cell_size <= 0.0:
+        raise ValueError("cell_size must be positive")
+
+    return (
+        math.floor(position[0] / cell_size),
+        math.floor(position[1] / cell_size),
+    )
+
+
+def decode_portal_blob(
+    data: bytes,
+) -> DecodedPortalBlob | None:
+    """Decode the experimentally identified transform section of Portal.data.
+
+    The first 29 bytes are the fixed database/header mirror. Bytes 29..40 are
+    an aligned Vec3 of portal dimensions. The remaining known transform fields
+    are bit-packed MSB-first, so side A/B fields are not byte-aligned.
+    """
+
+    minimum_bits = 812
+    if len(data) * 8 < minimum_bits:
+        return None
+
+    dimensions = _read_float_tuple(data, 29 * 8, 3)
+    bit_offset = 41 * 8
+
+    side_a_prefix = _read_unsigned_bits(data, bit_offset, 2)
+    bit_offset += 2
+    world_id_a = _read_unsigned_bits(data, bit_offset, 16)
+    bit_offset += 16
+    position_a = _read_float_tuple(data, bit_offset, 3)
+    bit_offset += 3 * 32
+    rotation_a = _read_float_tuple(data, bit_offset, 4)
+    bit_offset += 4 * 32
+
+    side_b_prefix = _read_unsigned_bits(data, bit_offset, 2)
+    bit_offset += 2
+    world_id_b = _read_unsigned_bits(data, bit_offset, 16)
+    bit_offset += 16
+    position_b = _read_float_tuple(data, bit_offset, 3)
+    bit_offset += 3 * 32
+    rotation_b = _read_float_tuple(data, bit_offset, 4)
+    bit_offset += 4 * 32
+
+    numeric_values = (
+        *dimensions,
+        *position_a,
+        *rotation_a,
+        *position_b,
+        *rotation_b,
+    )
+    if not all(math.isfinite(value) for value in numeric_values):
+        return None
+
+    remaining_bits = len(data) * 8 - bit_offset
+    tail_bits = (
+        format(
+            _read_unsigned_bits(data, bit_offset, remaining_bits),
+            f"0{remaining_bits}b",
+        )
+        if remaining_bits
+        else ""
+    )
+
+    return DecodedPortalBlob(
+        dimensions=(
+            float(dimensions[0]),
+            float(dimensions[1]),
+            float(dimensions[2]),
+        ),
+        side_a_prefix=side_a_prefix,
+        world_id_a=world_id_a,
+        position_a=(
+            float(position_a[0]),
+            float(position_a[1]),
+            float(position_a[2]),
+        ),
+        rotation_a=(
+            float(rotation_a[0]),
+            float(rotation_a[1]),
+            float(rotation_a[2]),
+            float(rotation_a[3]),
+        ),
+        side_b_prefix=side_b_prefix,
+        world_id_b=world_id_b,
+        position_b=(
+            float(position_b[0]),
+            float(position_b[1]),
+            float(position_b[2]),
+        ),
+        rotation_b=(
+            float(rotation_b[0]),
+            float(rotation_b[1]),
+            float(rotation_b[2]),
+            float(rotation_b[3]),
+        ),
+        tail_bit_offset=bit_offset,
+        tail_bits=tail_bits,
+    )
+
+
+def _decoded_matches_columns(
+    decoded: DecodedPortalBlob | None,
+    *,
+    world_id_a: int,
+    x_a: int,
+    y_a: int,
+    world_id_b: int,
+    x_b: int,
+    y_b: int,
+) -> bool | None:
+    if decoded is None:
+        return None
+
+    return (
+        decoded.world_id_a == world_id_a
+        and _position_to_cell(decoded.position_a) == (x_a, y_a)
+        and decoded.world_id_b == world_id_b
+        and _position_to_cell(decoded.position_b) == (x_b, y_b)
     )
 
 
@@ -276,6 +485,7 @@ def probe_portals(
     for row in rows:
         data = bytes(row["data"] or b"")
         header = _decode_portal_blob_header(data)
+        decoded = decode_portal_blob(data)
         probes.append(
             PortalProbe(
                 portal_id=int(row["id"]),
@@ -291,6 +501,16 @@ def probe_portals(
                 header_matches_columns=_header_matches_columns(
                     header,
                     portal_id=int(row["id"]),
+                    world_id_a=int(row["worldIdA"]),
+                    x_a=int(row["xA"]),
+                    y_a=int(row["yA"]),
+                    world_id_b=int(row["worldIdB"]),
+                    x_b=int(row["xB"]),
+                    y_b=int(row["yB"]),
+                ),
+                decoded=decoded,
+                decoded_matches_columns=_decoded_matches_columns(
+                    decoded,
                     world_id_a=int(row["worldIdA"]),
                     x_a=int(row["xA"]),
                     y_a=int(row["yA"]),
@@ -329,6 +549,14 @@ def summarize_portal_probe(
             "header": probe.header,
             "header_matches_columns": (
                 probe.header_matches_columns
+            ),
+            "decoded": (
+                None
+                if probe.decoded is None
+                else probe.decoded.to_dict()
+            ),
+            "decoded_matches_columns": (
+                probe.decoded_matches_columns
             ),
             "opening_a_position_candidate": (
                 None
