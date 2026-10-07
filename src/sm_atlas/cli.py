@@ -32,6 +32,7 @@ from .tile_file import (
     probe_tile,
     probe_tile_chunks,
     probe_tile_nodes,
+    probe_tile_voxels,
 )
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
@@ -130,6 +131,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tile_nodes_parser.add_argument("tile", type=Path)
     tile_nodes_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    tile_voxel_probe_parser = subparsers.add_parser(
+        "tile-voxel-probe",
+        help="Inspect fixed-size voxel terrain records from a .tile file.",
+    )
+    tile_voxel_probe_parser.add_argument("tile", type=Path)
+    tile_voxel_probe_parser.add_argument(
+        "--cell",
+        type=int,
+        help="Only inspect one tile cell.",
+    )
+    tile_voxel_probe_parser.add_argument(
+        "--examples",
+        type=int,
+        default=20,
+        help="Number of voxel records to print per chunk.",
+    )
+    tile_voxel_probe_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1209,6 +1232,63 @@ def run_tile_nodes(
                 f"tags={node['tags']} "
                 f"tunnel_type={tunnel_type} "
                 f"record_size={node['record_size']}"
+            )
+
+    return 0
+
+
+def run_tile_voxel_probe(
+    tile: Path,
+    cell: int | None,
+    examples: int,
+    as_json: bool,
+) -> int:
+    try:
+        result = probe_tile_voxels(
+            tile,
+            cell=cell,
+            examples=examples,
+        )
+    except (
+        FileNotFoundError,
+        InvalidTileFile,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Tile: {result['path']}")
+    print(
+        f"Voxel records: {result['records']} "
+        f"record_size={result['record_size']} "
+        f"payload={result['payload_size']} "
+        f"unique_headers={result['unique_headers']}"
+    )
+    print(f"Header bounds: {result['header_bounds']}")
+    print(f"Global top values: {result['global_top_values']}")
+    for chunk in result["chunks"]:
+        print(
+            f"cell={chunk['cell']} records={chunk['records']} "
+            f"decoded={chunk['decoded_size']} "
+            f"header_min={chunk['headers_min']} "
+            f"header_max={chunk['headers_max']}"
+        )
+        for item in chunk["examples"]:
+            print(
+                f"  record={item['index']} "
+                f"header_i32={item['header_i32']} "
+                f"header_hex={item['header_hex']} "
+                f"min={item['payload_min']} "
+                f"max={item['payload_max']} "
+                f"unique={item['unique_values']} "
+                f"zero={item['zero_count']} "
+                f"ff={item['ff_count']} "
+                f"top={item['top_values']}"
             )
 
     return 0
@@ -3539,6 +3619,16 @@ def main() -> None:
         raise SystemExit(
             run_tile_nodes(
                 args.tile,
+                args.json,
+            )
+        )
+
+    if args.command == "tile-voxel-probe":
+        raise SystemExit(
+            run_tile_voxel_probe(
+                args.tile,
+                args.cell,
+                args.examples,
                 args.json,
             )
         )
