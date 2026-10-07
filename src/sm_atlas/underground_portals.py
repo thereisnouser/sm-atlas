@@ -741,7 +741,7 @@ def _match_tile_sockets(
     tile_path: str | Path,
     observed: list[ObservedPortal],
     *,
-    tolerance: float = 0.05,
+    tolerance: float = 2.0,
 ) -> dict[str, object]:
     decoded = probe_tile_nodes(tile_path)
     expected_uuid = (node.tile_uuid or "").replace("-", "").lower()
@@ -844,6 +844,11 @@ def _match_tile_sockets(
                 "tunnel_id": endpoint.tunnel_id,
                 "tunnel_side": endpoint.side,
                 "distance": round(distance, 9),
+                "quality": (
+                    "exact"
+                    if distance <= 0.05
+                    else "near"
+                ),
             }
         )
 
@@ -881,6 +886,14 @@ def _match_tile_sockets(
         "sockets": len(public_sockets),
         "saved_endpoints": len(endpoints),
         "matched": len(matches),
+        "exact_matches": sum(
+            match["quality"] == "exact"
+            for match in matches
+        ),
+        "near_matches": sum(
+            match["quality"] == "near"
+            for match in matches
+        ),
         "matches": matches,
         "unmatched_sockets": unmatched_sockets,
         "unmatched_saved_endpoints": unmatched_endpoints,
@@ -895,7 +908,7 @@ def summarize_underground_node(
     limit: int = 5000,
     attach_tolerance: float = 4.0,
     tile_path: str | Path | None = None,
-    socket_match_tolerance: float = 0.05,
+    socket_match_tolerance: float = 2.0,
 ) -> dict[str, object]:
     nodes, observed = observe_saved_tunnel_portals(
         database,
