@@ -299,7 +299,11 @@ def test_probe_tile_voxels_reads_4108_byte_records(
     assert examples[0]["header_i32"] == (1, 2, 3)
     assert examples[0]["zero_count"] == 2048
     assert examples[0]["ff_count"] == 2048
+    assert examples[0]["material_histogram"] == [2048, 2048, 0, 0, 0, 0, 0, 0]
+    assert examples[0]["density_histogram"] == [2048, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2048]
     assert examples[1]["header_i32"] == (-4, 5, 6)
+    assert examples[1]["material_histogram"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4096]
+    assert examples[1]["density_histogram"] == [0, 0, 0, 0, 0, 0, 0, 4096, 0, 0, 0, 0, 0, 0, 0, 0]
     assert examples[1]["top_values"] == [
         {
             "value": 7,
