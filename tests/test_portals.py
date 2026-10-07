@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import sqlite3
 import struct
+from pathlib import Path
 
 import pytest
 
+from sm_atlas.database import SaveDatabase
 from sm_atlas.portals import (
     _common_prefix_length,
     _common_suffix_length,
@@ -14,6 +17,7 @@ from sm_atlas.portals import (
     _opening_a_position_candidate,
     _scan_aligned_be_floats,
     decode_portal_blob,
+    discover_portals,
 )
 
 
@@ -191,3 +195,71 @@ def test_decode_partial_portal_blob_keeps_side_a_transform() -> None:
         x_b=0,
         y_b=0,
     )
+
+
+
+def test_discover_portals_exposes_validated_transforms(
+    tmp_path: Path,
+) -> None:
+    save_path = tmp_path / "save.db"
+    connection = sqlite3.connect(save_path)
+    connection.execute(
+        """
+        CREATE TABLE Portal (
+            id INTEGER PRIMARY KEY,
+            worldIdA INTEGER,
+            xA INTEGER,
+            yA INTEGER,
+            worldIdB INTEGER,
+            xB INTEGER,
+            yB INTEGER,
+            data BLOB
+        )
+        """
+    )
+    connection.executemany(
+        """
+        INSERT INTO Portal (
+            id, worldIdA, xA, yA, worldIdB, xB, yB, data
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                67,
+                12,
+                -2,
+                2,
+                23,
+                0,
+                0,
+                REAL_PORTAL_BLOB,
+            ),
+            (
+                3,
+                1,
+                -41,
+                0,
+                65535,
+                0,
+                0,
+                PARTIAL_PORTAL_BLOB,
+            ),
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+    portals = discover_portals(SaveDatabase(save_path))
+
+    assert portals[0].decoded is not None
+    assert portals[0].decoded.position_b == pytest.approx(
+        (31.987106, 39.188911, 74.08609),
+        rel=1e-6,
+    )
+    assert portals[1].decoded is not None
+    assert portals[1].decoded.position_a == pytest.approx(
+        (-2571.375, 52.25, 2.0),
+        rel=1e-6,
+    )
+    assert portals[1].decoded.position_b is None
