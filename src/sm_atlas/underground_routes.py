@@ -45,6 +45,8 @@ class TransitRoute:
     target_tunnel_id: int | None = None
     target_tunnel_type: str | None = None
     target_tunnel_length: float | None = None
+    target_tunnel_entry_node: int | None = None
+    target_tunnel_other_node: int | None = None
 
     def to_dict(
         self,
@@ -66,6 +68,13 @@ class TransitRoute:
                     "type": self.target_tunnel_type,
                     "length": round(
                         self.target_tunnel_length or 0.0,
+                        3,
+                    ),
+                    "entry_node": self.target_tunnel_entry_node,
+                    "other_node": self.target_tunnel_other_node,
+                    "full_traverse_cost": round(
+                        self.total_cost
+                        + (self.target_tunnel_length or 0.0),
                         3,
                     ),
                 }
@@ -354,6 +363,8 @@ def find_transit_route(
     target_tunnel_id = None
     target_tunnel_type_value = None
     target_tunnel_length = None
+    target_tunnel_entry_node = None
+    target_tunnel_other_node = None
 
     if target_node is not None:
         if target_node not in transit_ids:
@@ -457,6 +468,12 @@ def find_transit_route(
         target_tunnel_id = selected.tunnel_id
         target_tunnel_type_value = selected.tunnel_type
         target_tunnel_length = selected.length
+        target_tunnel_entry_node = target
+        target_tunnel_other_node = (
+            selected.right
+            if target == selected.left
+            else selected.left
+        )
 
     node_path, route_edges = _reconstruct_route(
         start,
@@ -477,5 +494,7 @@ def find_transit_route(
         target_tunnel_id=target_tunnel_id,
         target_tunnel_type=target_tunnel_type_value,
         target_tunnel_length=target_tunnel_length,
+        target_tunnel_entry_node=target_tunnel_entry_node,
+        target_tunnel_other_node=target_tunnel_other_node,
     )
     return route, lookup

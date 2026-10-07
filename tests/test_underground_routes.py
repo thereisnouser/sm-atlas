@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sm_atlas.underground_routes import (
+    TransitRoute,
     _reconstruct_route,
     _shortest_paths,
     build_transit_edges,
@@ -125,3 +126,34 @@ def test_vertical_contacts_are_opt_in() -> None:
     assert horizontal == []
     assert len(all_faces) == 1
     assert all_faces[0].axis == "z"
+
+
+def test_target_tunnel_metadata_reports_entry_and_other_endpoint() -> None:
+    lookup = {
+        1: node(1, role="elevator", x=0.0),
+        2: node(2, role="passage", x=32.0),
+    }
+    route = TransitRoute(
+        world_id=23,
+        include_vertical_contacts=False,
+        start_node=1,
+        target_kind="tunnel_type",
+        target_value="TtVeinSparkstone",
+        target_node=2,
+        total_cost=41.238,
+        node_path=(1, 2),
+        edges=(),
+        target_tunnel_id=269,
+        target_tunnel_type="TtVeinSparkstone",
+        target_tunnel_length=72.323,
+        target_tunnel_entry_node=2,
+        target_tunnel_other_node=3,
+    )
+
+    result = route.to_dict(lookup)
+    tunnel = result["target_tunnel"]
+
+    assert tunnel is not None
+    assert tunnel["entry_node"] == 2
+    assert tunnel["other_node"] == 3
+    assert tunnel["full_traverse_cost"] == 113.561

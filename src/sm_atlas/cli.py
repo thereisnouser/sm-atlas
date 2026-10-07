@@ -2715,10 +2715,12 @@ def run_underground_route(
             "Target tunnel: "
             f"id={tunnel['id']} "
             f"type={tunnel['type']} "
-            f"length={tunnel['length']}m"
+            f"length={tunnel['length']}m "
+            f"entry_node={tunnel['entry_node']} "
+            f"other_node={tunnel['other_node']}"
         )
     print(
-        "Candidate route cost: "
+        "Candidate route cost to target entrance: "
         f"{result['total_cost']}m "
         f"steps={len(result['edges'])} "
         f"edge_kinds={result['edge_kinds']}"
@@ -2749,6 +2751,20 @@ def run_underground_route(
                 f"axis={edge['axis']} "
                 f"cost={edge['weight']}m"
             )
+
+    if result["target_tunnel"] is not None:
+        tunnel = result["target_tunnel"]
+        print(
+            "Target entrance reached: "
+            f"node={tunnel['entry_node']}. "
+            f"Enter tunnel id={tunnel['id']} "
+            f"type={tunnel['type']} "
+            f"toward node={tunnel['other_node']}."
+        )
+        print(
+            "If traversed end-to-end: "
+            f"candidate cost={tunnel['full_traverse_cost']}m"
+        )
 
     return 0
 
