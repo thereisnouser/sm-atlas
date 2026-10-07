@@ -98,6 +98,7 @@ class TransitRoute:
     segments: tuple[RouteSegment, ...] = ()
     start_point: tuple[float, float, float] | None = None
     target_point: tuple[float, float, float] | None = None
+    candidate_contacts: int = 0
 
     def to_dict(
         self,
@@ -111,6 +112,12 @@ class TransitRoute:
             "target_value": self.target_value,
             "target_node": self.target_node,
             "total_cost": round(self.total_cost, 3),
+            "candidate_contacts": self.candidate_contacts,
+            "route_evidence": (
+                "saved-tunnel inter-tile only"
+                if self.candidate_contacts == 0
+                else "uses candidate face contacts"
+            ),
             "target_tunnel": (
                 None
                 if self.target_tunnel_id is None
@@ -717,6 +724,80 @@ def _route_graph_shortest_paths(
     return distances, previous
 
 
+def _route_graph_evidence_first_paths(
+    start: int,
+    anchors: dict[int, RouteAnchor],
+    edges: list[RouteGraphEdge],
+) -> tuple[
+    dict[int, tuple[int, float]],
+    dict[int, tuple[int, RouteGraphEdge]],
+]:
+    adjacency: dict[
+        int,
+        list[tuple[int, RouteGraphEdge]],
+    ] = {
+        anchor_id: []
+        for anchor_id in anchors
+    }
+
+    for edge in edges:
+        adjacency[edge.left].append(
+            (edge.right, edge)
+        )
+        adjacency[edge.right].append(
+            (edge.left, edge)
+        )
+
+    scores = {
+        anchor_id: (
+            1_000_000_000,
+            float("inf"),
+        )
+        for anchor_id in anchors
+    }
+    previous: dict[
+        int,
+        tuple[int, RouteGraphEdge],
+    ] = {}
+    scores[start] = (0, 0.0)
+    queue: list[tuple[int, float, int]] = [
+        (0, 0.0, start)
+    ]
+
+    while queue:
+        candidate_contacts, distance, anchor_id = heappop(
+            queue
+        )
+        score = (candidate_contacts, distance)
+        if score != scores[anchor_id]:
+            continue
+
+        for neighbor, edge in adjacency[anchor_id]:
+            next_score = (
+                candidate_contacts
+                + int(edge.kind == "contact"),
+                distance + edge.weight,
+            )
+            if next_score >= scores[neighbor]:
+                continue
+
+            scores[neighbor] = next_score
+            previous[neighbor] = (
+                anchor_id,
+                edge,
+            )
+            heappush(
+                queue,
+                (
+                    next_score[0],
+                    next_score[1],
+                    neighbor,
+                ),
+            )
+
+    return scores, previous
+
+
 def _reconstruct_endpoint_route(
     start: int,
     target: int,
@@ -847,7 +928,7 @@ def find_transit_route(
         transit_ids,
     )
     start_anchor = center_anchor_by_node[start_node]
-    distances, previous = _route_graph_shortest_paths(
+    scores, previous = _route_graph_evidence_first_paths(
         start_anchor,
         anchors,
         graph_edges,
@@ -869,7 +950,7 @@ def find_transit_route(
                 f"target node {target_node} is not a transit node"
             )
         target_anchor = center_anchor_by_node[target_node]
-        if distances[target_anchor] == float("inf"):
+        if scores[target_anchor][1] == float("inf"):
             raise ValueError(
                 f"target node {target_node} is unreachable "
                 f"from elevator {start_node}"
@@ -887,9 +968,9 @@ def find_transit_route(
         reachable = [
             node_id
             for node_id in candidates
-            if distances[
+            if scores[
                 center_anchor_by_node[node_id]
-            ] < float("inf")
+            ][1] < float("inf")
         ]
 
         if not candidates:
@@ -912,7 +993,7 @@ def find_transit_route(
         target_node_id = min(
             reachable,
             key=lambda node_id: (
-                distances[
+                scores[
                     center_anchor_by_node[node_id]
                 ],
                 node_id,
@@ -952,12 +1033,12 @@ def find_transit_route(
                 )
                 if anchor_id is None:
                     continue
-                if distances[anchor_id] == float("inf"):
+                if scores[anchor_id][1] == float("inf"):
                     continue
 
                 candidates.append(
                     (
-                        distances[anchor_id],
+                        scores[anchor_id],
                         link.tunnel_id,
                         node_id,
                         anchor_id,
@@ -1008,7 +1089,7 @@ def find_transit_route(
         target_kind=target_kind,
         target_value=target_value,
         target_node=target_node_id,
-        total_cost=distances[target_anchor],
+        total_cost=scores[target_anchor][1],
         node_path=node_path,
         edges=(),
         target_tunnel_id=target_tunnel_id,
@@ -1019,6 +1100,6 @@ def find_transit_route(
         segments=segments,
         start_point=anchors[start_anchor].point,
         target_point=anchors[target_anchor].point,
+        candidate_contacts=scores[target_anchor][0],
     )
     return route, lookup
-

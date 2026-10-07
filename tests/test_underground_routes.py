@@ -5,6 +5,7 @@ from sm_atlas.underground_routes import (
     _build_endpoint_route_graph,
     _reconstruct_endpoint_route,
     _reconstruct_route,
+    _route_graph_evidence_first_paths,
     _route_graph_shortest_paths,
     _shortest_paths,
     build_transit_edges,
@@ -256,3 +257,96 @@ def test_endpoint_route_graph_charges_intra_tile_travel() -> None:
         4.0,
         26.0,
     ]
+
+
+def test_evidence_first_routing_prefers_saved_tunnel_over_short_contact() -> None:
+    elevator = node(
+        1,
+        role="elevator",
+        x=0.0,
+    )
+    contact_room = node(
+        2,
+        role="passage",
+        x=32.0,
+    )
+    tunnel_room = node(
+        3,
+        role="passage",
+        x=64.0,
+    )
+    graph_topology = LayoutTopology(
+        world_id=23,
+        nodes=(elevator, contact_room, tunnel_room),
+        contacts=(
+            LayoutContact(
+                1,
+                2,
+                "x",
+                32.0,
+                32.0,
+                1024.0,
+            ),
+            LayoutContact(
+                2,
+                3,
+                "x",
+                32.0,
+                32.0,
+                1024.0,
+            ),
+        ),
+        tunnel_links=(
+            LayoutTunnelLink(
+                tunnel_id=99,
+                tunnel_type="TtVeinRich",
+                left=1,
+                right=3,
+                length=100.0,
+            ),
+        ),
+        attached_tunnel_endpoints=2,
+        unattached_tunnel_endpoints=0,
+    )
+    raw_tunnels = {
+        99: {
+            "id": 99,
+            "type": "TtVeinRich",
+            "length": 100.0,
+            "points": [
+                (16.0, 16.0, 16.0),
+                (80.0, 16.0, 16.0),
+            ],
+        },
+    }
+
+    (
+        anchors,
+        edges,
+        center_by_node,
+        tunnel_anchor_by_key,
+    ) = _build_endpoint_route_graph(
+        graph_topology,
+        raw_tunnels,
+        include_vertical_contacts=False,
+    )
+    start = center_by_node[1]
+    target = center_by_node[3]
+    scores, previous = _route_graph_evidence_first_paths(
+        start,
+        anchors,
+        edges,
+    )
+    _, segments = _reconstruct_endpoint_route(
+        start,
+        target,
+        anchors,
+        previous,
+    )
+
+    assert scores[target][0] == 0
+    assert any(
+        segment.kind == "tunnel"
+        and segment.tunnel_id == 99
+        for segment in segments
+    )

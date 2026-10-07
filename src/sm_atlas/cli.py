@@ -2770,6 +2770,11 @@ def run_underground_route(
             f"other_node={tunnel['other_node']}"
         )
     print(
+        "Route evidence: "
+        f"{result['route_evidence']} "
+        f"(candidate_contacts={result['candidate_contacts']})"
+    )
+    print(
         "Candidate route cost to target entrance: "
         f"{result['total_cost']}m "
         f"segments={len(result['segments'])} "
@@ -2869,6 +2874,11 @@ def run_underground_route_map(
             f"entry_node={tunnel['entry_node']} "
             f"other_node={tunnel['other_node']}"
         )
+    print(
+        "Route evidence: "
+        f"{result['route_evidence']} "
+        f"(candidate_contacts={result['candidate_contacts']})"
+    )
     print(
         "Candidate route cost to target entrance: "
         f"{result['total_cost']}m "
