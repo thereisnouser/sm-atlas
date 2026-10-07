@@ -31,6 +31,7 @@ from .tile_file import (
     InvalidTileFile,
     probe_tile,
     probe_tile_chunks,
+    probe_tile_nodes,
 )
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
@@ -118,6 +119,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tile_probe_parser.add_argument("tile", type=Path)
     tile_probe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    tile_nodes_parser = subparsers.add_parser(
+        "tile-nodes",
+        help="Decode TUNNEL node sockets from a Scrap Mechanic .tile file.",
+    )
+    tile_nodes_parser.add_argument("tile", type=Path)
+    tile_nodes_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1136,6 +1148,56 @@ def run_tile_probe(
             f"compressed={chunk['compressed_size']} "
             f"size={chunk['uncompressed_size']}"
         )
+
+    return 0
+
+
+def run_tile_nodes(
+    tile: Path,
+    as_json: bool,
+) -> int:
+    try:
+        result = probe_tile_nodes(tile)
+    except (
+        FileNotFoundError,
+        InvalidTileFile,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Tile: {result['path']}")
+    print(
+        f"Tile cells: {result['width']}x{result['height']} "
+        f"decoded_nodes={result['nodes']}"
+    )
+    for chunk in result["node_chunks"]:
+        print(
+            f"cell={chunk['cell']} "
+            f"offset=({chunk['cell_x']}, {chunk['cell_y']}) "
+            f"nodes={len(chunk['nodes'])}"
+        )
+        for node in chunk["nodes"]:
+            params = node["params"]
+            tunnel_type = (
+                params.get("tunnel", {}).get("type")
+                if isinstance(params, dict)
+                else None
+            )
+            print(
+                f"  node={node['index']} "
+                f"pos={tuple(round(v, 6) for v in node['position'])} "
+                f"rot={tuple(round(v, 6) for v in node['rotation'])} "
+                f"scale={tuple(round(v, 6) for v in node['scale'])} "
+                f"tags={node['tags']} "
+                f"tunnel_type={tunnel_type} "
+                f"record_size={node['record_size']}"
+            )
 
     return 0
 
@@ -3420,6 +3482,14 @@ def main() -> None:
     if args.command == "tile-probe":
         raise SystemExit(
             run_tile_probe(
+                args.tile,
+                args.json,
+            )
+        )
+
+    if args.command == "tile-nodes":
+        raise SystemExit(
+            run_tile_nodes(
                 args.tile,
                 args.json,
             )
