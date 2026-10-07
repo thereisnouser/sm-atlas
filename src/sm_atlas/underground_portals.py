@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from math import sqrt
-from typing import Iterable
 
 from .database import SaveDatabase
 from .underground_features import extract_caves, extract_pockets
@@ -15,6 +14,8 @@ from .underground_pockets import reconstruct_logical_pockets
 from .underground_topology import LayoutNode, _nearest_layout_node
 from .underground_tunnels import _extract_tunnels, _load_terrain_table
 
+_EPSILON = 1e-6
+
 
 @dataclass(frozen=True)
 class ObservedPortal:
@@ -25,13 +26,20 @@ class ObservedPortal:
     family: str
     tags: tuple[str, ...]
     rotation: int
-    face: str
-    face_distance: float
-    u: float
-    v: float
-    x: float
-    y: float
-    z: float
+    method: str
+    nearest_face: str
+    nearest_face_distance: float
+    world_face: str
+    ray_distance: float
+    canonical_face: str
+    canonical_u: float
+    canonical_v: float
+    endpoint_x: float
+    endpoint_y: float
+    endpoint_z: float
+    portal_x: float
+    portal_y: float
+    portal_z: float
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -42,13 +50,27 @@ class ObservedPortal:
             "family": self.family,
             "tags": list(self.tags),
             "rotation": self.rotation,
-            "face": self.face,
-            "face_distance": round(self.face_distance, 6),
-            "u": round(self.u, 6),
-            "v": round(self.v, 6),
-            "x": round(self.x, 6),
-            "y": round(self.y, 6),
-            "z": round(self.z, 6),
+            "method": self.method,
+            "nearest_face": self.nearest_face,
+            "nearest_face_distance": round(
+                self.nearest_face_distance,
+                6,
+            ),
+            "world_face": self.world_face,
+            "ray_distance": round(self.ray_distance, 6),
+            "canonical_face": self.canonical_face,
+            "canonical_u": round(self.canonical_u, 6),
+            "canonical_v": round(self.canonical_v, 6),
+            "endpoint": {
+                "x": round(self.endpoint_x, 6),
+                "y": round(self.endpoint_y, 6),
+                "z": round(self.endpoint_z, 6),
+            },
+            "portal": {
+                "x": round(self.portal_x, 6),
+                "y": round(self.portal_y, 6),
+                "z": round(self.portal_z, 6),
+            },
         }
 
 
@@ -179,13 +201,220 @@ def _distance_bucket(distance: float) -> str:
         (4.0, "<=4m"),
         (8.0, "<=8m"),
         (16.0, "<=16m"),
+        (32.0, "<=32m"),
     )
 
     for limit, label in limits:
         if distance <= limit:
             return label
 
-    return ">16m"
+    return ">32m"
+
+
+def _endpoint_direction(
+    points: list[tuple[float, float, float]],
+    side: str,
+) -> tuple[float, float, float] | None:
+    if len(points) < 2:
+        return None
+
+    endpoint = points[0] if side == "start" else points[-1]
+    candidates = points[1:] if side == "start" else reversed(points[:-1])
+
+    for candidate in candidates:
+        dx = float(candidate[0] - endpoint[0])
+        dy = float(candidate[1] - endpoint[1])
+        dz = float(candidate[2] - endpoint[2])
+        length = sqrt(dx * dx + dy * dy + dz * dz)
+
+        if length <= _EPSILON:
+            continue
+
+        return dx / length, dy / length, dz / length
+
+    return None
+
+
+def _point_inside(
+    point: tuple[float, float, float],
+    node: LayoutNode,
+) -> bool:
+    x, y, z = point
+    return (
+        node.min_x - _EPSILON <= x <= node.max_x + _EPSILON
+        and node.min_y - _EPSILON <= y <= node.max_y + _EPSILON
+        and node.min_z - _EPSILON <= z <= node.max_z + _EPSILON
+    )
+
+
+def _line_box_intersections(
+    point: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    node: LayoutNode,
+    *,
+    forward_only: bool,
+) -> list[
+    tuple[
+        float,
+        str,
+        tuple[float, float, float],
+    ]
+]:
+    px, py, pz = point
+    dx, dy, dz = direction
+    bounds = (
+        ("x-", 0, node.min_x),
+        ("x+", 0, node.max_x),
+        ("y-", 1, node.min_y),
+        ("y+", 1, node.max_y),
+        ("z-", 2, node.min_z),
+        ("z+", 2, node.max_z),
+    )
+    p = (px, py, pz)
+    d = (dx, dy, dz)
+    candidates = []
+
+    for face, axis, plane in bounds:
+        component = d[axis]
+        if abs(component) <= _EPSILON:
+            continue
+
+        t = (plane - p[axis]) / component
+        if forward_only and t < -_EPSILON:
+            continue
+
+        q = (
+            px + t * dx,
+            py + t * dy,
+            pz + t * dz,
+        )
+
+        if not (
+            node.min_x - _EPSILON <= q[0] <= node.max_x + _EPSILON
+            and node.min_y - _EPSILON <= q[1] <= node.max_y + _EPSILON
+            and node.min_z - _EPSILON <= q[2] <= node.max_z + _EPSILON
+        ):
+            continue
+
+        distance = abs(t)
+        candidates.append((distance, face, q))
+
+    candidates.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+        )
+    )
+    return candidates
+
+
+def _ray_exit(
+    point: tuple[float, float, float],
+    direction: tuple[float, float, float],
+    node: LayoutNode,
+) -> tuple[
+    str,
+    float,
+    tuple[float, float, float],
+    str,
+] | None:
+    inside = _point_inside(point, node)
+    candidates = _line_box_intersections(
+        point,
+        direction,
+        node,
+        forward_only=inside,
+    )
+
+    if candidates:
+        distance, face, intersection = candidates[0]
+        return (
+            face,
+            distance,
+            intersection,
+            "ray" if inside else "line",
+        )
+
+    # The tangent may be noisy for an endpoint just outside the logical
+    # volume. Try the same geometric line in the opposite direction before
+    # falling back to the old nearest-face projection.
+    reverse = tuple(-value for value in direction)
+    candidates = _line_box_intersections(
+        point,
+        reverse,
+        node,
+        forward_only=False,
+    )
+
+    if candidates:
+        distance, face, intersection = candidates[0]
+        return face, distance, intersection, "line-reverse"
+
+    return None
+
+
+def _canonical_point(
+    node: LayoutNode,
+    point: tuple[float, float, float],
+) -> tuple[float, float, float] | None:
+    dimensions = _dimensions_from_name(node.name)
+    if dimensions is None:
+        return None
+
+    width = dimensions[0] * 16.0
+    depth = dimensions[1] * 16.0
+    wx = point[0] - node.min_x
+    wy = point[1] - node.min_y
+    wz = point[2] - node.min_z
+    rotation = node.rotation & 3
+
+    if rotation == 1:
+        lx = wy
+        ly = depth - wx
+    elif rotation == 2:
+        lx = width - wx
+        ly = depth - wy
+    elif rotation == 3:
+        lx = width - wy
+        ly = wx
+    else:
+        lx = wx
+        ly = wy
+
+    return lx, ly, wz
+
+
+def _canonical_face_uv(
+    node: LayoutNode,
+    point: tuple[float, float, float],
+) -> tuple[str, float, float] | None:
+    local = _canonical_point(node, point)
+    dimensions = _dimensions_from_name(node.name)
+
+    if local is None or dimensions is None:
+        return None
+
+    x, y, z = local
+    width = dimensions[0] * 16.0
+    depth = dimensions[1] * 16.0
+    height = dimensions[2] * 16.0
+
+    candidates = [
+        ("x-", abs(x), y, z),
+        ("x+", abs(width - x), y, z),
+        ("y-", abs(y), x, z),
+        ("y+", abs(depth - y), x, z),
+        ("z-", abs(z), x, y),
+        ("z+", abs(height - z), x, y),
+    ]
+    face, _, u, v = min(
+        candidates,
+        key=lambda item: (
+            item[1],
+            item[0],
+        ),
+    )
+    return face, u, v
 
 
 def _rounded_portal_key(
@@ -194,9 +423,9 @@ def _rounded_portal_key(
     step: float = 4.0,
 ) -> tuple[str, float, float]:
     return (
-        portal.face,
-        round(portal.u / step) * step,
-        round(portal.v / step) * step,
+        portal.canonical_face,
+        round(portal.canonical_u / step) * step,
+        round(portal.canonical_v / step) * step,
     )
 
 
@@ -223,9 +452,10 @@ def observe_saved_tunnel_portals(
     portals: list[ObservedPortal] = []
 
     for tunnel in tunnels:
+        points = tunnel["points"]
         endpoints = (
-            ("start", tunnel["points"][0]),
-            ("end", tunnel["points"][-1]),
+            ("start", points[0]),
+            ("end", points[-1]),
         )
 
         for side, point in endpoints:
@@ -237,10 +467,44 @@ def observe_saved_tunnel_portals(
             if node is None:
                 continue
 
-            face, face_distance, u, v = _nearest_face(
+            direction = _endpoint_direction(points, side)
+            if direction is None:
+                continue
+
+            nearest_face, nearest_distance, _, _ = _nearest_face(
                 point,
                 node,
             )
+
+            ray = _ray_exit(
+                point,
+                direction,
+                node,
+            )
+
+            if ray is None:
+                # Preserve an observation rather than silently dropping it,
+                # but mark that it came from the weaker nearest-face fallback.
+                world_face, _, _, _ = _nearest_face(point, node)
+                portal_point = point
+                ray_distance = nearest_distance
+                method = "nearest-fallback"
+            else:
+                (
+                    world_face,
+                    ray_distance,
+                    portal_point,
+                    method,
+                ) = ray
+
+            canonical = _canonical_face_uv(
+                node,
+                portal_point,
+            )
+            if canonical is None:
+                continue
+
+            canonical_face, canonical_u, canonical_v = canonical
 
             portals.append(
                 ObservedPortal(
@@ -251,13 +515,20 @@ def observe_saved_tunnel_portals(
                     family=node.family,
                     tags=node.tags,
                     rotation=node.rotation,
-                    face=face,
-                    face_distance=face_distance,
-                    u=u,
-                    v=v,
-                    x=float(point[0]),
-                    y=float(point[1]),
-                    z=float(point[2]),
+                    method=method,
+                    nearest_face=nearest_face,
+                    nearest_face_distance=nearest_distance,
+                    world_face=world_face,
+                    ray_distance=ray_distance,
+                    canonical_face=canonical_face,
+                    canonical_u=canonical_u,
+                    canonical_v=canonical_v,
+                    endpoint_x=float(point[0]),
+                    endpoint_y=float(point[1]),
+                    endpoint_z=float(point[2]),
+                    portal_x=float(portal_point[0]),
+                    portal_y=float(portal_point[1]),
+                    portal_z=float(portal_point[2]),
                 )
             )
 
@@ -282,42 +553,80 @@ def summarize_saved_tunnel_portals(
         attach_tolerance=attach_tolerance,
     )
 
-    face_counts = Counter(portal.face for portal in portals)
-    distance_buckets = Counter(
-        _distance_bucket(portal.face_distance)
-        for portal in portals
-    )
-    role_counts = Counter()
-
     node_lookup = {
         node.node_id: node
         for node in nodes
     }
 
-    for portal in portals:
-        role_counts[node_lookup[portal.node_id].semantic_role] += 1
+    method_counts = Counter(portal.method for portal in portals)
+    world_face_counts = Counter(portal.world_face for portal in portals)
+    canonical_face_counts = Counter(
+        portal.canonical_face
+        for portal in portals
+    )
+    ray_distance_buckets = Counter(
+        _distance_bucket(portal.ray_distance)
+        for portal in portals
+    )
+    nearest_distance_buckets = Counter(
+        _distance_bucket(portal.nearest_face_distance)
+        for portal in portals
+    )
+    role_counts = Counter(
+        node_lookup[portal.node_id].semantic_role
+        for portal in portals
+    )
 
-    grouped: dict[
-        tuple[str, int],
-        list[ObservedPortal],
-    ] = defaultdict(list)
-
+    grouped: dict[str, list[ObservedPortal]] = defaultdict(list)
     for portal in portals:
-        grouped[(portal.tile_name, portal.rotation)].append(portal)
+        grouped[portal.tile_name].append(portal)
 
     profiles = []
 
-    for (tile_name, rotation), group in grouped.items():
+    for tile_name, group in grouped.items():
         node_ids = {portal.node_id for portal in group}
-        faces = Counter(portal.face for portal in group)
+        rotations = Counter(portal.rotation for portal in group)
+        canonical_faces = Counter(
+            portal.canonical_face
+            for portal in group
+        )
         rounded = Counter(
             _rounded_portal_key(portal)
             for portal in group
         )
-        distances = [
-            portal.face_distance
-            for portal in group
-        ]
+        placement_support: dict[
+            tuple[str, float, float],
+            set[int],
+        ] = defaultdict(set)
+
+        for portal in group:
+            placement_support[
+                _rounded_portal_key(portal)
+            ].add(portal.node_id)
+
+        clusters = []
+        for key, count in rounded.items():
+            face, u, v = key
+            placements = len(placement_support[key])
+            clusters.append(
+                {
+                    "face": face,
+                    "u": u,
+                    "v": v,
+                    "count": count,
+                    "placements": placements,
+                }
+            )
+
+        clusters.sort(
+            key=lambda item: (
+                -item["placements"],
+                -item["count"],
+                item["face"],
+                item["u"],
+                item["v"],
+            )
+        )
 
         sample = group[0]
         profiles.append(
@@ -325,35 +634,28 @@ def summarize_saved_tunnel_portals(
                 "tile_name": tile_name,
                 "family": sample.family,
                 "tags": list(sample.tags),
-                "rotation": rotation,
                 "placements_with_endpoints": len(node_ids),
                 "endpoints": len(group),
-                "faces": dict(faces.most_common()),
-                "portal_clusters_4m": [
-                    {
-                        "face": face,
-                        "u": u,
-                        "v": v,
-                        "count": count,
-                    }
-                    for (face, u, v), count in rounded.most_common(12)
-                ],
-                "face_distance": {
-                    "min": round(min(distances), 6),
-                    "max": round(max(distances), 6),
-                    "avg": round(
-                        sum(distances) / len(distances),
-                        6,
-                    ),
-                },
+                "rotations": dict(
+                    sorted(rotations.items())
+                ),
+                "canonical_faces": dict(
+                    canonical_faces.most_common()
+                ),
+                "portal_clusters_4m": clusters[:20],
+                "repeated_clusters_4m": [
+                    cluster
+                    for cluster in clusters
+                    if cluster["placements"] >= 2
+                ][:20],
             }
         )
 
     profiles.sort(
         key=lambda profile: (
+            -profile["placements_with_endpoints"],
             -profile["endpoints"],
             profile["tile_name"],
-            profile["rotation"],
         )
     )
 
@@ -373,27 +675,23 @@ def summarize_saved_tunnel_portals(
         "logical_nodes": len(nodes),
         "observed_endpoints": len(portals),
         "nodes_with_endpoints": len(nodes_with_endpoints),
-        "face_counts": dict(face_counts.most_common()),
-        "distance_buckets": dict(distance_buckets),
+        "methods": dict(method_counts.most_common()),
+        "world_faces": dict(world_face_counts.most_common()),
+        "canonical_faces": dict(
+            canonical_face_counts.most_common()
+        ),
+        "ray_distance_buckets": dict(ray_distance_buckets),
+        "nearest_distance_buckets": dict(
+            nearest_distance_buckets
+        ),
         "endpoint_roles": dict(role_counts.most_common()),
         "profiles": profiles[:top],
-        "closest_examples": [
+        "furthest_ray_examples": [
             portal.to_dict()
             for portal in sorted(
                 portals,
                 key=lambda portal: (
-                    portal.face_distance,
-                    portal.tunnel_id,
-                    portal.side,
-                ),
-            )[:10]
-        ],
-        "furthest_examples": [
-            portal.to_dict()
-            for portal in sorted(
-                portals,
-                key=lambda portal: (
-                    -portal.face_distance,
+                    -portal.ray_distance,
                     portal.tunnel_id,
                     portal.side,
                 ),
