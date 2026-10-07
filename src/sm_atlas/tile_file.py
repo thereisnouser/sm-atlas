@@ -422,7 +422,7 @@ def decode_tunnel_node_chunk(
         tags = [
             value
             for value in strings
-            if value.islower()
+            if value.isalpha() and value.islower()
         ]
 
         nodes.append(
