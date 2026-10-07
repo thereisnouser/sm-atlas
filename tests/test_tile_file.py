@@ -9,6 +9,7 @@ from sm_atlas.tile_file import (
     TILE_CELL_HEADER_SIZE,
     TILE_FILE_HEADER_FORMAT,
     InvalidTileFile,
+    decode_tunnel_node_chunk,
     decompress_lz4_block,
     probe_tile,
     probe_tile_chunks,
@@ -135,3 +136,50 @@ def test_probe_tile_chunks_decompresses_selected_chunk(
     assert chunk["decoded_size"] == 24
     assert chunk["hex"] == bytes(range(24)).hex()
     assert chunk["hex_prefix"] == bytes(range(24)).hex()
+
+
+
+def test_decode_tunnel_node_chunk_reads_transform_and_params() -> None:
+    header = b"\x01\x06TUNNEL"
+    transform = (
+        struct.pack("<3f", 18.666666, 2.666667, 8.0)
+        + struct.pack("<4f", 1.0, 0.0, 0.0, 0.0)
+        + struct.pack("<3f", 4.0, 4.0, 4.0)
+    )
+    metadata = (
+        b"\x01\x00\x47\x00\x00\x00LUA\x00\x00\x00"
+        b"\x01\x05\x00\x00\x00\x01\x02\x00\x00\x00"
+        b"\x03\x00tunnel"
+        + bytes.fromhex("0c866c52e429a84bbf3341b2bf7b626186")
+    )
+    params = b'{"tunnel":{"type":"Main"}}'
+    record = (
+        transform
+        + metadata
+        + len(params).to_bytes(4, "big")
+        + params
+    )
+
+    nodes = decode_tunnel_node_chunk(
+        header + record,
+        expected_count=1,
+    )
+
+    assert len(nodes) == 1
+    node = nodes[0]
+    assert node["position"] == pytest.approx(
+        (18.666666, 2.666667, 8.0),
+    )
+    assert node["rotation"] == pytest.approx(
+        (1.0, 0.0, 0.0, 0.0),
+    )
+    assert node["scale"] == pytest.approx(
+        (4.0, 4.0, 4.0),
+    )
+    assert node["tags"] == ["tunnel"]
+    assert node["params"] == {
+        "tunnel": {
+            "type": "Main",
+        }
+    }
+    assert node["record_size"] == len(record)
