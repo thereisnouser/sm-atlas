@@ -13,6 +13,7 @@ from sm_atlas.tile_file import (
     decompress_lz4_block,
     probe_tile,
     probe_tile_chunks,
+    probe_tile_voxels,
 )
 
 
@@ -215,3 +216,93 @@ def test_decode_tunnel_node_chunk_finds_tunnels_in_mixed_groups() -> None:
         (34.666668, 2.666667, 29.333334),
     )
     assert nodes[0]["params"]["tunnel"]["type"] == "Main"
+
+
+
+def _lz4_literal_block(data: bytes) -> bytes:
+    length = len(data)
+    token = min(length, 15) << 4
+    result = bytearray((token,))
+    if length >= 15:
+        remaining = length - 15
+        while remaining >= 255:
+            result.append(255)
+            remaining -= 255
+        result.append(remaining)
+    result.extend(data)
+    return bytes(result)
+
+
+def _write_voxel_test_tile(path: Path) -> None:
+    header_size = struct.calcsize(TILE_FILE_HEADER_FORMAT)
+    cell_header_offset = header_size
+    cell_header_size = TILE_CELL_HEADER_SIZE
+
+    header = struct.pack(
+        TILE_FILE_HEADER_FORMAT,
+        0x454C4954,
+        15,
+        bytes.fromhex("00112233445566778899aabbccddeeff"),
+        0,
+        1,
+        1,
+        cell_header_offset,
+        cell_header_size,
+        0,
+        0,
+        0,
+    )
+
+    record_a = (
+        struct.pack("<3i", 1, 2, 3)
+        + bytes([0]) * 2048
+        + bytes([255]) * 2048
+    )
+    record_b = (
+        struct.pack("<3i", -4, 5, 6)
+        + bytes([7]) * 4096
+    )
+    decoded = record_a + record_b
+    compressed = _lz4_literal_block(decoded)
+
+    values = [0] * 97
+    values[93] = 2
+    values[94] = header_size + cell_header_size
+    values[95] = len(compressed)
+    values[96] = len(decoded)
+
+    cell_header = struct.pack("<97i", *values)
+    path.write_bytes(header + cell_header + compressed)
+
+
+def test_probe_tile_voxels_reads_4108_byte_records(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "voxel.tile"
+    _write_voxel_test_tile(path)
+
+    result = probe_tile_voxels(
+        path,
+        examples=2,
+    )
+
+    assert result["record_size"] == 4108
+    assert result["payload_size"] == 4096
+    assert result["records"] == 2
+    assert result["unique_headers"] == 2
+    assert result["header_bounds"] == {
+        "min": (-4, 2, 3),
+        "max": (1, 5, 6),
+    }
+
+    examples = result["chunks"][0]["examples"]
+    assert examples[0]["header_i32"] == (1, 2, 3)
+    assert examples[0]["zero_count"] == 2048
+    assert examples[0]["ff_count"] == 2048
+    assert examples[1]["header_i32"] == (-4, 5, 6)
+    assert examples[1]["top_values"] == [
+        {
+            "value": 7,
+            "count": 4096,
+        }
+    ]
