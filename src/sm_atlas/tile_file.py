@@ -13,6 +13,7 @@ TILE_FILE_HEADER_FORMAT = "<II16sQIIIIIII"
 TILE_FILE_HEADER_SIZE = struct.calcsize(TILE_FILE_HEADER_FORMAT)
 TILE_CELL_HEADER_INTS = 97
 TILE_CELL_HEADER_SIZE = TILE_CELL_HEADER_INTS * 4
+TILE_CELL_SIZE_METERS = 64.0
 
 
 class InvalidTileFile(ValueError):
@@ -552,11 +553,26 @@ def probe_tile_nodes(
         cell_x = cell % width
         cell_y = cell // width
 
+        for node in nodes:
+            position = node["position"]
+            node["tile_position"] = (
+                float(position[0])
+                + cell_x * TILE_CELL_SIZE_METERS,
+                float(position[1])
+                + cell_y * TILE_CELL_SIZE_METERS,
+                float(position[2]),
+            )
+
         decoded_chunks.append(
             {
                 "cell": cell,
                 "cell_x": cell_x,
                 "cell_y": cell_y,
+                "cell_offset": (
+                    cell_x * TILE_CELL_SIZE_METERS,
+                    cell_y * TILE_CELL_SIZE_METERS,
+                    0.0,
+                ),
                 "count": meta["count"],
                 "nodes": nodes,
             }
