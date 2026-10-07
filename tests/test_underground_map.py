@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from sm_atlas.underground_features import UndergroundPiece, UndergroundSpawner
-from sm_atlas.underground_map import render_underground_map_svg
+from sm_atlas.underground_map import (
+    UndergroundRouteOverlay,
+    render_underground_map_svg,
+)
 
 
 def test_render_underground_map_svg_includes_features() -> None:
@@ -85,3 +88,49 @@ def test_render_underground_map_svg_includes_features() -> None:
     assert "Caves (1)" in svg
     assert "Pockets (1)" in svg
     assert "TtVeinRich (1)" in svg
+
+
+def test_render_underground_map_svg_includes_route_overlay() -> None:
+    tunnels = [
+        {
+            "id": 42,
+            "type": "TtVeinRich",
+            "length": 41.238,
+            "points": [
+                (32.0, 0.0, 96.0),
+                (56.0, -96.0, 80.0),
+            ],
+        },
+        {
+            "id": 269,
+            "type": "TtVeinSparkstone",
+            "length": 72.323,
+            "points": [
+                (56.0, -96.0, 80.0),
+                (120.0, -120.0, 80.0),
+            ],
+        },
+    ]
+    overlay = UndergroundRouteOverlay(
+        title="Elevator → TtVeinSparkstone #269 entrance",
+        tunnel_ids=(42,),
+        contact_segments=(),
+        start_point=(32.0, 0.0, 96.0),
+        target_point=(56.0, -96.0, 80.0),
+        target_tunnel_id=269,
+    )
+
+    svg = render_underground_map_svg(
+        world_id=23,
+        tunnels=tunnels,
+        caves=[],
+        pockets=[],
+        spawners=[],
+        route_overlay=overlay,
+    )
+
+    assert 'data-feature="route-tunnel"' in svg
+    assert 'data-feature="route-target-tunnel"' in svg
+    assert 'data-feature="route-start"' in svg
+    assert 'data-feature="route-target"' in svg
+    assert "Elevator → TtVeinSparkstone #269 entrance" in svg

@@ -24,7 +24,10 @@ from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
-from .underground_map import write_underground_map
+from .underground_map import (
+    write_underground_map,
+    write_underground_route_map,
+)
 from .underground_navigation import build_navigation_candidate_graph
 from .underground_portals import summarize_saved_tunnel_portals
 from .underground_routes import find_transit_route
@@ -878,6 +881,53 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
+    )
+
+    underground_route_map_parser = subparsers.add_parser(
+        "underground-route-map",
+        help="Render an underground map with a highlighted candidate route.",
+    )
+    underground_route_map_parser.add_argument("save", type=Path)
+    underground_route_map_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to route through.",
+    )
+    underground_route_map_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="SVG output path.",
+    )
+    underground_route_map_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    route_map_target = (
+        underground_route_map_parser.add_mutually_exclusive_group(
+            required=True,
+        )
+    )
+    route_map_target.add_argument(
+        "--node",
+        type=int,
+        help="Route to a specific transit node ID.",
+    )
+    route_map_target.add_argument(
+        "--tag",
+        help="Route to the nearest transit tile matching a semantic tag/name.",
+    )
+    route_map_target.add_argument(
+        "--tunnel",
+        help="Route to the nearest saved tunnel of this type.",
+    )
+    underground_route_map_parser.add_argument(
+        "--include-vertical-contacts",
+        action="store_true",
+        help="Allow direct Z face contacts in addition to X/Y contacts and tunnels.",
     )
 
     schema_parser = subparsers.add_parser(
@@ -2769,6 +2819,63 @@ def run_underground_route(
     return 0
 
 
+def run_underground_route_map(
+    save: Path,
+    world_id: int,
+    output: Path,
+    limit: int,
+    target_node: int | None,
+    target_tag: str | None,
+    target_tunnel: str | None,
+    include_vertical_contacts: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        result = write_underground_route_map(
+            database,
+            world_id=world_id,
+            output=output,
+            limit=limit,
+            include_vertical_contacts=include_vertical_contacts,
+            target_node=target_node,
+            target_tag=target_tag,
+            target_tunnel_type=target_tunnel,
+        )
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    print(f"World: {result['world_id']}")
+    print(f"Route map: {result['output']}")
+    print(
+        "Target: "
+        f"{result['target_kind']}={result['target_value']} "
+        f"node={result['target_node']}"
+    )
+    if result["target_tunnel"] is not None:
+        tunnel = result["target_tunnel"]
+        print(
+            "Target tunnel: "
+            f"id={tunnel['id']} "
+            f"type={tunnel['type']} "
+            f"entry_node={tunnel['entry_node']} "
+            f"other_node={tunnel['other_node']}"
+        )
+    print(
+        "Candidate route cost to target entrance: "
+        f"{result['total_cost']}m "
+        f"steps={len(result['edges'])} "
+        f"edge_kinds={result['edge_kinds']}"
+    )
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -3104,6 +3211,20 @@ def main() -> None:
                 args.tunnel,
                 args.include_vertical_contacts,
                 args.json,
+            )
+        )
+
+    if args.command == "underground-route-map":
+        raise SystemExit(
+            run_underground_route_map(
+                args.save,
+                args.world,
+                args.output,
+                args.limit,
+                args.node,
+                args.tag,
+                args.tunnel,
+                args.include_vertical_contacts,
             )
         )
 

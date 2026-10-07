@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from .underground_features import (
     summarize_pieces,
     summarize_spawners,
 )
+from .underground_routes import TransitRoute, find_transit_route
+from .underground_topology import LayoutNode, LayoutTopology, build_layout_topology
 from .underground_tunnels import (
     _extract_tunnels,
     _load_terrain_table,
@@ -42,6 +45,22 @@ FALLBACK_TUNNEL_COLOURS = (
     "#a5d6ff",
     "#c9d1d9",
 )
+
+
+@dataclass(frozen=True)
+class UndergroundRouteOverlay:
+    title: str
+    tunnel_ids: tuple[int, ...]
+    contact_segments: tuple[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ],
+        ...,
+    ]
+    start_point: tuple[float, float, float]
+    target_point: tuple[float, float, float]
+    target_tunnel_id: int | None = None
 
 
 def _piece_bounds(
@@ -160,6 +179,7 @@ def render_underground_map_svg(
     caves: list[UndergroundPiece],
     pockets: list[UndergroundPiece],
     spawners: list[UndergroundSpawner],
+    route_overlay: UndergroundRouteOverlay | None = None,
 ) -> str:
     bounds = _geometry_bounds(tunnels, caves, pockets, spawners)
 
@@ -219,6 +239,9 @@ def render_underground_map_svg(
         ".tunnel{fill:none;stroke-linecap:round;stroke-linejoin:round}",
         ".cave{fill:#238636;stroke:#3fb950;stroke-width:1.5}",
         ".pocket{fill:#a371f7;stroke:#d2a8ff;stroke-width:1.2}",
+        ".route-tunnel{fill:none;stroke:#ffffff;stroke-width:7;stroke-linecap:round;stroke-linejoin:round}",
+        ".route-contact{fill:none;stroke:#58a6ff;stroke-width:5;stroke-dasharray:10 7;stroke-linecap:round}",
+        ".route-target{fill:none;stroke:#ffdf5d;stroke-width:7;stroke-linecap:round;stroke-linejoin:round}",
         "</style>",
         (
             f'<rect x="0" y="0" width="{CANVAS_WIDTH}" '
@@ -243,6 +266,13 @@ def render_underground_map_svg(
             f'fill="#161b22" stroke="#30363d"/>'
         ),
     ]
+
+    if route_overlay is not None:
+        parts.append(
+            f'<text class="meta" x="{MARGIN}" y="88">'
+            f'Route: {escape(route_overlay.title)}'
+            "</text>"
+        )
 
     # Caves are large cell-sized placements; render them first as a faint
     # structural layer so the tunnel network remains readable on top.
@@ -350,6 +380,82 @@ def render_underground_map_svg(
             "</polyline>"
         )
 
+    if route_overlay is not None:
+        tunnel_lookup = {
+            int(tunnel["id"]): tunnel
+            for tunnel in tunnels
+        }
+
+        for tunnel_id in route_overlay.tunnel_ids:
+            tunnel = tunnel_lookup.get(tunnel_id)
+            if tunnel is None:
+                continue
+
+            coordinates = " ".join(
+                f"{sx(x):.2f},{sy(y):.2f}"
+                for x, y, _ in tunnel["points"]
+            )
+            parts.append(
+                f'<polyline class="route-tunnel" '
+                f'points="{coordinates}" opacity="0.92" '
+                f'data-feature="route-tunnel" '
+                f'data-tunnel-id="{tunnel_id}">'
+                f'<title>Route tunnel #{tunnel_id} · '
+                f'{escape(tunnel["type"])} · '
+                f'{tunnel["length"]:.1f} m</title>'
+                "</polyline>"
+            )
+
+        for start, end in route_overlay.contact_segments:
+            parts.append(
+                f'<line class="route-contact" '
+                f'x1="{sx(start[0]):.2f}" y1="{sy(start[1]):.2f}" '
+                f'x2="{sx(end[0]):.2f}" y2="{sy(end[1]):.2f}" '
+                f'data-feature="route-contact">'
+                "<title>Candidate direct tile contact</title>"
+                "</line>"
+            )
+
+        if route_overlay.target_tunnel_id is not None:
+            tunnel = tunnel_lookup.get(
+                route_overlay.target_tunnel_id
+            )
+            if tunnel is not None:
+                coordinates = " ".join(
+                    f"{sx(x):.2f},{sy(y):.2f}"
+                    for x, y, _ in tunnel["points"]
+                )
+                parts.append(
+                    f'<polyline class="route-target" '
+                    f'points="{coordinates}" opacity="0.98" '
+                    f'data-feature="route-target-tunnel" '
+                    f'data-tunnel-id="{tunnel["id"]}">'
+                    f'<title>Target tunnel #{tunnel["id"]} · '
+                    f'{escape(tunnel["type"])} · '
+                    f'{tunnel["length"]:.1f} m</title>'
+                    "</polyline>"
+                )
+
+        start_x = sx(route_overlay.start_point[0])
+        start_y = sy(route_overlay.start_point[1])
+        target_x = sx(route_overlay.target_point[0])
+        target_y = sy(route_overlay.target_point[1])
+
+        parts.append(
+            f'<g data-feature="route-start">'
+            f'<circle cx="{start_x:.2f}" cy="{start_y:.2f}" r="9" '
+            f'fill="#238636" stroke="#f0f6fc" stroke-width="2"/>'
+            "<title>Route start · elevator</title>"
+            "</g>"
+        )
+        parts.append(
+            f'<g data-feature="route-target">'
+            f'<circle cx="{target_x:.2f}" cy="{target_y:.2f}" r="9" '
+            f'fill="#ffdf5d" stroke="#f0f6fc" stroke-width="2"/>'
+            "<title>Route target entrance</title>"
+            "</g>"
+        )
+
     legend_x = CANVAS_WIDTH - LEGEND_WIDTH + 28
     legend_y = HEADER_HEIGHT + MARGIN
 
@@ -421,6 +527,135 @@ def render_underground_map_svg(
     parts.append("</svg>")
 
     return "\n".join(parts)
+
+
+def _route_overlay(
+    route: TransitRoute,
+    lookup: dict[int, LayoutNode],
+    topology: LayoutTopology,
+    tunnels: list[dict],
+) -> UndergroundRouteOverlay:
+    route_tunnel_ids = tuple(
+        edge.tunnel_id
+        for edge in route.edges
+        if edge.kind == "tunnel" and edge.tunnel_id is not None
+    )
+    contact_segments = tuple(
+        (
+            lookup[edge.left].center,
+            lookup[edge.right].center,
+        )
+        for edge in route.edges
+        if edge.kind == "contact"
+    )
+
+    target_point = lookup[route.target_node].center
+
+    if route.target_tunnel_id is not None:
+        tunnel_lookup = {
+            int(tunnel["id"]): tunnel
+            for tunnel in tunnels
+        }
+        target_tunnel = tunnel_lookup.get(route.target_tunnel_id)
+        target_link = next(
+            (
+                link
+                for link in topology.tunnel_links
+                if link.tunnel_id == route.target_tunnel_id
+            ),
+            None,
+        )
+
+        if target_tunnel is not None and target_link is not None:
+            if route.target_tunnel_entry_node == target_link.left:
+                target_point = target_tunnel["points"][0]
+            elif route.target_tunnel_entry_node == target_link.right:
+                target_point = target_tunnel["points"][-1]
+
+    if route.target_tunnel_id is not None:
+        title = (
+            f"Elevator → {route.target_tunnel_type} "
+            f"#{route.target_tunnel_id} entrance"
+        )
+    else:
+        title = (
+            f"Elevator → {route.target_kind} "
+            f"{route.target_value}"
+        )
+
+    return UndergroundRouteOverlay(
+        title=title,
+        tunnel_ids=tuple(
+            tunnel_id
+            for tunnel_id in route_tunnel_ids
+            if tunnel_id != route.target_tunnel_id
+        ),
+        contact_segments=contact_segments,
+        start_point=lookup[route.start_node].center,
+        target_point=target_point,
+        target_tunnel_id=route.target_tunnel_id,
+    )
+
+
+def write_underground_route_map(
+    database: SaveDatabase,
+    *,
+    world_id: int,
+    output: str | Path,
+    limit: int = 5000,
+    include_vertical_contacts: bool = False,
+    target_node: int | None = None,
+    target_tag: str | None = None,
+    target_tunnel_type: str | None = None,
+) -> dict[str, object]:
+    route, lookup = find_transit_route(
+        database,
+        world_id=world_id,
+        limit=limit,
+        include_vertical_contacts=include_vertical_contacts,
+        target_node=target_node,
+        target_tag=target_tag,
+        target_tunnel_type=target_tunnel_type,
+    )
+    topology = build_layout_topology(
+        database,
+        world_id=world_id,
+        limit=limit,
+    )
+    row_id, value = _load_terrain_table(
+        database,
+        world_id=world_id,
+        limit=limit,
+    )
+    tunnels = _extract_tunnels(value)
+    caves = extract_caves(value)
+    pockets = extract_pockets(value)
+    spawners = extract_spawners(value)
+    overlay = _route_overlay(
+        route,
+        lookup,
+        topology,
+        tunnels,
+    )
+
+    output_path = Path(output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        render_underground_map_svg(
+            world_id=world_id,
+            tunnels=tunnels,
+            caves=caves,
+            pockets=pockets,
+            spawners=spawners,
+            route_overlay=overlay,
+        ),
+        encoding="utf-8",
+    )
+
+    result = route.to_dict(lookup)
+    result["row_id"] = row_id
+    result["output"] = str(output_path)
+    return result
 
 
 def write_underground_map(
