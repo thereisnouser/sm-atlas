@@ -744,4 +744,5 @@ def build_navigation_candidate_graph(
         tunnel_pairs=tunnel_pairs,
         learned_templates=tuple(templates),
         face_contacts=len(topology.contacts),
+        contact_diagnostics=contact_diagnostics,
     )
