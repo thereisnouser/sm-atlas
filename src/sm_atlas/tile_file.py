@@ -371,50 +371,109 @@ def _find_json_payload(
     )
 
 
+TUNNEL_NODE_METADATA = bytes.fromhex(
+    "0100470000004c554100000001050000000102000000030074756e6e656c"
+    "0c866c52e429a84bbf3341b2bf7b626186"
+)
+
+
 def decode_tunnel_node_chunk(
     data: bytes,
     *,
     expected_count: int | None = None,
 ) -> list[dict[str, object]]:
-    """Decode the TUNNEL node group used by underground terrain tiles."""
+    """Extract TUNNEL node records from simple or mixed node chunks.
+
+    The first byte is the number of node groups in the chunk. Some chunks
+    contain only one TUNNEL group, while larger terrain cells can contain
+    several different node groups. TUNNEL records have a stable metadata
+    signature followed by a big-endian JSON length and params payload.
+    """
 
     if len(data) < 8:
         raise InvalidTileFile("node chunk is too small")
-    group_count = data[0]
-    name_length = data[1]
-    name_end = 2 + name_length
-    if name_end > len(data):
-        raise InvalidTileFile("truncated node group name")
 
-    group_name = data[2:name_end].decode(
-        "ascii",
-        errors="strict",
-    )
-    if group_name != "TUNNEL":
-        raise InvalidTileFile(
-            f"unsupported node group {group_name!r}"
-        )
-    if group_count != 1:
-        raise InvalidTileFile(
-            f"unexpected node group count {group_count}"
-        )
+    group_count = data[0]
+    if group_count <= 0:
+        raise InvalidTileFile("node chunk has no groups")
 
     nodes: list[dict[str, object]] = []
-    offset = name_end
+    search_from = 1
 
-    while offset < len(data):
-        if offset + 40 > len(data):
-            raise InvalidTileFile("truncated TUNNEL node transform")
-
-        position = struct.unpack_from("<3f", data, offset)
-        rotation = struct.unpack_from("<4f", data, offset + 12)
-        scale = struct.unpack_from("<3f", data, offset + 28)
-
-        json_start, json_end, params = _find_json_payload(
-            data,
-            start=offset + 40,
+    while True:
+        metadata_offset = data.find(
+            TUNNEL_NODE_METADATA,
+            search_from,
         )
-        metadata = data[offset + 40:json_start - 4]
+        if metadata_offset < 0:
+            break
+
+        record_offset = metadata_offset - 40
+        if record_offset < 0:
+            raise InvalidTileFile(
+                "TUNNEL metadata appears before transform"
+            )
+
+        json_length_offset = (
+            metadata_offset + len(TUNNEL_NODE_METADATA)
+        )
+        if json_length_offset + 4 > len(data):
+            raise InvalidTileFile(
+                "truncated TUNNEL params length"
+            )
+
+        json_length = int.from_bytes(
+            data[
+                json_length_offset:
+                json_length_offset + 4
+            ],
+            "big",
+        )
+        json_start = json_length_offset + 4
+        json_end = json_start + json_length
+        if json_end > len(data):
+            raise InvalidTileFile(
+                "truncated TUNNEL params JSON"
+            )
+
+        try:
+            params = json.loads(
+                data[json_start:json_end].decode("utf-8")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InvalidTileFile(
+                "invalid TUNNEL params JSON"
+            ) from exc
+
+        tunnel = (
+            params.get("tunnel")
+            if isinstance(params, dict)
+            else None
+        )
+        if not isinstance(tunnel, dict):
+            search_from = metadata_offset + 1
+            continue
+
+        position = struct.unpack_from(
+            "<3f",
+            data,
+            record_offset,
+        )
+        rotation = struct.unpack_from(
+            "<4f",
+            data,
+            record_offset + 12,
+        )
+        scale = struct.unpack_from(
+            "<3f",
+            data,
+            record_offset + 28,
+        )
+
+        metadata = data[
+            record_offset + 40:
+            metadata_offset + len(TUNNEL_NODE_METADATA)
+        ]
         strings = _ascii_strings(
             metadata,
             minimum_length=3,
@@ -444,17 +503,18 @@ def decode_tunnel_node_chunk(
                 "params": params,
                 "metadata_hex": metadata.hex(),
                 "metadata_strings": strings,
-                "record_offset": offset,
-                "record_size": json_end - offset,
+                "record_offset": record_offset,
+                "record_size": json_end - record_offset,
             }
         )
-        offset = json_end
+        search_from = json_end
 
-    if expected_count is not None and len(nodes) != expected_count:
-        raise InvalidTileFile(
-            "TUNNEL node count mismatch: "
-            f"expected {expected_count}, got {len(nodes)}"
-        )
+    if group_count == 1 and expected_count is not None:
+        if len(nodes) != expected_count:
+            raise InvalidTileFile(
+                "TUNNEL node count mismatch: "
+                f"expected {expected_count}, got {len(nodes)}"
+            )
 
     return nodes
 
