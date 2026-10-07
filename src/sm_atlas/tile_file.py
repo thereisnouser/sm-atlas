@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import struct
 from dataclasses import dataclass
@@ -335,6 +336,182 @@ def _float32_candidates(
         if len(values) >= limit:
             break
     return values
+
+
+def _find_json_payload(
+    data: bytes,
+    *,
+    start: int,
+) -> tuple[int, int, object]:
+    for json_start in range(start + 4, len(data)):
+        if data[json_start] not in (ord("{"), ord("[")):
+            continue
+
+        length = int.from_bytes(
+            data[json_start - 4:json_start],
+            "big",
+        )
+        if length <= 0:
+            continue
+        json_end = json_start + length
+        if json_end > len(data):
+            continue
+
+        try:
+            value = json.loads(
+                data[json_start:json_end].decode("utf-8")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+
+        return json_start, json_end, value
+
+    raise InvalidTileFile(
+        "could not locate length-prefixed node params JSON"
+    )
+
+
+def decode_tunnel_node_chunk(
+    data: bytes,
+    *,
+    expected_count: int | None = None,
+) -> list[dict[str, object]]:
+    """Decode the TUNNEL node group used by underground terrain tiles."""
+
+    if len(data) < 8:
+        raise InvalidTileFile("node chunk is too small")
+    group_count = data[0]
+    name_length = data[1]
+    name_end = 2 + name_length
+    if name_end > len(data):
+        raise InvalidTileFile("truncated node group name")
+
+    group_name = data[2:name_end].decode(
+        "ascii",
+        errors="strict",
+    )
+    if group_name != "TUNNEL":
+        raise InvalidTileFile(
+            f"unsupported node group {group_name!r}"
+        )
+    if group_count != 1:
+        raise InvalidTileFile(
+            f"unexpected node group count {group_count}"
+        )
+
+    nodes: list[dict[str, object]] = []
+    offset = name_end
+
+    while offset < len(data):
+        if offset + 40 > len(data):
+            raise InvalidTileFile("truncated TUNNEL node transform")
+
+        position = struct.unpack_from("<3f", data, offset)
+        rotation = struct.unpack_from("<4f", data, offset + 12)
+        scale = struct.unpack_from("<3f", data, offset + 28)
+
+        json_start, json_end, params = _find_json_payload(
+            data,
+            start=offset + 40,
+        )
+        metadata = data[offset + 40:json_start - 4]
+        strings = _ascii_strings(
+            metadata,
+            minimum_length=3,
+        )
+        tags = [
+            value
+            for value in strings
+            if value.islower()
+        ]
+
+        nodes.append(
+            {
+                "index": len(nodes),
+                "position": tuple(
+                    float(value)
+                    for value in position
+                ),
+                "rotation": tuple(
+                    float(value)
+                    for value in rotation
+                ),
+                "scale": tuple(
+                    float(value)
+                    for value in scale
+                ),
+                "tags": tags,
+                "params": params,
+                "metadata_hex": metadata.hex(),
+                "metadata_strings": strings,
+                "record_offset": offset,
+                "record_size": json_end - offset,
+            }
+        )
+        offset = json_end
+
+    if expected_count is not None and len(nodes) != expected_count:
+        raise InvalidTileFile(
+            "TUNNEL node count mismatch: "
+            f"expected {expected_count}, got {len(nodes)}"
+        )
+
+    return nodes
+
+
+def probe_tile_nodes(
+    path: str | Path,
+) -> dict[str, object]:
+    tile_path = Path(path).expanduser().resolve()
+    tile = probe_tile(tile_path)
+    data = tile_path.read_bytes()
+    width = int(tile["width"])
+
+    node_chunks = [
+        chunk
+        for chunk in tile["chunks"]
+        if chunk["kind"] == "node"
+    ]
+    decoded_chunks = []
+
+    for meta in node_chunks:
+        compressed = data[
+            meta["index"]:
+            meta["index"] + meta["compressed_size"]
+        ]
+        decoded = decompress_lz4_block(
+            compressed,
+            expected_size=meta["uncompressed_size"],
+        )
+        nodes = decode_tunnel_node_chunk(
+            decoded,
+            expected_count=meta["count"],
+        )
+
+        cell = int(meta["cell"])
+        cell_x = cell % width
+        cell_y = cell // width
+
+        decoded_chunks.append(
+            {
+                "cell": cell,
+                "cell_x": cell_x,
+                "cell_y": cell_y,
+                "count": meta["count"],
+                "nodes": nodes,
+            }
+        )
+
+    return {
+        "path": str(tile_path),
+        "width": tile["width"],
+        "height": tile["height"],
+        "node_chunks": decoded_chunks,
+        "nodes": sum(
+            len(chunk["nodes"])
+            for chunk in decoded_chunks
+        ),
+    }
 
 
 def probe_tile_chunks(
