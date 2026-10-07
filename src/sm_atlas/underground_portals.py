@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from math import sqrt
+from pathlib import Path
 
 from .database import SaveDatabase
 from .portals import discover_portals
+from .tile_file import probe_tile_nodes
 from .underground_features import extract_caves, extract_pockets
 from .underground_layout import (
     _dimensions_from_name,
@@ -701,6 +703,190 @@ def summarize_saved_tunnel_portals(
     }
 
 
+def _tile_local_to_world(
+    node: LayoutNode,
+    point: tuple[float, float, float],
+) -> tuple[float, float, float] | None:
+    dimensions = _dimensions_from_name(node.name)
+    if dimensions is None:
+        return None
+
+    width = dimensions[0] * 16.0
+    depth = dimensions[1] * 16.0
+    lx, ly, lz = point
+    rotation = node.rotation & 3
+
+    if rotation == 1:
+        wx = depth - ly
+        wy = lx
+    elif rotation == 2:
+        wx = width - lx
+        wy = depth - ly
+    elif rotation == 3:
+        wx = ly
+        wy = width - lx
+    else:
+        wx = lx
+        wy = ly
+
+    return (
+        node.min_x + wx,
+        node.min_y + wy,
+        node.min_z + lz,
+    )
+
+
+def _match_tile_sockets(
+    node: LayoutNode,
+    tile_path: str | Path,
+    observed: list[ObservedPortal],
+    *,
+    tolerance: float = 0.05,
+) -> dict[str, object]:
+    decoded = probe_tile_nodes(tile_path)
+    expected_uuid = (node.tile_uuid or "").replace("-", "").lower()
+    actual_uuid = str(decoded["uuid_hex"]).lower()
+    if expected_uuid and actual_uuid != expected_uuid:
+        raise ValueError(
+            "tile UUID does not match underground node: "
+            f"expected {expected_uuid}, got {actual_uuid}"
+        )
+
+    sockets = []
+    for chunk in decoded["node_chunks"]:
+        for tile_node in chunk["nodes"]:
+            tile_position = tuple(tile_node["tile_position"])
+            world_position = _tile_local_to_world(
+                node,
+                tile_position,
+            )
+            if world_position is None:
+                continue
+
+            params = tile_node["params"]
+            tunnel_type = None
+            if isinstance(params, dict):
+                tunnel = params.get("tunnel")
+                if isinstance(tunnel, dict):
+                    value = tunnel.get("type")
+                    if isinstance(value, str):
+                        tunnel_type = value
+
+            sockets.append(
+                {
+                    "cell": chunk["cell"],
+                    "node": tile_node["index"],
+                    "socket_type": tunnel_type,
+                    "tile_position": tuple(
+                        round(value, 6)
+                        for value in tile_position
+                    ),
+                    "world_position": tuple(
+                        round(value, 6)
+                        for value in world_position
+                    ),
+                    "_world_position_raw": world_position,
+                }
+            )
+
+    endpoints = [
+        portal
+        for portal in observed
+        if portal.node_id == node.node_id
+    ]
+
+    candidates = []
+    for socket_index, socket in enumerate(sockets):
+        point = socket["_world_position_raw"]
+        for endpoint_index, endpoint in enumerate(endpoints):
+            endpoint_point = (
+                endpoint.endpoint_x,
+                endpoint.endpoint_y,
+                endpoint.endpoint_z,
+            )
+            distance = sqrt(
+                sum(
+                    (point[index] - endpoint_point[index]) ** 2
+                    for index in range(3)
+                )
+            )
+            if distance <= tolerance:
+                candidates.append(
+                    (
+                        distance,
+                        socket_index,
+                        endpoint_index,
+                    )
+                )
+
+    candidates.sort()
+    used_sockets: set[int] = set()
+    used_endpoints: set[int] = set()
+    matches = []
+
+    for distance, socket_index, endpoint_index in candidates:
+        if socket_index in used_sockets:
+            continue
+        if endpoint_index in used_endpoints:
+            continue
+
+        used_sockets.add(socket_index)
+        used_endpoints.add(endpoint_index)
+        socket = sockets[socket_index]
+        endpoint = endpoints[endpoint_index]
+        matches.append(
+            {
+                "cell": socket["cell"],
+                "node": socket["node"],
+                "socket_type": socket["socket_type"],
+                "tile_position": socket["tile_position"],
+                "world_position": socket["world_position"],
+                "tunnel_id": endpoint.tunnel_id,
+                "tunnel_side": endpoint.side,
+                "distance": round(distance, 9),
+            }
+        )
+
+    public_sockets = []
+    for socket in sockets:
+        item = {
+            key: value
+            for key, value in socket.items()
+            if not key.startswith("_")
+        }
+        public_sockets.append(item)
+
+    unmatched_sockets = [
+        public_sockets[index]
+        for index in range(len(public_sockets))
+        if index not in used_sockets
+    ]
+    unmatched_endpoints = [
+        endpoint.to_dict()
+        for index, endpoint in enumerate(endpoints)
+        if index not in used_endpoints
+    ]
+
+    matches.sort(
+        key=lambda item: (
+            item["tunnel_id"],
+            item["tunnel_side"],
+        )
+    )
+
+    return {
+        "tile_path": str(Path(tile_path).expanduser().resolve()),
+        "tile_uuid": actual_uuid,
+        "socket_match_tolerance": tolerance,
+        "sockets": len(public_sockets),
+        "saved_endpoints": len(endpoints),
+        "matched": len(matches),
+        "matches": matches,
+        "unmatched_sockets": unmatched_sockets,
+        "unmatched_saved_endpoints": unmatched_endpoints,
+    }
+
+
 def summarize_underground_node(
     database: SaveDatabase,
     *,
@@ -708,6 +894,8 @@ def summarize_underground_node(
     node_id: int,
     limit: int = 5000,
     attach_tolerance: float = 4.0,
+    tile_path: str | Path | None = None,
+    socket_match_tolerance: float = 0.05,
 ) -> dict[str, object]:
     nodes, observed = observe_saved_tunnel_portals(
         database,
@@ -797,6 +985,17 @@ def summarize_underground_node(
         )
     )
 
+    tile_socket_matches = (
+        None
+        if tile_path is None
+        else _match_tile_sockets(
+            node,
+            tile_path,
+            observed,
+            tolerance=socket_match_tolerance,
+        )
+    )
+
     return {
         "world_id": world_id,
         "node": {
@@ -823,4 +1022,5 @@ def summarize_underground_node(
         },
         "saved_world_portals": saved_portals,
         "observed_tunnel_endpoints": tunnel_endpoints,
+        "tile_socket_matches": tile_socket_matches,
     }
