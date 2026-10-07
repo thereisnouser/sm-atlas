@@ -6,6 +6,7 @@ from sm_atlas.underground_navigation import (
     _contact_faces,
     diagnose_portal_contact_coverage,
     learn_portal_templates,
+    summarize_transit_candidate,
     match_portal_contacts,
 )
 from sm_atlas.underground_portals import ObservedPortal
@@ -337,3 +338,118 @@ def test_contact_diagnostics_measure_opposing_portal_distance() -> None:
     assert result["both_face_templates"] == 1
     assert result["min_distance_buckets"] == {"<=8m": 1}
     assert result["closest_unmatched"][0]["distance"] == 8.0
+
+
+def test_transit_candidate_excludes_generic_pockets() -> None:
+    from sm_atlas.underground_topology import LayoutTunnelLink
+
+    passage = node(
+        1,
+        name="passage_2x2x2.tile",
+        rotation=0,
+        min_x=0.0,
+        max_x=32.0,
+        min_y=0.0,
+        max_y=32.0,
+    )
+    generic = LayoutNode(
+        node_id=2,
+        kind="pocket",
+        name="gold_1x1x1.tile",
+        family="pocket",
+        tags=("gold",),
+        min_x=32.0,
+        max_x=48.0,
+        min_y=0.0,
+        max_y=16.0,
+        min_z=0.0,
+        max_z=16.0,
+        tile_uuid="gold",
+        rotation=0,
+    )
+    other = node(
+        3,
+        name="room_2x2x2.tile",
+        rotation=0,
+        min_x=64.0,
+        max_x=96.0,
+        min_y=0.0,
+        max_y=32.0,
+    )
+    topology = LayoutTopology(
+        world_id=23,
+        nodes=(passage, generic, other),
+        contacts=(
+            LayoutContact(1, 2, "x", 16.0, 16.0, 256.0),
+        ),
+        tunnel_links=(
+            LayoutTunnelLink(
+                tunnel_id=1,
+                tunnel_type="TtVeinRich",
+                left=1,
+                right=3,
+                length=32.0,
+            ),
+        ),
+        attached_tunnel_endpoints=2,
+        unattached_tunnel_endpoints=0,
+    )
+
+    result = summarize_transit_candidate(
+        topology,
+        include_vertical_contacts=True,
+    )
+
+    assert result["nodes"] == 2
+    assert result["contact_pairs"] == 0
+    assert result["saved_tunnel_pairs"] == 1
+    assert result["largest_component"] == 2
+
+
+def test_transit_candidate_can_ignore_vertical_face_contacts() -> None:
+    from sm_atlas.underground_topology import LayoutTunnelLink
+
+    lower = node(
+        1,
+        name="lower_2x2x2.tile",
+        rotation=0,
+        min_x=0.0,
+        max_x=32.0,
+        min_y=0.0,
+        max_y=32.0,
+        min_z=0.0,
+        max_z=32.0,
+    )
+    upper = node(
+        2,
+        name="upper_2x2x2.tile",
+        rotation=0,
+        min_x=0.0,
+        max_x=32.0,
+        min_y=0.0,
+        max_y=32.0,
+        min_z=32.0,
+        max_z=64.0,
+    )
+    topology = LayoutTopology(
+        world_id=23,
+        nodes=(lower, upper),
+        contacts=(
+            LayoutContact(1, 2, "z", 32.0, 32.0, 1024.0),
+        ),
+        tunnel_links=(),
+        attached_tunnel_endpoints=0,
+        unattached_tunnel_endpoints=0,
+    )
+
+    horizontal = summarize_transit_candidate(
+        topology,
+        include_vertical_contacts=False,
+    )
+    all_faces = summarize_transit_candidate(
+        topology,
+        include_vertical_contacts=True,
+    )
+
+    assert horizontal["largest_component"] == 1
+    assert all_faces["largest_component"] == 2

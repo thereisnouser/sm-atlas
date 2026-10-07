@@ -10,6 +10,14 @@ from .underground_portals import (
     ObservedPortal,
     observe_saved_tunnel_portals,
 )
+TRANSIT_ROLES = {
+    "elevator",
+    "cave",
+    "passage",
+    "tunnel_pocket",
+}
+
+
 from .underground_topology import (
     EPSILON,
     LayoutContact,
@@ -195,6 +203,12 @@ class NavigationCandidateGraph:
                 portal_pair_set | tunnel_pair_set
             ),
             "contact_diagnostics": self.contact_diagnostics,
+            "transit_horizontal": self.contact_diagnostics.get(
+                "transit_horizontal"
+            ),
+            "transit_all_faces": self.contact_diagnostics.get(
+                "transit_all_faces"
+            ),
             "components": len(components),
             "largest_component": (
                 len(components[0])
@@ -238,6 +252,164 @@ class NavigationCandidateGraph:
                 for node in hubs
             ],
         }
+
+
+def _components_from_adjacency(
+    adjacency: dict[int, set[int]],
+) -> list[list[int]]:
+    remaining = set(adjacency)
+    components: list[list[int]] = []
+
+    while remaining:
+        start = min(remaining)
+        remaining.remove(start)
+        stack = [start]
+        component: list[int] = []
+
+        while stack:
+            node_id = stack.pop()
+            component.append(node_id)
+
+            for neighbor in adjacency[node_id]:
+                if neighbor not in remaining:
+                    continue
+                remaining.remove(neighbor)
+                stack.append(neighbor)
+
+        components.append(sorted(component))
+
+    components.sort(
+        key=lambda component: (
+            -len(component),
+            component[0],
+        )
+    )
+    return components
+
+
+def summarize_transit_candidate(
+    topology: LayoutTopology,
+    *,
+    include_vertical_contacts: bool,
+) -> dict[str, object]:
+    lookup = {
+        node.node_id: node
+        for node in topology.nodes
+    }
+    transit_ids = {
+        node.node_id
+        for node in topology.nodes
+        if node.semantic_role in TRANSIT_ROLES
+    }
+    adjacency = {
+        node_id: set()
+        for node_id in transit_ids
+    }
+
+    contact_pairs: set[tuple[int, int]] = set()
+    contact_axes: Counter[str] = Counter()
+
+    for contact in topology.contacts:
+        if contact.left not in transit_ids or contact.right not in transit_ids:
+            continue
+        if not include_vertical_contacts and contact.axis == "z":
+            continue
+
+        pair = tuple(sorted((contact.left, contact.right)))
+        contact_pairs.add(pair)
+        contact_axes[contact.axis] += 1
+        adjacency[contact.left].add(contact.right)
+        adjacency[contact.right].add(contact.left)
+
+    tunnel_pairs: set[tuple[int, int]] = set()
+
+    for link in topology.tunnel_links:
+        if link.left not in transit_ids or link.right not in transit_ids:
+            continue
+
+        pair = tuple(sorted((link.left, link.right)))
+        tunnel_pairs.add(pair)
+        adjacency[link.left].add(link.right)
+        adjacency[link.right].add(link.left)
+
+    components = _components_from_adjacency(adjacency)
+    component_by_node: dict[int, int] = {}
+
+    for index, component in enumerate(components, start=1):
+        for node_id in component:
+            component_by_node[node_id] = index
+
+    elevator_ids = [
+        node_id
+        for node_id in transit_ids
+        if lookup[node_id].semantic_role == "elevator"
+    ]
+    elevator_component_ids = {
+        component_by_node[node_id]
+        for node_id in elevator_ids
+    }
+
+    reachable: set[int] = set()
+    for component_id in elevator_component_ids:
+        reachable.update(components[component_id - 1])
+
+    unreachable = sorted(transit_ids - reachable)
+    role_counts = Counter(
+        lookup[node_id].semantic_role
+        for node_id in transit_ids
+    )
+    reachable_roles = Counter(
+        lookup[node_id].semantic_role
+        for node_id in reachable
+    )
+    unreachable_roles = Counter(
+        lookup[node_id].semantic_role
+        for node_id in unreachable
+    )
+
+    return {
+        "nodes": len(transit_ids),
+        "roles": dict(role_counts.most_common()),
+        "contact_pairs": len(contact_pairs),
+        "contact_axes": dict(contact_axes.most_common()),
+        "saved_tunnel_pairs": len(tunnel_pairs),
+        "both_evidence_pairs": len(
+            contact_pairs & tunnel_pairs
+        ),
+        "candidate_pairs": len(
+            contact_pairs | tunnel_pairs
+        ),
+        "components": len(components),
+        "largest_component": (
+            len(components[0])
+            if components
+            else 0
+        ),
+        "isolated_nodes": sum(
+            not adjacency[node_id]
+            for node_id in transit_ids
+        ),
+        "elevator_reachable_nodes": len(reachable),
+        "elevator_reachable_roles": dict(
+            reachable_roles.most_common()
+        ),
+        "elevator_unreachable_nodes": len(unreachable),
+        "elevator_unreachable_roles": dict(
+            unreachable_roles.most_common()
+        ),
+        "elevator_unreachable": [
+            {
+                "id": node_id,
+                "role": lookup[node_id].semantic_role,
+                "name": lookup[node_id].name,
+                "center": tuple(
+                    round(value, 3)
+                    for value in lookup[node_id].center
+                ),
+            }
+            for node_id in unreachable[:40]
+        ],
+    }
 
 
 def _rounded_key(
@@ -730,6 +902,18 @@ def build_navigation_candidate_graph(
     contact_diagnostics = diagnose_portal_contact_coverage(
         topology,
         templates,
+    )
+    contact_diagnostics["transit_horizontal"] = (
+        summarize_transit_candidate(
+            topology,
+            include_vertical_contacts=False,
+        )
+    )
+    contact_diagnostics["transit_all_faces"] = (
+        summarize_transit_candidate(
+            topology,
+            include_vertical_contacts=True,
+        )
     )
 
     tunnel_pairs = tuple(

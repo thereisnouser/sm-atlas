@@ -2523,6 +2523,45 @@ def run_underground_navigation(
         "Both-face role pairs: "
         f"{diagnostics['both_face_roles']}"
     )
+
+    transit_horizontal = result["transit_horizontal"]
+    print(
+        "Transit candidate (X/Y contacts + tunnels): "
+        f"nodes={transit_horizontal['nodes']}, "
+        f"contacts={transit_horizontal['contact_pairs']}, "
+        f"tunnels={transit_horizontal['saved_tunnel_pairs']}, "
+        f"pairs={transit_horizontal['candidate_pairs']}, "
+        f"components={transit_horizontal['components']}, "
+        f"largest={transit_horizontal['largest_component']}, "
+        f"isolated={transit_horizontal['isolated_nodes']}"
+    )
+    print(
+        "Transit elevator reach (X/Y): "
+        f"{transit_horizontal['elevator_reachable_nodes']}/"
+        f"{transit_horizontal['nodes']} "
+        f"roles={transit_horizontal['elevator_reachable_roles']} "
+        f"unreachable={transit_horizontal['elevator_unreachable_roles']}"
+    )
+
+    transit_all = result["transit_all_faces"]
+    print(
+        "Transit candidate (all face contacts + tunnels): "
+        f"nodes={transit_all['nodes']}, "
+        f"contacts={transit_all['contact_pairs']}, "
+        f"tunnels={transit_all['saved_tunnel_pairs']}, "
+        f"pairs={transit_all['candidate_pairs']}, "
+        f"components={transit_all['components']}, "
+        f"largest={transit_all['largest_component']}, "
+        f"isolated={transit_all['isolated_nodes']}"
+    )
+    print(
+        "Transit elevator reach (all faces): "
+        f"{transit_all['elevator_reachable_nodes']}/"
+        f"{transit_all['nodes']} "
+        f"roles={transit_all['elevator_reachable_roles']} "
+        f"unreachable={transit_all['elevator_unreachable_roles']}"
+    )
+
     if diagnostics["closest_unmatched"]:
         print("Closest unmatched face contacts:")
         for contact in diagnostics["closest_unmatched"]:
