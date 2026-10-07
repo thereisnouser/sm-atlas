@@ -25,6 +25,7 @@ from .terrain_tree_probe import probe_voxel_tree_encoding
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import write_underground_map
+from .underground_navigation import build_navigation_candidate_graph
 from .underground_portals import summarize_saved_tunnel_portals
 from .underground_tile_catalog import summarize_underground_tiles
 from .underground_topology import build_layout_topology
@@ -776,6 +777,59 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of tile/rotation portal profiles to show.",
     )
     underground_portals_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    underground_navigation_parser = subparsers.add_parser(
+        "underground-navigation",
+        help="Build a conservative portal-matched navigation candidate graph.",
+    )
+    underground_navigation_parser.add_argument("save", type=Path)
+    underground_navigation_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to inspect.",
+    )
+    underground_navigation_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    underground_navigation_parser.add_argument(
+        "--attach-tolerance",
+        type=float,
+        default=4.0,
+        help="Maximum tunnel endpoint-to-tile distance in meters.",
+    )
+    underground_navigation_parser.add_argument(
+        "--min-template-placements",
+        type=int,
+        default=2,
+        help="Independent placements required to learn a portal template.",
+    )
+    underground_navigation_parser.add_argument(
+        "--cluster-step",
+        type=float,
+        default=4.0,
+        help="Canonical portal clustering grid in meters.",
+    )
+    underground_navigation_parser.add_argument(
+        "--match-tolerance",
+        type=float,
+        default=4.1,
+        help="Maximum distance between opposing learned portals.",
+    )
+    underground_navigation_parser.add_argument(
+        "--top",
+        type=int,
+        default=20,
+        help="Number of highest-degree navigation nodes to show.",
+    )
+    underground_navigation_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -2389,6 +2443,105 @@ def run_underground_portals(
     return 0
 
 
+def run_underground_navigation(
+    save: Path,
+    world_id: int,
+    limit: int,
+    attach_tolerance: float,
+    min_template_placements: int,
+    cluster_step: float,
+    match_tolerance: float,
+    top: int,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        graph = build_navigation_candidate_graph(
+            database,
+            world_id=world_id,
+            limit=limit,
+            attach_tolerance=attach_tolerance,
+            min_template_placements=min_template_placements,
+            cluster_step=cluster_step,
+            match_tolerance=match_tolerance,
+        )
+        result = graph.summary(top=top)
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']}")
+    print(f"Logical nodes: {result['nodes']}")
+    print(f"Raw face contacts: {result['face_contacts']}")
+    print(
+        "Learned portal templates: "
+        f"{result['learned_templates']} "
+        f"across {result['learned_tile_types']} tile types"
+    )
+    print(
+        "Portal-matched contacts: "
+        f"{result['portal_matched_contacts']} "
+        f"({result['portal_matches']} portal matches)"
+    )
+    print(f"Portal pair roles: {result['portal_pair_roles']}")
+    print(
+        "Edge evidence: "
+        f"saved_tunnel_pairs={result['saved_tunnel_pairs']}, "
+        f"portal_only={result['portal_only_pairs']}, "
+        f"tunnel_only={result['tunnel_only_pairs']}, "
+        f"both={result['both_pair_types']}, "
+        f"navigation_pairs={result['navigation_pairs']}"
+    )
+    print(
+        "Navigation candidate connectivity: "
+        f"components={result['components']}, "
+        f"largest={result['largest_component']} nodes, "
+        f"isolated={result['isolated_nodes']}"
+    )
+    print(f"Elevator nodes: {result['elevator_nodes']}")
+    print(
+        "Elevator reachable: "
+        f"{result['elevator_reachable_nodes']} nodes "
+        f"roles={result['elevator_reachable_roles']}"
+    )
+
+    if result["isolated"]:
+        print("Navigation-isolated nodes:")
+        for node in result["isolated"]:
+            tags = ",".join(node["tags"]) or "-"
+            print(
+                f"  node={node['id']} "
+                f"role={node['role']} "
+                f"family={node['family']} "
+                f"tags={tags} "
+                f"center={node['center']} "
+                f"name={node['name']}"
+            )
+
+    if result["top_hubs"]:
+        print("Top navigation hubs:")
+        for node in result["top_hubs"]:
+            print(
+                f"  node={node['id']} "
+                f"degree={node['degree']} "
+                f"role={node['role']} "
+                f"center={node['center']} "
+                f"name={node['name']}"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -2693,6 +2846,21 @@ def main() -> None:
                 args.world,
                 args.limit,
                 args.attach_tolerance,
+                args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-navigation":
+        raise SystemExit(
+            run_underground_navigation(
+                args.save,
+                args.world,
+                args.limit,
+                args.attach_tolerance,
+                args.min_template_placements,
+                args.cluster_step,
+                args.match_tolerance,
                 args.top,
                 args.json,
             )
