@@ -53,21 +53,37 @@ def discover_portals(
             """
         ).fetchall()
 
-    return [
-        PortalInfo(
-            portal_id=int(row["id"]),
+    portals: list[PortalInfo] = []
+
+    for row in rows:
+        decoded = decode_portal_blob(
+            bytes(row["data"] or b"")
+        )
+        if _decoded_matches_columns(
+            decoded,
             world_id_a=int(row["worldIdA"]),
             x_a=int(row["xA"]),
             y_a=int(row["yA"]),
             world_id_b=int(row["worldIdB"]),
             x_b=int(row["xB"]),
             y_b=int(row["yB"]),
-            decoded=decode_portal_blob(
-                bytes(row["data"] or b"")
-            ),
+        ) is not True:
+            decoded = None
+
+        portals.append(
+            PortalInfo(
+                portal_id=int(row["id"]),
+                world_id_a=int(row["worldIdA"]),
+                x_a=int(row["xA"]),
+                y_a=int(row["yA"]),
+                world_id_b=int(row["worldIdB"]),
+                x_b=int(row["xB"]),
+                y_b=int(row["yB"]),
+                decoded=decoded,
+            )
         )
-        for row in rows
-    ]
+
+    return portals
 
 
 @dataclass(frozen=True)
