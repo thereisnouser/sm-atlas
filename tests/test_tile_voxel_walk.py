@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import pytest
+
+from sm_atlas.tile_voxel_walk import (
+    _candidate_foot_positions,
+    _label_walk_components,
+    _shortest_walk,
+    probe_tile_voxel_walk,
+)
+
+
+def _stepped_tunnel() -> tuple[bytearray, tuple[int, int, int]]:
+    dims = (5, 1, 4)
+    volume = bytearray([31] * 20)
+    for x in range(5):
+        foot_z = 1 if x < 2 else 2
+        for z in (foot_z, foot_z + 1):
+            volume[(x * dims[1]) * dims[2] + z] = 0
+    return volume, dims
+
+
+def test_candidate_footpath_connects_one_meter_step() -> None:
+    volume, dims = _stepped_tunnel()
+    footprint = _candidate_foot_positions(
+        volume, dims, threshold=8, headroom=2,
+    )
+    labels, groups = _label_walk_components(
+        footprint, dims, max_step=1,
+    )
+    assert len(groups) == 1
+    assert groups[0]["voxels"] == 5
+
+    route = _shortest_walk(
+        (0, 0, 1), (4, 0, 2), footprint, dims, max_step=1,
+    )
+    assert route is not None
+    assert route["grid_steps"] == 4
+    assert route["length_m"] == pytest.approx(3 + 2**0.5, abs=0.001)
+    assert route["climb_m"] == 1
+    assert route["descent_m"] == 0
+
+
+def test_no_steps_splits_height_change() -> None:
+    volume, dims = _stepped_tunnel()
+    footprint = _candidate_foot_positions(
+        volume, dims, threshold=8, headroom=2,
+    )
+    _, groups = _label_walk_components(
+        footprint, dims, max_step=0,
+    )
+    assert sorted(c["voxels"] for c in groups) == [2, 3]
+    assert _shortest_walk(
+        (0, 0, 1), (4, 0, 2), footprint, dims, max_step=0,
+    ) is None
+
+
+def test_missing_support_and_headroom_are_not_walkable() -> None:
+    volume = bytearray([31, 0, 31, 0, 0])
+    footprint = _candidate_foot_positions(
+        volume, (1, 1, 5), threshold=8, headroom=2,
+    )
+    assert footprint.count(1) == 1
+    assert footprint[3] == 1
+
+
+def test_validate_parameters_without_reading_tile(tmp_path) -> None:
+    path = tmp_path / "room_1x1x1.tile"
+    with pytest.raises(ValueError, match="headroom"):
+        probe_tile_voxel_walk(path, headroom=0)
+    with pytest.raises(ValueError, match="max_step"):
+        probe_tile_voxel_walk(path, max_step=3)
+    with pytest.raises(ValueError, match="both from_socket"):
+        probe_tile_voxel_walk(path, from_socket="cell0:node1")
