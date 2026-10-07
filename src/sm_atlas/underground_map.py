@@ -16,7 +16,6 @@ from .underground_features import (
     summarize_spawners,
 )
 from .underground_routes import TransitRoute, find_transit_route
-from .underground_topology import LayoutNode, LayoutTopology, build_layout_topology
 from .underground_tunnels import (
     _extract_tunnels,
     _load_terrain_table,
@@ -412,7 +411,7 @@ def render_underground_map_svg(
                 f'x1="{sx(start[0]):.2f}" y1="{sy(start[1]):.2f}" '
                 f'x2="{sx(end[0]):.2f}" y2="{sy(end[1]):.2f}" '
                 f'data-feature="route-contact">'
-                "<title>Candidate direct tile contact</title>"
+                "<title>Candidate intra-tile/contact connector</title>"
                 "</line>"
             )
 
@@ -531,46 +530,26 @@ def render_underground_map_svg(
 
 def _route_overlay(
     route: TransitRoute,
-    lookup: dict[int, LayoutNode],
-    topology: LayoutTopology,
-    tunnels: list[dict],
 ) -> UndergroundRouteOverlay:
     route_tunnel_ids = tuple(
-        edge.tunnel_id
-        for edge in route.edges
-        if edge.kind == "tunnel" and edge.tunnel_id is not None
+        segment.tunnel_id
+        for segment in route.segments
+        if (
+            segment.kind == "tunnel"
+            and segment.tunnel_id is not None
+        )
     )
     contact_segments = tuple(
         (
-            lookup[edge.left].center,
-            lookup[edge.right].center,
+            segment.from_point,
+            segment.to_point,
         )
-        for edge in route.edges
-        if edge.kind == "contact"
+        for segment in route.segments
+        if (
+            segment.kind != "tunnel"
+            and segment.from_point != segment.to_point
+        )
     )
-
-    target_point = lookup[route.target_node].center
-
-    if route.target_tunnel_id is not None:
-        tunnel_lookup = {
-            int(tunnel["id"]): tunnel
-            for tunnel in tunnels
-        }
-        target_tunnel = tunnel_lookup.get(route.target_tunnel_id)
-        target_link = next(
-            (
-                link
-                for link in topology.tunnel_links
-                if link.tunnel_id == route.target_tunnel_id
-            ),
-            None,
-        )
-
-        if target_tunnel is not None and target_link is not None:
-            if route.target_tunnel_entry_node == target_link.left:
-                target_point = target_tunnel["points"][0]
-            elif route.target_tunnel_entry_node == target_link.right:
-                target_point = target_tunnel["points"][-1]
 
     if route.target_tunnel_id is not None:
         title = (
@@ -583,6 +562,17 @@ def _route_overlay(
             f"{route.target_value}"
         )
 
+    start_point = (
+        route.start_point
+        if route.start_point is not None
+        else (0.0, 0.0, 0.0)
+    )
+    target_point = (
+        route.target_point
+        if route.target_point is not None
+        else start_point
+    )
+
     return UndergroundRouteOverlay(
         title=title,
         tunnel_ids=tuple(
@@ -591,7 +581,7 @@ def _route_overlay(
             if tunnel_id != route.target_tunnel_id
         ),
         contact_segments=contact_segments,
-        start_point=lookup[route.start_node].center,
+        start_point=start_point,
         target_point=target_point,
         target_tunnel_id=route.target_tunnel_id,
     )
@@ -617,11 +607,6 @@ def write_underground_route_map(
         target_tag=target_tag,
         target_tunnel_type=target_tunnel_type,
     )
-    topology = build_layout_topology(
-        database,
-        world_id=world_id,
-        limit=limit,
-    )
     row_id, value = _load_terrain_table(
         database,
         world_id=world_id,
@@ -631,12 +616,7 @@ def write_underground_route_map(
     caves = extract_caves(value)
     pockets = extract_pockets(value)
     spawners = extract_spawners(value)
-    overlay = _route_overlay(
-        route,
-        lookup,
-        topology,
-        tunnels,
-    )
+    overlay = _route_overlay(route)
 
     output_path = Path(output).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from sm_atlas.underground_routes import (
     TransitRoute,
+    _build_endpoint_route_graph,
+    _reconstruct_endpoint_route,
     _reconstruct_route,
+    _route_graph_shortest_paths,
     _shortest_paths,
     build_transit_edges,
 )
@@ -157,3 +160,99 @@ def test_target_tunnel_metadata_reports_entry_and_other_endpoint() -> None:
     assert tunnel["entry_node"] == 2
     assert tunnel["other_node"] == 3
     assert tunnel["full_traverse_cost"] == 113.561
+
+
+def test_endpoint_route_graph_charges_intra_tile_travel() -> None:
+    elevator = node(
+        1,
+        role="elevator",
+        x=0.0,
+    )
+    passage = node(
+        2,
+        role="passage",
+        x=32.0,
+    )
+    room = node(
+        3,
+        x=64.0,
+    )
+    graph_topology = LayoutTopology(
+        world_id=23,
+        nodes=(elevator, passage, room),
+        contacts=(),
+        tunnel_links=(
+            LayoutTunnelLink(
+                tunnel_id=10,
+                tunnel_type="TtVeinRich",
+                left=1,
+                right=2,
+                length=4.0,
+            ),
+            LayoutTunnelLink(
+                tunnel_id=20,
+                tunnel_type="TtVeinSparkstone",
+                left=2,
+                right=3,
+                length=6.0,
+            ),
+        ),
+        attached_tunnel_endpoints=4,
+        unattached_tunnel_endpoints=0,
+    )
+    raw_tunnels = {
+        10: {
+            "id": 10,
+            "type": "TtVeinRich",
+            "length": 4.0,
+            "points": [
+                (30.0, 16.0, 16.0),
+                (34.0, 16.0, 16.0),
+            ],
+        },
+        20: {
+            "id": 20,
+            "type": "TtVeinSparkstone",
+            "length": 6.0,
+            "points": [
+                (60.0, 16.0, 16.0),
+                (66.0, 16.0, 16.0),
+            ],
+        },
+    }
+
+    (
+        anchors,
+        edges,
+        center_by_node,
+        tunnel_anchor_by_key,
+    ) = _build_endpoint_route_graph(
+        graph_topology,
+        raw_tunnels,
+        include_vertical_contacts=False,
+    )
+    start = center_by_node[1]
+    target = tunnel_anchor_by_key[(20, 2)]
+    distances, previous = _route_graph_shortest_paths(
+        start,
+        anchors,
+        edges,
+    )
+    _, segments = _reconstruct_endpoint_route(
+        start,
+        target,
+        anchors,
+        previous,
+    )
+
+    assert distances[target] == 44.0
+    assert [segment.kind for segment in segments] == [
+        "intra_tile",
+        "tunnel",
+        "intra_tile",
+    ]
+    assert [segment.weight for segment in segments] == [
+        14.0,
+        4.0,
+        26.0,
+    ]

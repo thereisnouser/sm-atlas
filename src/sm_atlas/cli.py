@@ -2772,35 +2772,37 @@ def run_underground_route(
     print(
         "Candidate route cost to target entrance: "
         f"{result['total_cost']}m "
-        f"steps={len(result['edges'])} "
-        f"edge_kinds={result['edge_kinds']}"
+        f"segments={len(result['segments'])} "
+        f"kinds={result['edge_kinds']} "
+        f"breakdown={result['cost_breakdown']}"
     )
 
-    print("Route:")
-    for index, node in enumerate(result["nodes"]):
-        print(
-            f"  [{index}] node={node['id']} "
-            f"role={node['role']} "
-            f"center={node['center']} "
-            f"name={node['name']}"
-        )
-        if index >= len(result["edges"]):
-            continue
-
-        edge = result["edges"][index]
-        if edge["kind"] == "tunnel":
-            print(
-                "       -> tunnel "
-                f"id={edge['tunnel_id']} "
-                f"type={edge['tunnel_type']} "
-                f"cost={edge['weight']}m"
+    print("Route segments:")
+    for index, segment in enumerate(
+        result["segments"],
+        start=1,
+    ):
+        if segment["kind"] == "tunnel":
+            detail = (
+                f"tunnel id={segment['tunnel_id']} "
+                f"type={segment['tunnel_type']}"
+            )
+        elif segment["kind"] == "intra_tile":
+            detail = (
+                f"inside tile node="
+                f"{segment['layout_node_id']} (proxy)"
             )
         else:
-            print(
-                "       -> direct contact "
-                f"axis={edge['axis']} "
-                f"cost={edge['weight']}m"
+            detail = (
+                f"direct contact axis={segment['axis']}"
             )
+
+        print(
+            f"  [{index}] {detail} "
+            f"cost={segment['weight']}m "
+            f"from={segment['from_point']} "
+            f"to={segment['to_point']}"
+        )
 
     if result["target_tunnel"] is not None:
         tunnel = result["target_tunnel"]
@@ -2870,8 +2872,9 @@ def run_underground_route_map(
     print(
         "Candidate route cost to target entrance: "
         f"{result['total_cost']}m "
-        f"steps={len(result['edges'])} "
-        f"edge_kinds={result['edge_kinds']}"
+        f"segments={len(result['segments'])} "
+        f"kinds={result['edge_kinds']} "
+        f"breakdown={result['cost_breakdown']}"
     )
     return 0
 
