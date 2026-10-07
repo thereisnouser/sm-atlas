@@ -1277,13 +1277,23 @@ def run_graph(
         return 0
 
     for connection in graph.connections:
+        a_position = (
+            ""
+            if connection.a.position is None
+            else f" pos={tuple(round(value, 3) for value in connection.a.position)}"
+        )
+        b_position = (
+            ""
+            if connection.b.position is None
+            else f" pos={tuple(round(value, 3) for value in connection.b.position)}"
+        )
         print(
             f"[portal {connection.portal_id}] "
             f"{connection.a.label} #{connection.a.world_id} "
-            f"({connection.a.x}, {connection.a.y}) "
+            f"({connection.a.x}, {connection.a.y}){a_position} "
             f"-> "
             f"{connection.b.label} #{connection.b.world_id} "
-            f"({connection.b.x}, {connection.b.y})"
+            f"({connection.b.x}, {connection.b.y}){b_position}"
         )
 
     return 0
@@ -2954,6 +2964,11 @@ def run_underground_route(
     print(f"World: {result['world_id']}")
     print(f"Route model: {mode}")
     print(f"Start elevator node: {result['start_node']}")
+    print(
+        f"Start source: {result['start_source']} "
+        f"point={result['start_point']} "
+        f"portal={result['start_portal']}"
+    )
     print(
         "Target: "
         f"{result['target_kind']}={result['target_value']} "
