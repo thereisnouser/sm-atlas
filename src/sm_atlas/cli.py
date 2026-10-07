@@ -27,6 +27,7 @@ from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
+from .tile_file import InvalidTileFile, probe_tile
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -102,6 +103,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only show connections touching an Underground world.",
     )
     graph_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    tile_probe_parser = subparsers.add_parser(
+        "tile-probe",
+        help="Inspect a Scrap Mechanic .tile header and chunk inventory.",
+    )
+    tile_probe_parser.add_argument("tile", type=Path)
+    tile_probe_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1039,6 +1051,63 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def run_tile_probe(
+    tile: Path,
+    as_json: bool,
+) -> int:
+    try:
+        result = probe_tile(tile)
+    except (
+        FileNotFoundError,
+        InvalidTileFile,
+        OSError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Tile: {result['path']}")
+    print(
+        f"Header: version={result['version']} "
+        f"uuid={result['uuid_hex']} "
+        f"size={result['width']}x{result['height']} cells "
+        f"file={result['file_size']} bytes"
+    )
+    print(
+        f"Cell headers: offset={result['cell_header_offset']} "
+        f"size={result['cell_header_size']} "
+        f"cells={result['cells']}"
+    )
+    print(f"Content: {result['content']}")
+
+    if result["invalid_chunk_ranges"]:
+        print(
+            "WARNING: invalid chunk ranges: "
+            f"{len(result['invalid_chunk_ranges'])}"
+        )
+
+    print("Chunks:")
+    for chunk in result["chunks"]:
+        level = (
+            ""
+            if chunk["level"] is None
+            else f"[{chunk['level']}]"
+        )
+        print(
+            f"  cell={chunk['cell']} "
+            f"{chunk['kind']}{level} "
+            f"count={chunk['count']} "
+            f"index={chunk['index']} "
+            f"compressed={chunk['compressed_size']} "
+            f"size={chunk['uncompressed_size']}"
+        )
+
+    return 0
 
 
 def run_portal_probe(
@@ -3261,6 +3330,14 @@ def main() -> None:
 
     if args.command == "inspect":
         raise SystemExit(run_inspect(args.save, args.json))
+
+    if args.command == "tile-probe":
+        raise SystemExit(
+            run_tile_probe(
+                args.tile,
+                args.json,
+            )
+        )
 
     if args.command == "portal-probe":
         raise SystemExit(
