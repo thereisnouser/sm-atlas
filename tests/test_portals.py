@@ -100,6 +100,14 @@ REAL_PORTAL_BLOB = bytes.fromhex(
 )
 
 
+PARTIAL_PORTAL_BLOB = bytes.fromhex(
+    "09000100000003ff00000000ffffffd70001ff0000000000000000ffff"
+    "3fd9999a3fd9999a403ccccd800071482d8010944000100000000fc00"
+    "0000fc000000fc000000fc0000018000000000000000000000000000"
+    "000000000000000000000000"
+)
+
+
 def test_decode_portal_blob_extracts_bit_packed_transforms() -> None:
     decoded = decode_portal_blob(REAL_PORTAL_BLOB)
 
@@ -155,3 +163,31 @@ def test_decoded_portal_positions_reproduce_database_cells() -> None:
 
 def test_decode_portal_blob_returns_none_for_short_payload() -> None:
     assert decode_portal_blob(portal_blob()) is None
+
+
+def test_decode_partial_portal_blob_keeps_side_a_transform() -> None:
+    decoded = decode_portal_blob(PARTIAL_PORTAL_BLOB)
+
+    assert decoded is not None
+    assert decoded.position_a == pytest.approx(
+        (-2571.375, 52.25, 2.0),
+        rel=1e-6,
+    )
+    assert decoded.rotation_a == pytest.approx(
+        (0.5, 0.5, 0.5, 0.5),
+        abs=1e-7,
+    )
+    assert decoded.position_b is None
+    assert decoded.rotation_b is None
+    assert decoded.world_id_b is None
+    assert decoded.tail_bit_offset == 570
+    assert len(decoded.tail_bits) == 198
+    assert _decoded_matches_columns(
+        decoded,
+        world_id_a=1,
+        x_a=-41,
+        y_a=0,
+        world_id_b=65535,
+        x_b=0,
+        y_b=0,
+    )
