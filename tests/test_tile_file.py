@@ -308,5 +308,7 @@ def test_probe_tile_voxels_reads_4108_byte_records(
         {
             "value": 7,
             "count": 4096,
+            "material": 0,
+            "density": 7,
         }
     ]
