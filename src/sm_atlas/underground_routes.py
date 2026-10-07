@@ -114,9 +114,22 @@ class TransitRoute:
             "total_cost": round(self.total_cost, 3),
             "candidate_contacts": self.candidate_contacts,
             "route_evidence": (
-                "saved-tunnel inter-tile only"
-                if self.candidate_contacts == 0
-                else "uses candidate face contacts"
+                "saved tunnel geometry only"
+                if (
+                    self.candidate_contacts == 0
+                    and not any(
+                        segment.kind == "intra_tile"
+                        for segment in self.segments
+                    )
+                )
+                else (
+                    "saved tunnels + intra-tile proxies"
+                    if self.candidate_contacts == 0
+                    else (
+                        "saved tunnels + intra-tile proxies "
+                        "+ candidate face contacts"
+                    )
+                )
             ),
             "target_tunnel": (
                 None
