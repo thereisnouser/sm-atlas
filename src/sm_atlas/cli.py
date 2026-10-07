@@ -27,6 +27,7 @@ from .underground_layout import summarize_underground_layout
 from .underground_map import write_underground_map
 from .underground_navigation import build_navigation_candidate_graph
 from .underground_portals import summarize_saved_tunnel_portals
+from .underground_routes import find_transit_route
 from .underground_tile_catalog import summarize_underground_tiles
 from .underground_topology import build_layout_topology
 from .underground_tunnels import summarize_underground_tunnels
@@ -830,6 +831,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of highest-degree navigation nodes to show.",
     )
     underground_navigation_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    underground_route_parser = subparsers.add_parser(
+        "underground-route",
+        help="Find a shortest candidate route through the underground transit graph.",
+    )
+    underground_route_parser.add_argument("save", type=Path)
+    underground_route_parser.add_argument(
+        "--world",
+        type=int,
+        required=True,
+        help="World ID to route through.",
+    )
+    underground_route_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5000,
+        help="Maximum ScriptData rows to scan (1-5000).",
+    )
+    route_target = underground_route_parser.add_mutually_exclusive_group(
+        required=True,
+    )
+    route_target.add_argument(
+        "--node",
+        type=int,
+        help="Route to a specific transit node ID.",
+    )
+    route_target.add_argument(
+        "--tag",
+        help="Route to the nearest transit tile matching a semantic tag/name.",
+    )
+    route_target.add_argument(
+        "--tunnel",
+        help="Route to the nearest saved tunnel of this type.",
+    )
+    underground_route_parser.add_argument(
+        "--include-vertical-contacts",
+        action="store_true",
+        help="Allow direct Z face contacts in addition to X/Y contacts and tunnels.",
+    )
+    underground_route_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -2615,6 +2660,99 @@ def run_underground_navigation(
     return 0
 
 
+def run_underground_route(
+    save: Path,
+    world_id: int,
+    limit: int,
+    target_node: int | None,
+    target_tag: str | None,
+    target_tunnel: str | None,
+    include_vertical_contacts: bool,
+    as_json: bool,
+) -> int:
+    database = SaveDatabase(save)
+
+    try:
+        route, lookup = find_transit_route(
+            database,
+            world_id=world_id,
+            limit=limit,
+            include_vertical_contacts=include_vertical_contacts,
+            target_node=target_node,
+            target_tag=target_tag,
+            target_tunnel_type=target_tunnel,
+        )
+        result = route.to_dict(lookup)
+    except (
+        FileNotFoundError,
+        InvalidSaveFile,
+        sqlite3.DatabaseError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    mode = (
+        "X/Y/Z contacts + saved tunnels"
+        if include_vertical_contacts
+        else "X/Y contacts + saved tunnels"
+    )
+    print(f"World: {result['world_id']}")
+    print(f"Route model: {mode}")
+    print(f"Start elevator node: {result['start_node']}")
+    print(
+        "Target: "
+        f"{result['target_kind']}={result['target_value']} "
+        f"node={result['target_node']}"
+    )
+    if result["target_tunnel"] is not None:
+        tunnel = result["target_tunnel"]
+        print(
+            "Target tunnel: "
+            f"id={tunnel['id']} "
+            f"type={tunnel['type']} "
+            f"length={tunnel['length']}m"
+        )
+    print(
+        "Candidate route cost: "
+        f"{result['total_cost']}m "
+        f"steps={len(result['edges'])} "
+        f"edge_kinds={result['edge_kinds']}"
+    )
+
+    print("Route:")
+    for index, node in enumerate(result["nodes"]):
+        print(
+            f"  [{index}] node={node['id']} "
+            f"role={node['role']} "
+            f"center={node['center']} "
+            f"name={node['name']}"
+        )
+        if index >= len(result["edges"]):
+            continue
+
+        edge = result["edges"][index]
+        if edge["kind"] == "tunnel":
+            print(
+                "       -> tunnel "
+                f"id={edge['tunnel_id']} "
+                f"type={edge['tunnel_type']} "
+                f"cost={edge['weight']}m"
+            )
+        else:
+            print(
+                "       -> direct contact "
+                f"axis={edge['axis']} "
+                f"cost={edge['weight']}m"
+            )
+
+    return 0
+
+
 def run_schema(save: Path, table: str) -> int:
     database = SaveDatabase(save)
 
@@ -2935,6 +3073,20 @@ def main() -> None:
                 args.cluster_step,
                 args.match_tolerance,
                 args.top,
+                args.json,
+            )
+        )
+
+    if args.command == "underground-route":
+        raise SystemExit(
+            run_underground_route(
+                args.save,
+                args.world,
+                args.limit,
+                args.node,
+                args.tag,
+                args.tunnel,
+                args.include_vertical_contacts,
                 args.json,
             )
         )
