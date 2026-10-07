@@ -930,7 +930,7 @@ def build_parser() -> argparse.ArgumentParser:
     underground_node_parser.add_argument(
         "--socket-match-tolerance",
         type=float,
-        default=0.05,
+        default=2.0,
         help="Maximum socket-to-saved-endpoint distance in meters.",
     )
     underground_node_parser.add_argument(
@@ -3096,6 +3096,8 @@ def run_underground_node(
             f"    sockets={socket_matches['sockets']} "
             f"saved_endpoints={socket_matches['saved_endpoints']} "
             f"matched={socket_matches['matched']} "
+            f"exact={socket_matches['exact_matches']} "
+            f"near={socket_matches['near_matches']} "
             f"tolerance={socket_matches['socket_match_tolerance']}m"
         )
         for match in socket_matches["matches"]:
@@ -3105,7 +3107,8 @@ def run_underground_node(
                 f"type={match['socket_type']} "
                 f"tile_pos={match['tile_position']} "
                 f"world_pos={match['world_position']} "
-                f"error={match['distance']}m"
+                f"error={match['distance']}m "
+                f"quality={match['quality']}"
             )
         if socket_matches["unmatched_sockets"]:
             print(
