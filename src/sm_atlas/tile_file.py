@@ -591,6 +591,197 @@ def probe_tile_nodes(
     }
 
 
+VOXEL_RECORD_SIZE = 4108
+VOXEL_PAYLOAD_SIZE = 16 * 16 * 16
+
+
+def probe_tile_voxels(
+    path: str | Path,
+    *,
+    cell: int | None = None,
+    examples: int = 20,
+) -> dict[str, object]:
+    if examples < 1:
+        raise ValueError("examples must be >= 1")
+
+    tile_path = Path(path).expanduser().resolve()
+    tile = probe_tile(tile_path)
+    data = tile_path.read_bytes()
+
+    selected = [
+        chunk
+        for chunk in tile["chunks"]
+        if chunk["kind"] == "voxel_terrain"
+        and (cell is None or chunk["cell"] == cell)
+    ]
+    if not selected:
+        raise ValueError(
+            "no voxel_terrain chunks"
+            + (
+                ""
+                if cell is None
+                else f" in cell {cell}"
+            )
+        )
+
+    chunk_results = []
+    all_headers: list[tuple[int, int, int]] = []
+    total_records = 0
+    total_payload_bytes = 0
+    global_histogram = [0] * 256
+
+    for meta in selected:
+        compressed = data[
+            meta["index"]:
+            meta["index"] + meta["compressed_size"]
+        ]
+        decoded = decompress_lz4_block(
+            compressed,
+            expected_size=meta["uncompressed_size"],
+        )
+
+        expected_count = int(meta["count"] or 0)
+        if len(decoded) % VOXEL_RECORD_SIZE != 0:
+            raise InvalidTileFile(
+                "voxel_terrain chunk is not aligned to "
+                f"{VOXEL_RECORD_SIZE}-byte records"
+            )
+        record_count = len(decoded) // VOXEL_RECORD_SIZE
+        if expected_count and record_count != expected_count:
+            raise InvalidTileFile(
+                "voxel_terrain record count mismatch: "
+                f"expected {expected_count}, got {record_count}"
+            )
+
+        examples_out = []
+        headers = []
+        for index in range(record_count):
+            start = index * VOXEL_RECORD_SIZE
+            record = decoded[start:start + VOXEL_RECORD_SIZE]
+            header = struct.unpack_from("<3i", record, 0)
+            payload = record[12:]
+            if len(payload) != VOXEL_PAYLOAD_SIZE:
+                raise InvalidTileFile(
+                    "unexpected voxel payload size "
+                    f"{len(payload)}"
+                )
+
+            headers.append(header)
+            all_headers.append(header)
+            total_records += 1
+            total_payload_bytes += len(payload)
+
+            local_hist = [0] * 256
+            for value in payload:
+                local_hist[value] += 1
+                global_histogram[value] += 1
+
+            if len(examples_out) < examples:
+                nonzero = VOXEL_PAYLOAD_SIZE - local_hist[0]
+                non255 = VOXEL_PAYLOAD_SIZE - local_hist[255]
+                top_values = sorted(
+                    (
+                        (count, value)
+                        for value, count in enumerate(local_hist)
+                        if count
+                    ),
+                    reverse=True,
+                )[:8]
+                examples_out.append(
+                    {
+                        "index": index,
+                        "header_i32": header,
+                        "header_hex": record[:12].hex(),
+                        "payload_min": min(payload),
+                        "payload_max": max(payload),
+                        "unique_values": sum(
+                            count > 0
+                            for count in local_hist
+                        ),
+                        "zero_count": local_hist[0],
+                        "nonzero_count": nonzero,
+                        "ff_count": local_hist[255],
+                        "non_ff_count": non255,
+                        "top_values": [
+                            {
+                                "value": value,
+                                "count": count,
+                            }
+                            for count, value in top_values
+                        ],
+                        "payload_sha256": hashlib.sha256(
+                            payload
+                        ).hexdigest(),
+                    }
+                )
+
+        chunk_results.append(
+            {
+                "cell": meta["cell"],
+                "records": record_count,
+                "decoded_size": len(decoded),
+                "headers_min": (
+                    tuple(
+                        min(header[axis] for header in headers)
+                        for axis in range(3)
+                    )
+                    if headers
+                    else None
+                ),
+                "headers_max": (
+                    tuple(
+                        max(header[axis] for header in headers)
+                        for axis in range(3)
+                    )
+                    if headers
+                    else None
+                ),
+                "examples": examples_out,
+            }
+        )
+
+    global_top = sorted(
+        (
+            (count, value)
+            for value, count in enumerate(global_histogram)
+            if count
+        ),
+        reverse=True,
+    )[:16]
+
+    unique_headers = len(set(all_headers))
+    return {
+        "path": str(tile_path),
+        "record_size": VOXEL_RECORD_SIZE,
+        "payload_size": VOXEL_PAYLOAD_SIZE,
+        "records": total_records,
+        "unique_headers": unique_headers,
+        "payload_bytes": total_payload_bytes,
+        "header_bounds": (
+            {
+                "min": tuple(
+                    min(header[axis] for header in all_headers)
+                    for axis in range(3)
+                ),
+                "max": tuple(
+                    max(header[axis] for header in all_headers)
+                    for axis in range(3)
+                ),
+            }
+            if all_headers
+            else None
+        ),
+        "global_top_values": [
+            {
+                "value": value,
+                "count": count,
+            }
+            for count, value in global_top
+        ],
+        "chunks": chunk_results,
+    }
+
+
 def probe_tile_chunks(
     path: str | Path,
     *,
