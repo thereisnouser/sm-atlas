@@ -710,6 +710,8 @@ def probe_tile_voxels(
                             {
                                 "value": value,
                                 "count": count,
+                                "material": value >> 4,
+                                "density": value & 0x0F,
                             }
                             for count, value in top_values
                         ],
