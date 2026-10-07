@@ -27,7 +27,11 @@ from .terrain_payload import probe_voxel_payloads
 from .terrain_probe import probe_voxel_terrain
 from .terrain_structure import probe_voxel_terrain_structure
 from .terrain_tree_probe import probe_voxel_tree_encoding
-from .tile_file import InvalidTileFile, probe_tile
+from .tile_file import (
+    InvalidTileFile,
+    probe_tile,
+    probe_tile_chunks,
+)
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -114,6 +118,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tile_probe_parser.add_argument("tile", type=Path)
     tile_probe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON.",
+    )
+
+    tile_chunk_probe_parser = subparsers.add_parser(
+        "tile-chunk-probe",
+        help="Decompress and inspect selected chunks from a .tile file.",
+    )
+    tile_chunk_probe_parser.add_argument("tile", type=Path)
+    tile_chunk_probe_parser.add_argument(
+        "--kind",
+        required=True,
+        help="Chunk kind to inspect, for example node or voxel_terrain.",
+    )
+    tile_chunk_probe_parser.add_argument(
+        "--cell",
+        type=int,
+        help="Only inspect chunks belonging to one cell index.",
+    )
+    tile_chunk_probe_parser.add_argument(
+        "--full-hex",
+        action="store_true",
+        help="Include the full decompressed chunk as hex.",
+    )
+    tile_chunk_probe_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1106,6 +1136,62 @@ def run_tile_probe(
             f"compressed={chunk['compressed_size']} "
             f"size={chunk['uncompressed_size']}"
         )
+
+    return 0
+
+
+def run_tile_chunk_probe(
+    tile: Path,
+    kind: str,
+    cell: int | None,
+    full_hex: bool,
+    as_json: bool,
+) -> int:
+    try:
+        result = probe_tile_chunks(
+            tile,
+            kind=kind,
+            cell=cell,
+            full_hex=full_hex,
+        )
+    except (
+        FileNotFoundError,
+        InvalidTileFile,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Tile: {result['path']}")
+    print(f"Chunk kind: {result['kind']}")
+    for chunk in result["chunks"]:
+        level = (
+            ""
+            if chunk["level"] is None
+            else f"[{chunk['level']}]"
+        )
+        print(
+            f"cell={chunk['cell']} "
+            f"{chunk['kind']}{level} "
+            f"count={chunk['count']} "
+            f"compressed={chunk['compressed_size']} "
+            f"decoded={chunk['decoded_size']} "
+            f"sha256={chunk['sha256']}"
+        )
+        print(f"  hex_prefix={chunk['hex_prefix']}")
+        print(f"  hex_suffix={chunk['hex_suffix']}")
+        print(f"  ascii_strings={chunk['ascii_strings']}")
+        print(
+            "  float32_le_candidates="
+            f"{chunk['float32_le_candidates']}"
+        )
+        if full_hex:
+            print(f"  hex={chunk['hex']}")
 
     return 0
 
@@ -3335,6 +3421,17 @@ def main() -> None:
         raise SystemExit(
             run_tile_probe(
                 args.tile,
+                args.json,
+            )
+        )
+
+    if args.command == "tile-chunk-probe":
+        raise SystemExit(
+            run_tile_chunk_probe(
+                args.tile,
+                args.kind,
+                args.cell,
+                args.full_hex,
                 args.json,
             )
         )
