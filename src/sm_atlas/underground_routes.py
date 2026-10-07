@@ -568,15 +568,17 @@ def _select_portal_start(
         tuple[int, str, tuple[float, float, float]]
     ],
 ) -> tuple[int, str, tuple[float, float, float]] | None:
-    if not endpoints:
+    inside = [
+        item
+        for item in endpoints
+        if _point_inside_layout_node(item[2], node)
+    ]
+    if not inside:
         return None
 
     return min(
-        endpoints,
+        inside,
         key=lambda item: (
-            0
-            if _point_inside_layout_node(item[2], node)
-            else 1,
             _distance(item[2], node.center),
             item[0],
             item[1],
