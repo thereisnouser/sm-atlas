@@ -1056,9 +1056,15 @@ def run_portal_probe(
             f"{portal['decoded_matches_columns']}"
         )
         if decoded is not None:
-            print(f"  dimensions={tuple(decoded['dimensions'])}")
+            print(
+                f"  complete={decoded['complete']} "
+                f"dimensions={tuple(decoded['dimensions'])}"
+            )
             for side_name in ("side_a", "side_b"):
                 side = decoded[side_name]
+                if side is None:
+                    print(f"  {side_name}: unresolved")
+                    continue
                 print(
                     f"  {side_name}: "
                     f"prefix={side['prefix']} "
