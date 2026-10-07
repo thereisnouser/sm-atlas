@@ -675,6 +675,8 @@ def probe_tile_voxels(
             for value in payload:
                 local_hist[value] += 1
                 global_histogram[value] += 1
+                material_hist[value >> 4] += 1
+                density_hist[value & 0x0F] += 1
 
             if len(examples_out) < examples:
                 nonzero = VOXEL_PAYLOAD_SIZE - local_hist[0]
@@ -712,6 +714,8 @@ def probe_tile_voxels(
                         "payload_sha256": hashlib.sha256(
                             payload
                         ).hexdigest(),
+                        "material_histogram": material_hist,
+                        "density_histogram": density_hist,
                     }
                 )
 
