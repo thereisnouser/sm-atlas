@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import struct
 
+import pytest
+
 from sm_atlas.portals import (
     _common_prefix_length,
     _common_suffix_length,
+    _decoded_matches_columns,
     _decode_portal_blob_header,
     _header_matches_columns,
+    _position_to_cell,
     _opening_a_position_candidate,
     _scan_aligned_be_floats,
+    decode_portal_blob,
 )
 
 
@@ -84,3 +89,69 @@ def test_common_prefix_and_suffix_lengths() -> None:
 
     assert _common_prefix_length(values) == 2
     assert _common_suffix_length(values) == 2
+
+
+REAL_PORTAL_BLOB = bytes.fromhex(
+    "09000100000043ff00000002fffffffe000cff00000000000000000017"
+    "41a8084e41c8000041000000800330b001a610c74c1710a28b04c000"
+    "0000000000000fdfffffc00000002001741ffe598421cc17242942c14"
+    "00000000000000003f7fffff333bbd2fc000000000000000000000000"
+    "000000000000000000000000"
+)
+
+
+def test_decode_portal_blob_extracts_bit_packed_transforms() -> None:
+    decoded = decode_portal_blob(REAL_PORTAL_BLOB)
+
+    assert decoded is not None
+    assert decoded.dimensions == pytest.approx(
+        (21.004055, 25.0, 8.0),
+        rel=1e-6,
+    )
+
+    assert decoded.side_a_prefix == 2
+    assert decoded.world_id_a == 12
+    assert decoded.position_a == pytest.approx(
+        (-96.012878, 157.188904, 69.086082),
+        rel=1e-6,
+    )
+    assert decoded.rotation_a == pytest.approx(
+        (0.0, 0.0, 0.99999994, 0.0),
+        abs=1e-7,
+    )
+
+    assert decoded.side_b_prefix == 2
+    assert decoded.world_id_b == 23
+    assert decoded.position_b == pytest.approx(
+        (31.987106, 39.188911, 74.08609),
+        rel=1e-6,
+    )
+    assert decoded.rotation_b == pytest.approx(
+        (0.0, 0.0, 0.99999994, 4.371139e-08),
+        abs=1e-7,
+    )
+
+    assert decoded.tail_bit_offset == 812
+    assert len(decoded.tail_bits) == 196
+    assert decoded.tail_bits == "11" + "0" * 194
+
+
+def test_decoded_portal_positions_reproduce_database_cells() -> None:
+    decoded = decode_portal_blob(REAL_PORTAL_BLOB)
+
+    assert decoded is not None
+    assert _position_to_cell(decoded.position_a) == (-2, 2)
+    assert _position_to_cell(decoded.position_b) == (0, 0)
+    assert _decoded_matches_columns(
+        decoded,
+        world_id_a=12,
+        x_a=-2,
+        y_a=2,
+        world_id_b=23,
+        x_b=0,
+        y_b=0,
+    )
+
+
+def test_decode_portal_blob_returns_none_for_short_payload() -> None:
+    assert decode_portal_blob(portal_blob()) is None
