@@ -250,16 +250,19 @@ def test_discover_portals_exposes_validated_transforms(
     connection.commit()
     connection.close()
 
-    portals = discover_portals(SaveDatabase(save_path))
+    portals = {
+        portal.portal_id: portal
+        for portal in discover_portals(SaveDatabase(save_path))
+    }
 
-    assert portals[0].decoded is not None
-    assert portals[0].decoded.position_b == pytest.approx(
+    assert portals[67].decoded is not None
+    assert portals[67].decoded.position_b == pytest.approx(
         (31.987106, 39.188911, 74.08609),
         rel=1e-6,
     )
-    assert portals[1].decoded is not None
-    assert portals[1].decoded.position_a == pytest.approx(
+    assert portals[3].decoded is not None
+    assert portals[3].decoded.position_a == pytest.approx(
         (-2571.375, 52.25, 2.0),
         rel=1e-6,
     )
-    assert portals[1].decoded.position_b is None
+    assert portals[3].decoded.position_b is None
