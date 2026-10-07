@@ -923,6 +923,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum tunnel endpoint-to-tile distance in meters.",
     )
     underground_node_parser.add_argument(
+        "--tile",
+        type=Path,
+        help="Original .tile file used by this node; enables exact socket matching.",
+    )
+    underground_node_parser.add_argument(
+        "--socket-match-tolerance",
+        type=float,
+        default=0.05,
+        help="Maximum socket-to-saved-endpoint distance in meters.",
+    )
+    underground_node_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
@@ -1192,6 +1203,7 @@ def run_tile_nodes(
             print(
                 f"  node={node['index']} "
                 f"pos={tuple(round(v, 6) for v in node['position'])} "
+                f"tile_pos={tuple(round(v, 6) for v in node['tile_position'])} "
                 f"rot={tuple(round(v, 6) for v in node['rotation'])} "
                 f"scale={tuple(round(v, 6) for v in node['scale'])} "
                 f"tags={node['tags']} "
@@ -3009,6 +3021,8 @@ def run_underground_node(
     node_id: int,
     limit: int,
     attach_tolerance: float,
+    tile: Path | None,
+    socket_match_tolerance: float,
     as_json: bool,
 ) -> int:
     database = SaveDatabase(save)
@@ -3020,6 +3034,8 @@ def run_underground_node(
             node_id=node_id,
             limit=limit,
             attach_tolerance=attach_tolerance,
+            tile_path=tile,
+            socket_match_tolerance=socket_match_tolerance,
         )
     except (
         FileNotFoundError,
@@ -3072,6 +3088,35 @@ def run_underground_node(
             f"{endpoint['canonical_v']}) "
             f"ray_distance={endpoint['ray_distance']}"
         )
+
+    socket_matches = result["tile_socket_matches"]
+    if socket_matches is not None:
+        print("  tile socket matching:")
+        print(
+            f"    sockets={socket_matches['sockets']} "
+            f"saved_endpoints={socket_matches['saved_endpoints']} "
+            f"matched={socket_matches['matched']} "
+            f"tolerance={socket_matches['socket_match_tolerance']}m"
+        )
+        for match in socket_matches["matches"]:
+            print(
+                f"    tunnel={match['tunnel_id']}:{match['tunnel_side']} "
+                f"<-> cell={match['cell']} node={match['node']} "
+                f"type={match['socket_type']} "
+                f"tile_pos={match['tile_position']} "
+                f"world_pos={match['world_position']} "
+                f"error={match['distance']}m"
+            )
+        if socket_matches["unmatched_sockets"]:
+            print(
+                "    unmatched tile sockets="
+                f"{len(socket_matches['unmatched_sockets'])}"
+            )
+        if socket_matches["unmatched_saved_endpoints"]:
+            print(
+                "    unmatched saved endpoints="
+                f"{len(socket_matches['unmatched_saved_endpoints'])}"
+            )
 
     return 0
 
@@ -3796,6 +3841,8 @@ def main() -> None:
                 args.node,
                 args.limit,
                 args.attach_tolerance,
+                args.tile,
+                args.socket_match_tolerance,
                 args.json,
             )
         )
