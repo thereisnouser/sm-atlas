@@ -1270,6 +1270,7 @@ def run_tile_voxel_probe(
         f"unique_headers={result['unique_headers']}"
     )
     print(f"Header bounds: {result['header_bounds']}")
+    print("Voxel byte packing: material=(value >> 4), density=(value & 0x0F)")
     print(f"Global top values: {result['global_top_values']}")
     for chunk in result["chunks"]:
         print(
@@ -1288,7 +1289,9 @@ def run_tile_voxel_probe(
                 f"unique={item['unique_values']} "
                 f"zero={item['zero_count']} "
                 f"ff={item['ff_count']} "
-                f"top={item['top_values']}"
+                f"top={item['top_values']} "
+                f"materials={item['material_histogram']} "
+                f"densities={item['density_histogram']}"
             )
 
     return 0
