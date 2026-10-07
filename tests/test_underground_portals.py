@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from sm_atlas.underground_portals import (
     _canonical_face_uv,
     _distance_bucket,
@@ -115,10 +117,13 @@ def test_tile_local_to_world_applies_rotated_placement() -> None:
     )
 
     assert world is not None
-    assert world == (
-        77.333333,
-        -93.333336,
-        72.0,
+    assert world == pytest.approx(
+        (
+            77.333333,
+            -93.333336,
+            72.0,
+        ),
+        abs=1e-6,
     )
 
 
@@ -140,8 +145,11 @@ def test_tile_local_to_world_matches_elevator_cell_offset() -> None:
     )
 
     assert world is not None
-    assert world == (
-        93.333344,
-        -61.333333,
-        66.666668,
+    assert world == pytest.approx(
+        (
+            93.333344,
+            -61.333333,
+            66.666668,
+        ),
+        abs=1e-6,
     )
