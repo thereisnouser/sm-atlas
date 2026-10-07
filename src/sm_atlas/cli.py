@@ -2502,6 +2502,40 @@ def run_underground_navigation(
         f"both={result['both_pair_types']}, "
         f"navigation_pairs={result['navigation_pairs']}"
     )
+    diagnostics = result["contact_diagnostics"]
+    print(
+        "Template coverage on face contacts: "
+        f"both_tiles={diagnostics['both_tile_templates']}, "
+        f"one_tile={diagnostics['one_tile_template']}, "
+        f"none={diagnostics['no_tile_templates']}"
+    )
+    print(
+        "Contact-face template coverage: "
+        f"left={diagnostics['left_face_templates']}, "
+        f"right={diagnostics['right_face_templates']}, "
+        f"both={diagnostics['both_face_templates']}"
+    )
+    print(
+        "Opposing portal min-distance buckets: "
+        f"{diagnostics['min_distance_buckets']}"
+    )
+    print(
+        "Both-face role pairs: "
+        f"{diagnostics['both_face_roles']}"
+    )
+    if diagnostics["closest_unmatched"]:
+        print("Closest unmatched face contacts:")
+        for contact in diagnostics["closest_unmatched"]:
+            print(
+                f"  nodes={contact['left']}<->{contact['right']} "
+                f"axis={contact['axis']} "
+                f"roles={contact['roles']} "
+                f"faces={contact['left_face']}<->{contact['right_face']} "
+                f"distance={contact['distance']} "
+                f"left={contact['left_name']} "
+                f"right={contact['right_name']}"
+            )
+
     print(
         "Navigation candidate connectivity: "
         f"components={result['components']}, "

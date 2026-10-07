@@ -4,6 +4,7 @@ from sm_atlas.underground_navigation import (
     PortalTemplate,
     _canonical_portal_point,
     _contact_faces,
+    diagnose_portal_contact_coverage,
     learn_portal_templates,
     match_portal_contacts,
 )
@@ -204,3 +205,135 @@ def test_template_learning_requires_independent_placements() -> None:
 
     assert len(templates) == 1
     assert templates[0].placements == 2
+
+
+def test_contact_diagnostics_report_template_gap() -> None:
+    left = node(
+        1,
+        name="a_2x2x2.tile",
+        rotation=0,
+        min_x=0.0,
+        max_x=32.0,
+        min_y=0.0,
+        max_y=32.0,
+    )
+    right = node(
+        2,
+        name="b_2x2x2.tile",
+        rotation=0,
+        min_x=32.0,
+        max_x=64.0,
+        min_y=0.0,
+        max_y=32.0,
+    )
+    topology = LayoutTopology(
+        world_id=23,
+        nodes=(left, right),
+        contacts=(
+            LayoutContact(
+                1,
+                2,
+                "x",
+                32.0,
+                32.0,
+                1024.0,
+            ),
+        ),
+        tunnel_links=(),
+        attached_tunnel_endpoints=0,
+        unattached_tunnel_endpoints=0,
+    )
+    templates = [
+        PortalTemplate(
+            left.name,
+            "y+",
+            16.0,
+            16.0,
+            2,
+            2,
+        ),
+        PortalTemplate(
+            right.name,
+            "x-",
+            16.0,
+            16.0,
+            2,
+            2,
+        ),
+    ]
+
+    result = diagnose_portal_contact_coverage(
+        topology,
+        templates,
+    )
+
+    assert result["both_tile_templates"] == 1
+    assert result["left_face_templates"] == 0
+    assert result["right_face_templates"] == 1
+    assert result["both_face_templates"] == 0
+    assert result["min_distance_buckets"] == {}
+
+
+def test_contact_diagnostics_measure_opposing_portal_distance() -> None:
+    left = node(
+        1,
+        name="a_2x2x2.tile",
+        rotation=0,
+        min_x=0.0,
+        max_x=32.0,
+        min_y=0.0,
+        max_y=32.0,
+    )
+    right = node(
+        2,
+        name="b_2x2x2.tile",
+        rotation=0,
+        min_x=32.0,
+        max_x=64.0,
+        min_y=0.0,
+        max_y=32.0,
+    )
+    topology = LayoutTopology(
+        world_id=23,
+        nodes=(left, right),
+        contacts=(
+            LayoutContact(
+                1,
+                2,
+                "x",
+                32.0,
+                32.0,
+                1024.0,
+            ),
+        ),
+        tunnel_links=(),
+        attached_tunnel_endpoints=0,
+        unattached_tunnel_endpoints=0,
+    )
+    templates = [
+        PortalTemplate(
+            left.name,
+            "x+",
+            8.0,
+            16.0,
+            2,
+            2,
+        ),
+        PortalTemplate(
+            right.name,
+            "x-",
+            16.0,
+            16.0,
+            2,
+            2,
+        ),
+    ]
+
+    result = diagnose_portal_contact_coverage(
+        topology,
+        templates,
+    )
+
+    assert result["both_face_templates"] == 1
+    assert result["min_distance_buckets"] == {"<=8m": 1}
+    assert result["closest_unmatched"][0]["distance"] == 8.0

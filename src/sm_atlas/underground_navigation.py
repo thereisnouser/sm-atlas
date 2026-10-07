@@ -48,6 +48,7 @@ class NavigationCandidateGraph:
     tunnel_pairs: tuple[tuple[int, int], ...]
     learned_templates: tuple[PortalTemplate, ...]
     face_contacts: int
+    contact_diagnostics: dict[str, object]
 
     def adjacency(self) -> dict[int, set[int]]:
         adjacency = {
@@ -193,6 +194,7 @@ class NavigationCandidateGraph:
             "navigation_pairs": len(
                 portal_pair_set | tunnel_pair_set
             ),
+            "contact_diagnostics": self.contact_diagnostics,
             "components": len(components),
             "largest_component": (
                 len(components[0])
@@ -426,6 +428,193 @@ def _point_distance(
     return sqrt(dx * dx + dy * dy + dz * dz)
 
 
+def _distance_bucket(distance: float) -> str:
+    limits = (
+        (4.1, "<=4.1m"),
+        (8.0, "<=8m"),
+        (16.0, "<=16m"),
+        (32.0, "<=32m"),
+    )
+
+    for limit, label in limits:
+        if distance <= limit:
+            return label
+
+    return ">32m"
+
+
+def diagnose_portal_contact_coverage(
+    topology: LayoutTopology,
+    templates: list[PortalTemplate],
+    *,
+    examples: int = 20,
+) -> dict[str, object]:
+    by_tile: dict[str, list[PortalTemplate]] = defaultdict(list)
+
+    for template in templates:
+        by_tile[template.tile_name].append(template)
+
+    lookup = {
+        node.node_id: node
+        for node in topology.nodes
+    }
+
+    both_tile_templates = 0
+    one_tile_template = 0
+    no_tile_templates = 0
+    left_face_templates = 0
+    right_face_templates = 0
+    both_face_templates = 0
+    min_distance_buckets: Counter[str] = Counter()
+    both_face_roles: Counter[str] = Counter()
+    nearest_examples: list[dict[str, object]] = []
+
+    for contact in topology.contacts:
+        left = lookup[contact.left]
+        right = lookup[contact.right]
+        left_templates = by_tile.get(left.name, [])
+        right_templates = by_tile.get(right.name, [])
+
+        if left_templates and right_templates:
+            both_tile_templates += 1
+        elif left_templates or right_templates:
+            one_tile_template += 1
+        else:
+            no_tile_templates += 1
+
+        left_face, right_face = _contact_faces(
+            contact,
+            left,
+            right,
+        )
+
+        left_candidates = []
+        for template in left_templates:
+            point = _canonical_portal_point(left, template)
+            if point is None:
+                continue
+            if _world_face_for_point(left, point) != left_face:
+                continue
+            left_candidates.append((template, point))
+
+        right_candidates = []
+        for template in right_templates:
+            point = _canonical_portal_point(right, template)
+            if point is None:
+                continue
+            if _world_face_for_point(right, point) != right_face:
+                continue
+            right_candidates.append((template, point))
+
+        if left_candidates:
+            left_face_templates += 1
+        if right_candidates:
+            right_face_templates += 1
+        if not left_candidates or not right_candidates:
+            continue
+
+        both_face_templates += 1
+        roles = " <-> ".join(
+            sorted(
+                (
+                    left.semantic_role,
+                    right.semantic_role,
+                )
+            )
+        )
+        both_face_roles[roles] += 1
+
+        best = None
+        for left_template, left_point in left_candidates:
+            for right_template, right_point in right_candidates:
+                distance = _point_distance(
+                    left_point,
+                    right_point,
+                )
+
+                candidate = (
+                    distance,
+                    left_template,
+                    right_template,
+                    left_point,
+                    right_point,
+                )
+
+                if best is None or candidate[0] < best[0]:
+                    best = candidate
+
+        if best is None:
+            continue
+
+        (
+            distance,
+            left_template,
+            right_template,
+            left_point,
+            right_point,
+        ) = best
+
+        min_distance_buckets[_distance_bucket(distance)] += 1
+        nearest_examples.append(
+            {
+                "left": left.node_id,
+                "right": right.node_id,
+                "axis": contact.axis,
+                "roles": roles,
+                "left_name": left.name,
+                "right_name": right.name,
+                "left_face": left_face,
+                "right_face": right_face,
+                "left_template": {
+                    "face": left_template.face,
+                    "u": left_template.u,
+                    "v": left_template.v,
+                    "placements": left_template.placements,
+                },
+                "right_template": {
+                    "face": right_template.face,
+                    "u": right_template.u,
+                    "v": right_template.v,
+                    "placements": right_template.placements,
+                },
+                "distance": round(distance, 6),
+                "left_point": tuple(
+                    round(value, 6)
+                    for value in left_point
+                ),
+                "right_point": tuple(
+                    round(value, 6)
+                    for value in right_point
+                ),
+            }
+        )
+
+    nearest_examples.sort(
+        key=lambda item: (
+            item["distance"],
+            item["left"],
+            item["right"],
+        )
+    )
+
+    return {
+        "contacts": len(topology.contacts),
+        "both_tile_templates": both_tile_templates,
+        "one_tile_template": one_tile_template,
+        "no_tile_templates": no_tile_templates,
+        "left_face_templates": left_face_templates,
+        "right_face_templates": right_face_templates,
+        "both_face_templates": both_face_templates,
+        "both_face_roles": dict(
+            both_face_roles.most_common()
+        ),
+        "min_distance_buckets": dict(
+            min_distance_buckets
+        ),
+        "closest_unmatched": nearest_examples[:examples],
+    }
+
+
 def match_portal_contacts(
     topology: LayoutTopology,
     templates: list[PortalTemplate],
@@ -537,6 +726,10 @@ def build_navigation_candidate_graph(
         topology,
         templates,
         match_tolerance=match_tolerance,
+    )
+    contact_diagnostics = diagnose_portal_contact_coverage(
+        topology,
+        templates,
     )
 
     tunnel_pairs = tuple(
