@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from sm_atlas.underground_routes import (
     TransitRoute,
+    _add_route_start_anchor,
     _build_endpoint_route_graph,
     _reconstruct_endpoint_route,
     _reconstruct_route,
     _route_graph_evidence_first_paths,
     _route_graph_shortest_paths,
+    _select_portal_start,
     _shortest_paths,
     build_transit_edges,
 )
@@ -349,4 +351,51 @@ def test_evidence_first_routing_prefers_saved_tunnel_over_short_contact() -> Non
         segment.kind == "tunnel"
         and segment.tunnel_id == 99
         for segment in segments
+    )
+
+
+
+def test_saved_portal_can_replace_elevator_center_start() -> None:
+    elevator = node(
+        1,
+        role="elevator",
+        x=0.0,
+    )
+    selected = _select_portal_start(
+        elevator,
+        [
+            (5, "a", (80.0, 16.0, 16.0)),
+            (67, "b", (10.0, 12.0, 14.0)),
+        ],
+    )
+
+    assert selected == (67, "b", (10.0, 12.0, 14.0))
+
+    graph_topology = LayoutTopology(
+        world_id=23,
+        nodes=(elevator,),
+        contacts=(),
+        tunnel_links=(),
+        attached_tunnel_endpoints=0,
+        unattached_tunnel_endpoints=0,
+    )
+    anchors, edges, center_by_node, _ = _build_endpoint_route_graph(
+        graph_topology,
+        {},
+        include_vertical_contacts=False,
+    )
+    start = _add_route_start_anchor(
+        anchors,
+        edges,
+        layout_node_id=1,
+        point=selected[2],
+    )
+
+    assert anchors[start].kind == "saved_portal"
+    assert anchors[start].point == (10.0, 12.0, 14.0)
+    assert any(
+        edge.kind == "intra_tile"
+        and {edge.left, edge.right}
+        == {start, center_by_node[1]}
+        for edge in edges
     )

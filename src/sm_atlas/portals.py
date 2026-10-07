@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from .database import SaveDatabase
 
 
+UNRESOLVED_WORLD_ID = 65535
+
+
 @dataclass(frozen=True)
 class PortalInfo:
     portal_id: int
@@ -16,8 +19,9 @@ class PortalInfo:
     world_id_b: int
     x_b: int
     y_b: int
+    decoded: DecodedPortalBlob | None = None
 
-    def to_dict(self) -> dict[str, int]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "portal_id": self.portal_id,
             "world_id_a": self.world_id_a,
@@ -26,6 +30,11 @@ class PortalInfo:
             "world_id_b": self.world_id_b,
             "x_b": self.x_b,
             "y_b": self.y_b,
+            "decoded": (
+                None
+                if self.decoded is None
+                else self.decoded.to_dict()
+            ),
         }
 
 
@@ -38,24 +47,43 @@ def discover_portals(
 
         rows = connection.execute(
             """
-            SELECT id, worldIdA, xA, yA, worldIdB, xB, yB
+            SELECT id, worldIdA, xA, yA, worldIdB, xB, yB, data
             FROM Portal
             ORDER BY id
             """
         ).fetchall()
 
-    return [
-        PortalInfo(
-            portal_id=int(row["id"]),
+    portals: list[PortalInfo] = []
+
+    for row in rows:
+        decoded = decode_portal_blob(
+            bytes(row["data"] or b"")
+        )
+        if _decoded_matches_columns(
+            decoded,
             world_id_a=int(row["worldIdA"]),
             x_a=int(row["xA"]),
             y_a=int(row["yA"]),
             world_id_b=int(row["worldIdB"]),
             x_b=int(row["xB"]),
             y_b=int(row["yB"]),
+        ) is not True:
+            decoded = None
+
+        portals.append(
+            PortalInfo(
+                portal_id=int(row["id"]),
+                world_id_a=int(row["worldIdA"]),
+                x_a=int(row["xA"]),
+                y_a=int(row["yA"]),
+                world_id_b=int(row["worldIdB"]),
+                x_b=int(row["xB"]),
+                y_b=int(row["yB"]),
+                decoded=decoded,
+            )
         )
-        for row in rows
-    ]
+
+    return portals
 
 
 @dataclass(frozen=True)
@@ -65,15 +93,16 @@ class DecodedPortalBlob:
     world_id_a: int
     position_a: tuple[float, float, float]
     rotation_a: tuple[float, float, float, float]
-    side_b_prefix: int
-    world_id_b: int
-    position_b: tuple[float, float, float]
-    rotation_b: tuple[float, float, float, float]
+    side_b_prefix: int | None
+    world_id_b: int | None
+    position_b: tuple[float, float, float] | None
+    rotation_b: tuple[float, float, float, float] | None
     tail_bit_offset: int
     tail_bits: str
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "complete": self.position_b is not None,
             "dimensions": list(self.dimensions),
             "side_a": {
                 "prefix": self.side_a_prefix,
@@ -82,13 +111,21 @@ class DecodedPortalBlob:
                 "rotation": list(self.rotation_a),
                 "cell": list(_position_to_cell(self.position_a)),
             },
-            "side_b": {
-                "prefix": self.side_b_prefix,
-                "world_id": self.world_id_b,
-                "position": list(self.position_b),
-                "rotation": list(self.rotation_b),
-                "cell": list(_position_to_cell(self.position_b)),
-            },
+            "side_b": (
+                None
+                if (
+                    self.world_id_b is None
+                    or self.position_b is None
+                    or self.rotation_b is None
+                )
+                else {
+                    "prefix": self.side_b_prefix,
+                    "world_id": self.world_id_b,
+                    "position": list(self.position_b),
+                    "rotation": list(self.rotation_b),
+                    "cell": list(_position_to_cell(self.position_b)),
+                }
+            ),
             "tail_bit_offset": self.tail_bit_offset,
             "tail_bits": self.tail_bits,
         }
@@ -259,8 +296,8 @@ def decode_portal_blob(
     are bit-packed MSB-first, so side A/B fields are not byte-aligned.
     """
 
-    minimum_bits = 812
-    if len(data) * 8 < minimum_bits:
+    minimum_side_a_bits = 570
+    if len(data) * 8 < minimum_side_a_bits:
         return None
 
     dimensions = _read_float_tuple(data, 29 * 8, 3)
@@ -275,21 +312,27 @@ def decode_portal_blob(
     rotation_a = _read_float_tuple(data, bit_offset, 4)
     bit_offset += 4 * 32
 
-    side_b_prefix = _read_unsigned_bits(data, bit_offset, 2)
-    bit_offset += 2
-    world_id_b = _read_unsigned_bits(data, bit_offset, 16)
-    bit_offset += 16
-    position_b = _read_float_tuple(data, bit_offset, 3)
-    bit_offset += 3 * 32
-    rotation_b = _read_float_tuple(data, bit_offset, 4)
-    bit_offset += 4 * 32
+    side_b_prefix = None
+    world_id_b = None
+    position_b = None
+    rotation_b = None
+
+    if len(data) * 8 >= 812:
+        side_b_prefix = _read_unsigned_bits(data, bit_offset, 2)
+        bit_offset += 2
+        world_id_b = _read_unsigned_bits(data, bit_offset, 16)
+        bit_offset += 16
+        position_b = _read_float_tuple(data, bit_offset, 3)
+        bit_offset += 3 * 32
+        rotation_b = _read_float_tuple(data, bit_offset, 4)
+        bit_offset += 4 * 32
 
     numeric_values = (
         *dimensions,
         *position_a,
         *rotation_a,
-        *position_b,
-        *rotation_b,
+        *(() if position_b is None else position_b),
+        *(() if rotation_b is None else rotation_b),
     )
     if not all(math.isfinite(value) for value in numeric_values):
         return None
@@ -326,15 +369,23 @@ def decode_portal_blob(
         side_b_prefix=side_b_prefix,
         world_id_b=world_id_b,
         position_b=(
-            float(position_b[0]),
-            float(position_b[1]),
-            float(position_b[2]),
+            None
+            if position_b is None
+            else (
+                float(position_b[0]),
+                float(position_b[1]),
+                float(position_b[2]),
+            )
         ),
         rotation_b=(
-            float(rotation_b[0]),
-            float(rotation_b[1]),
-            float(rotation_b[2]),
-            float(rotation_b[3]),
+            None
+            if rotation_b is None
+            else (
+                float(rotation_b[0]),
+                float(rotation_b[1]),
+                float(rotation_b[2]),
+                float(rotation_b[3]),
+            )
         ),
         tail_bit_offset=bit_offset,
         tail_bits=tail_bits,
@@ -354,10 +405,21 @@ def _decoded_matches_columns(
     if decoded is None:
         return None
 
-    return (
+    side_a_matches = (
         decoded.world_id_a == world_id_a
         and _position_to_cell(decoded.position_a) == (x_a, y_a)
-        and decoded.world_id_b == world_id_b
+    )
+    if not side_a_matches:
+        return False
+
+    if decoded.position_b is None:
+        return (
+            world_id_b == UNRESOLVED_WORLD_ID
+            and (x_b, y_b) == (0, 0)
+        )
+
+    return (
+        decoded.world_id_b == world_id_b
         and _position_to_cell(decoded.position_b) == (x_b, y_b)
     )
 

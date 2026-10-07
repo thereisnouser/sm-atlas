@@ -5,6 +5,7 @@ from heapq import heappop, heappush
 from math import sqrt
 
 from .database import SaveDatabase
+from .portals import discover_portals
 from .underground_navigation import TRANSIT_ROLES
 from .underground_topology import (
     EPSILON,
@@ -99,6 +100,8 @@ class TransitRoute:
     start_point: tuple[float, float, float] | None = None
     target_point: tuple[float, float, float] | None = None
     candidate_contacts: int = 0
+    start_portal_id: int | None = None
+    start_portal_side: str | None = None
 
     def to_dict(
         self,
@@ -108,6 +111,19 @@ class TransitRoute:
             "world_id": self.world_id,
             "include_vertical_contacts": self.include_vertical_contacts,
             "start_node": self.start_node,
+            "start_source": (
+                "saved_portal"
+                if self.start_portal_id is not None
+                else "elevator_center"
+            ),
+            "start_portal": (
+                None
+                if self.start_portal_id is None
+                else {
+                    "id": self.start_portal_id,
+                    "side": self.start_portal_side,
+                }
+            ),
             "target_kind": self.target_kind,
             "target_value": self.target_value,
             "target_node": self.target_node,
@@ -495,6 +511,120 @@ def _contact_center(
     raise ValueError(
         f"unsupported contact axis: {contact.axis}"
     )
+
+
+def _portal_endpoints_for_world(
+    database: SaveDatabase,
+    world_id: int,
+) -> list[tuple[int, str, tuple[float, float, float]]]:
+    endpoints: list[
+        tuple[int, str, tuple[float, float, float]]
+    ] = []
+
+    for portal in discover_portals(database):
+        decoded = portal.decoded
+        if decoded is None:
+            continue
+
+        if portal.world_id_a == world_id:
+            endpoints.append(
+                (
+                    portal.portal_id,
+                    "a",
+                    decoded.position_a,
+                )
+            )
+
+        if (
+            portal.world_id_b == world_id
+            and decoded.position_b is not None
+        ):
+            endpoints.append(
+                (
+                    portal.portal_id,
+                    "b",
+                    decoded.position_b,
+                )
+            )
+
+    return endpoints
+
+
+def _point_inside_layout_node(
+    point: tuple[float, float, float],
+    node: LayoutNode,
+) -> bool:
+    x, y, z = point
+    return (
+        node.min_x - EPSILON <= x <= node.max_x + EPSILON
+        and node.min_y - EPSILON <= y <= node.max_y + EPSILON
+        and node.min_z - EPSILON <= z <= node.max_z + EPSILON
+    )
+
+
+def _select_portal_start(
+    node: LayoutNode,
+    endpoints: list[
+        tuple[int, str, tuple[float, float, float]]
+    ],
+) -> tuple[int, str, tuple[float, float, float]] | None:
+    inside = [
+        item
+        for item in endpoints
+        if _point_inside_layout_node(item[2], node)
+    ]
+    if not inside:
+        return None
+
+    return min(
+        inside,
+        key=lambda item: (
+            _distance(item[2], node.center),
+            item[0],
+            item[1],
+        ),
+    )
+
+
+def _add_route_start_anchor(
+    anchors: dict[int, RouteAnchor],
+    edges: list[RouteGraphEdge],
+    *,
+    layout_node_id: int,
+    point: tuple[float, float, float],
+) -> int:
+    existing = [
+        anchor_id
+        for anchor_id, anchor in anchors.items()
+        if anchor.layout_node_id == layout_node_id
+    ]
+    anchor_id = max(anchors, default=0) + 1
+    anchors[anchor_id] = RouteAnchor(
+        anchor_id=anchor_id,
+        layout_node_id=layout_node_id,
+        point=(
+            float(point[0]),
+            float(point[1]),
+            float(point[2]),
+        ),
+        kind="saved_portal",
+    )
+
+    for other_id in existing:
+        edges.append(
+            RouteGraphEdge(
+                left=anchor_id,
+                right=other_id,
+                kind="intra_tile",
+                weight=_distance(
+                    anchors[anchor_id].point,
+                    anchors[other_id].point,
+                ),
+                layout_node_id=layout_node_id,
+            )
+        )
+
+    return anchor_id
 
 
 def _build_endpoint_route_graph(
@@ -941,6 +1071,29 @@ def find_transit_route(
         transit_ids,
     )
     start_anchor = center_anchor_by_node[start_node]
+    start_portal_id = None
+    start_portal_side = None
+
+    selected_start = _select_portal_start(
+        lookup[start_node],
+        _portal_endpoints_for_world(
+            database,
+            world_id,
+        ),
+    )
+    if selected_start is not None:
+        (
+            start_portal_id,
+            start_portal_side,
+            start_position,
+        ) = selected_start
+        start_anchor = _add_route_start_anchor(
+            anchors,
+            graph_edges,
+            layout_node_id=start_node,
+            point=start_position,
+        )
+
     scores, previous = _route_graph_evidence_first_paths(
         start_anchor,
         anchors,
@@ -1114,5 +1267,7 @@ def find_transit_route(
         start_point=anchors[start_anchor].point,
         target_point=anchors[target_anchor].point,
         candidate_contacts=scores[target_anchor][0],
+        start_portal_id=start_portal_id,
+        start_portal_side=start_portal_side,
     )
     return route, lookup

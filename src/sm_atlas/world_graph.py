@@ -17,6 +17,8 @@ class GraphEndpoint:
     known: bool
     x: int
     y: int
+    position: tuple[float, float, float] | None = None
+    rotation: tuple[float, float, float, float] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -26,6 +28,16 @@ class GraphEndpoint:
             "known": self.known,
             "x": self.x,
             "y": self.y,
+            "position": (
+                None
+                if self.position is None
+                else list(self.position)
+            ),
+            "rotation": (
+                None
+                if self.rotation is None
+                else list(self.rotation)
+            ),
         }
 
 
@@ -34,10 +46,16 @@ class GraphConnection:
     portal_id: int
     a: GraphEndpoint
     b: GraphEndpoint
+    dimensions: tuple[float, float, float] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
             "portal_id": self.portal_id,
+            "dimensions": (
+                None
+                if self.dimensions is None
+                else list(self.dimensions)
+            ),
             "a": self.a.to_dict(),
             "b": self.b.to_dict(),
         }
@@ -63,6 +81,8 @@ def _endpoint(
     world_id: int,
     x: int,
     y: int,
+    position: tuple[float, float, float] | None = None,
+    rotation: tuple[float, float, float, float] | None = None,
 ) -> GraphEndpoint:
     world = world_map.get(world_id)
 
@@ -79,6 +99,8 @@ def _endpoint(
             known=False,
             x=x,
             y=y,
+            position=position,
+            rotation=rotation,
         )
 
     return GraphEndpoint(
@@ -88,6 +110,8 @@ def _endpoint(
         known=True,
         x=x,
         y=y,
+        position=position,
+        rotation=rotation,
     )
 
 
@@ -103,19 +127,50 @@ def build_world_graph(
     connections: list[GraphConnection] = []
 
     for portal in portals:
+        decoded = portal.decoded
+        position_a = (
+            None
+            if decoded is None
+            else decoded.position_a
+        )
+        rotation_a = (
+            None
+            if decoded is None
+            else decoded.rotation_a
+        )
+        position_b = (
+            None
+            if decoded is None
+            else decoded.position_b
+        )
+        rotation_b = (
+            None
+            if decoded is None
+            else decoded.rotation_b
+        )
+
         connection = GraphConnection(
             portal_id=portal.portal_id,
+            dimensions=(
+                None
+                if decoded is None
+                else decoded.dimensions
+            ),
             a=_endpoint(
                 world_map,
                 portal.world_id_a,
                 portal.x_a,
                 portal.y_a,
+                position_a,
+                rotation_a,
             ),
             b=_endpoint(
                 world_map,
                 portal.world_id_b,
                 portal.x_b,
                 portal.y_b,
+                position_b,
+                rotation_b,
             ),
         )
 
