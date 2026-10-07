@@ -2334,40 +2334,54 @@ def run_underground_portals(
     print(f"Logical nodes: {result['logical_nodes']}")
     print(f"Observed tunnel endpoints: {result['observed_endpoints']}")
     print(f"Nodes with endpoints: {result['nodes_with_endpoints']}")
-    print(f"Nearest faces: {result['face_counts']}")
-    print(f"Face-distance buckets: {result['distance_buckets']}")
+    print(f"Inference methods: {result['methods']}")
+    print(f"World exit faces: {result['world_faces']}")
+    print(f"Canonical faces: {result['canonical_faces']}")
+    print(f"Ray-distance buckets: {result['ray_distance_buckets']}")
+    print(
+        "Old nearest-face buckets: "
+        f"{result['nearest_distance_buckets']}"
+    )
     print(f"Endpoint roles: {result['endpoint_roles']}")
 
     if result["profiles"]:
         print()
-        print("Observed portal profiles:")
+        print("Canonical portal profiles:")
         for profile in result["profiles"]:
             tags = ",".join(profile["tags"]) or "-"
             print(
                 f"  endpoints={profile['endpoints']} "
                 f"placements={profile['placements_with_endpoints']} "
-                f"rotation={profile['rotation']} "
+                f"rotations={profile['rotations']} "
                 f"family={profile['family']} "
                 f"tags={tags} "
-                f"faces={profile['faces']} "
-                f"distance={profile['face_distance']} "
+                f"faces={profile['canonical_faces']} "
                 f"name={profile['tile_name']}"
             )
             print(
                 "    clusters4m: "
                 f"{profile['portal_clusters_4m']}"
             )
+            if profile["repeated_clusters_4m"]:
+                print(
+                    "    repeated4m: "
+                    f"{profile['repeated_clusters_4m']}"
+                )
 
-    if result["furthest_examples"]:
+    if result["furthest_ray_examples"]:
         print()
-        print("Furthest endpoint-to-face examples:")
-        for endpoint in result["furthest_examples"]:
+        print("Furthest endpoint-to-exit examples:")
+        for endpoint in result["furthest_ray_examples"]:
             print(
                 f"  tunnel={endpoint['tunnel_id']}:{endpoint['side']} "
                 f"node={endpoint['node_id']} "
-                f"face={endpoint['face']} "
-                f"distance={endpoint['face_distance']} "
-                f"uv=({endpoint['u']}, {endpoint['v']}) "
+                f"method={endpoint['method']} "
+                f"world_face={endpoint['world_face']} "
+                f"canonical_face={endpoint['canonical_face']} "
+                f"ray_distance={endpoint['ray_distance']} "
+                f"canonical_uv=("
+                f"{endpoint['canonical_u']}, "
+                f"{endpoint['canonical_v']}) "
                 f"rotation={endpoint['rotation']} "
                 f"name={endpoint['tile_name']}"
             )
