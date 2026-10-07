@@ -35,6 +35,7 @@ from .tile_file import (
     probe_tile_voxels,
 )
 from .tile_voxel_space import probe_tile_voxel_space
+from .tile_voxel_walk import probe_tile_voxel_walk
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -174,6 +175,43 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print machine-readable JSON.",
+    )
+
+    tile_voxel_walk_parser = subparsers.add_parser(
+        "tile-voxel-walk",
+        help="Experimental floor/headroom candidate routes inside a tile.",
+    )
+    tile_voxel_walk_parser.add_argument("tile", type=Path)
+    tile_voxel_walk_parser.add_argument(
+        "--from-socket",
+        help="Starting socket identifier, e.g. cell0:node7.",
+    )
+    tile_voxel_walk_parser.add_argument(
+        "--to-socket",
+        help="Destination socket identifier, e.g. cell0:node6.",
+    )
+    tile_voxel_walk_parser.add_argument(
+        "--density-threshold",
+        type=int,
+        default=8,
+        help="Candidate free density values strictly below this value.",
+    )
+    tile_voxel_walk_parser.add_argument(
+        "--headroom",
+        type=int,
+        default=2,
+        help="Required clear vertical voxel cells above the floor.",
+    )
+    tile_voxel_walk_parser.add_argument(
+        "--max-step",
+        type=int,
+        default=1,
+        help="Maximum allowed elevation change per horizontal voxel (0..2).",
+    )
+    tile_voxel_walk_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print full route and results as machine-readable JSON.",
     )
 
     tile_chunk_probe_parser = subparsers.add_parser(
@@ -1367,6 +1405,94 @@ def run_tile_voxel_space(
             f"pos={socket['tile_position']} -> {detail}"
         )
     print("WARNING: voxel candidate connectivity is not a walkable-path test.")
+    return 0
+
+
+def run_tile_voxel_walk(
+    tile: Path,
+    from_socket: str | None,
+    to_socket: str | None,
+    density_threshold: int,
+    headroom: int,
+    max_step: int,
+    as_json: bool,
+) -> int:
+    try:
+        result = probe_tile_voxel_walk(
+            tile,
+            from_socket=from_socket,
+            to_socket=to_socket,
+            density_threshold=density_threshold,
+            headroom=headroom,
+            max_step=max_step,
+        )
+    except (
+        FileNotFoundError,
+        InvalidTileFile,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Tile: {result['tile']}")
+    print(
+        f"Experimental candidate floor graph: "
+        f"points={result['candidate_foot_positions']} "
+        f"components={result['components']} "
+        f"unknown={result['unknown_voxels']}"
+    )
+    print(
+        f"Settings: density<{result['density_threshold']} "
+        f"headroom={result['headroom_m']}m "
+        f"max_step={result['max_step_m']}m "
+        f"socket_radius={result['socket_radius_m']}m"
+    )
+    for component in result["major_components"][:10]:
+        print(
+            f"  component={component['id']} "
+            f"candidate_foot_positions={component['voxels']}"
+        )
+    for socket in result["sockets"]:
+        near = socket["nearest_foot"]
+        detail = (
+            "no major floor within radius"
+            if near is None
+            else (
+                f"component={near['component']} "
+                f"foot={near['foot_voxel']} "
+                f"offset={near['distance_m']}m"
+            )
+        )
+        print(f"  {socket['socket']} -> {detail}")
+
+    route = result.get("route")
+    if route is not None:
+        print(
+            f"Candidate route {route['from_socket']} -> "
+            f"{route['to_socket']}: {route['status']}"
+        )
+        if route["path"] is not None:
+            item = route["path"]
+            print(
+                f"  grid_steps={item['grid_steps']} "
+                f"length={item['length_m']}m "
+                f"climb={item['climb_m']}m "
+                f"descent={item['descent_m']}m "
+                f"z_range={item['min_z']}..{item['max_z']}"
+            )
+            print(
+                "  Full foot-voxel path: use --json "
+                "to retrieve every waypoint."
+            )
+    print(
+        "WARNING: not verified walkability; assets/physics, "
+        "ramp geometry, and socket attachment remain unresolved."
+    )
     return 0
 
 
@@ -3714,6 +3840,19 @@ def main() -> None:
             run_tile_voxel_space(
                 args.tile,
                 args.density_threshold,
+                args.json,
+            )
+        )
+
+    if args.command == "tile-voxel-walk":
+        raise SystemExit(
+            run_tile_voxel_walk(
+                args.tile,
+                args.from_socket,
+                args.to_socket,
+                args.density_threshold,
+                args.headroom,
+                args.max_step,
                 args.json,
             )
         )
