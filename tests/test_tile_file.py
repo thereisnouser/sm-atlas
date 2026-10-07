@@ -9,7 +9,9 @@ from sm_atlas.tile_file import (
     TILE_CELL_HEADER_SIZE,
     TILE_FILE_HEADER_FORMAT,
     InvalidTileFile,
+    decompress_lz4_block,
     probe_tile,
+    probe_tile_chunks,
 )
 
 
@@ -44,11 +46,13 @@ def _write_test_tile(path: Path) -> None:
     # node
     values[41] = 2
     values[42] = header_size + cell_header_size + 8
-    values[43] = 6
-    values[44] = 24
+    node_payload = bytes(range(24))
+    node_compressed = bytes((0xF0, 9)) + node_payload
+    values[43] = len(node_compressed)
+    values[44] = len(node_payload)
 
     cell_header = struct.pack("<97i", *values)
-    payload = b"12345678abcdef"
+    payload = b"12345678" + node_compressed
 
     path.write_bytes(header + cell_header + payload)
 
@@ -77,7 +81,7 @@ def test_probe_tile_reads_header_and_chunk_inventory(
     assert result["content"]["node"] == {
         "chunks": 1,
         "items": 2,
-        "compressed_bytes": 6,
+        "compressed_bytes": 26,
         "uncompressed_bytes": 24,
     }
     assert result["invalid_chunk_ranges"] == []
@@ -91,3 +95,43 @@ def test_probe_tile_rejects_wrong_magic(
 
     with pytest.raises(InvalidTileFile):
         probe_tile(path)
+
+
+
+def test_decompress_lz4_block_literal_only() -> None:
+    compressed = bytes((0xB0,)) + b"hello world"
+
+    assert decompress_lz4_block(
+        compressed,
+        expected_size=11,
+    ) == b"hello world"
+
+
+def test_decompress_lz4_block_with_match() -> None:
+    compressed = bytes((0x32,)) + b"abc" + b"\x03\x00"
+
+    assert decompress_lz4_block(
+        compressed,
+        expected_size=9,
+    ) == b"abcabcabc"
+
+
+def test_probe_tile_chunks_decompresses_selected_chunk(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "sample.tile"
+    _write_test_tile(path)
+
+    result = probe_tile_chunks(
+        path,
+        kind="node",
+        full_hex=True,
+    )
+
+    assert len(result["chunks"]) == 1
+    chunk = result["chunks"][0]
+    assert chunk["cell"] == 0
+    assert chunk["count"] == 2
+    assert chunk["decoded_size"] == 24
+    assert chunk["hex"] == bytes(range(24)).hex()
+    assert chunk["hex_prefix"] == bytes(range(24)).hex()
