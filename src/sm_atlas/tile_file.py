@@ -580,6 +580,7 @@ def probe_tile_nodes(
 
     return {
         "path": str(tile_path),
+        "uuid_hex": tile["uuid_hex"],
         "width": tile["width"],
         "height": tile["height"],
         "node_chunks": decoded_chunks,
