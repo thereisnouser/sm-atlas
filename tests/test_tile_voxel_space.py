@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from sm_atlas.tile_voxel_space import probe_tile_voxel_space
+from sm_atlas.tile_voxel_space import _components, probe_tile_voxel_space
 
 
 def _literal_lz4(data: bytes) -> bytes:
@@ -79,4 +79,26 @@ def test_voxel_space_rejects_invalid_threshold(tmp_path: Path) -> None:
         probe_tile_voxel_space(
             tmp_path / "room_1x1x1.tile",
             density_threshold=16,
+        )
+
+
+
+def test_candidate_void_components_change_under_five_bit_hypothesis() -> None:
+    voxels = bytearray((111, 119))
+    old_labels, old_components = _components(
+        voxels, (2, 1, 1), threshold=8, density_bits=4,
+    )
+    five_labels, five_components = _components(
+        voxels, (2, 1, 1), threshold=16, density_bits=5,
+    )
+    assert len(old_components) == len(five_components) == 1
+    assert list(old_labels) == [0, 1]
+    assert list(five_labels) == [1, 0]
+
+
+def test_voxel_space_rejects_unsupported_density_bits(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="density_bits"):
+        probe_tile_voxel_space(
+            tmp_path / "room_1x1x1.tile",
+            density_bits=6,
         )
