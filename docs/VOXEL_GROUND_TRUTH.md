@@ -253,6 +253,39 @@ A failed 4-bit crossing at the original two endpoints is local evidence
 only; it does not refute every possible 4-bit packing or threshold.
 Do not interpret matching candidate bytes as proof of walkability.
 
+## Offline 3D trilinear surface hypotheses (no game changes)
+
+The raw byte profiles showed that both 4-bit and 5-bit masks produce
+some vertical crossing candidates but disagree with the smooth real
+raycast surface. Treat `tile-ground-profile`'s **single nearest XY
+column** only as a first diagnostic; ray hits between voxel columns may
+depend on their neighbours. A second read-only command explicitly tests
+bilinear packed densities in XY followed by a linear Z isocrossing:
+
+```powershell
+sm-atlas tile-ground-hypotheses .\ground_plan.json .\atlas_ground_hits.log $tile
+sm-atlas tile-ground-hypotheses .\ground_plan.json .\atlas_ground_hits.log $tile --json > .\ground_hypotheses.json
+```
+
+This evaluates **16 predeclared candidates**, not a machine-fitted
+model: low 4 vs low 5 bits, midpoint thresholds (8/16 respectively)
+and all 8 integer/half-voxel origin shifts in X/Y/Z. It searches only
+within the original in-game raycast window (predicted Z +1 to -2 m).
+For each hit it counts no crossings, one crossing or multiple ambiguous
+crossings. Only unambiguous single crossings contribute to RMSE and
+bias statistics. Models are ordered by number of covered hits and
+uncorrected RMSE, with no guarantee that the first is physically
+correct.
+
+**Cautions:** this uses trilinear *scalar field interpolation*, not
+verified game triangulation or actual collision geometry. It excludes
+unpopulated 0xFF bytes instead of inventing densities, and never
+selects whichever crossing is *closest* to the observed result after
+seeing the measurement. All 15 calibration samples occupy a tiny patch.
+Even an apparent near-perfect match at these coordinates cannot
+distinguish different unseen packing or demonstrate a walkable route.
+Repeat on distinct tiles/terrain before making any general claims.
+
 ## Diagnosing a hook that shows no HUD
 
 In the October 8 game log, the Game state loaded and the runtime emitted
