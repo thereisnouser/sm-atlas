@@ -1683,6 +1683,22 @@ def run_tile_voxel_walk(
             f"Candidate route {route['from_socket']} -> "
             f"{route['to_socket']}: {route['status']}"
         )
+        for role, bridge in route.get(
+            "candidate_air_attachments", {}
+        ).items():
+            print(
+                f"  {role} socket-to-floor candidate air bridge: "
+                f"{bridge['status']}"
+            )
+            if bridge["status"] == "candidate_air_path_found":
+                print(
+                    f"    air_steps={bridge['steps']} "
+                    f"standing_candidates={bridge['positions_with_candidate_foot']} "
+                    f"unsupported_positions={bridge['positions_without_candidate_foot']} "
+                    f"rises={bridge['rises']} drops={bridge['drops']} "
+                    f"z_range={bridge['min_z']}..{bridge['max_z']} "
+                    f"(AIR ONLY; NOT A WALKABLE CONNECTION)"
+                )
         gap = route.get("gap_diagnostics")
         if gap is not None:
             print(
