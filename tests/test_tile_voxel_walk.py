@@ -72,3 +72,45 @@ def test_validate_parameters_without_reading_tile(tmp_path) -> None:
         probe_tile_voxel_walk(path, max_step=3)
     with pytest.raises(ValueError, match="both from_socket"):
         probe_tile_voxel_walk(path, from_socket="cell0:node1")
+
+
+
+def test_uphill_transition_requires_clearance_above_lower_head() -> None:
+    # The higher floor's standing cells are clear, but the low-side
+    # ceiling obstructs a full-height actor during a one-metre ascent.
+    dims = (2, 1, 5)
+    volume = bytearray([31] * 10)
+    for index in (1, 2, 7, 8):
+        volume[index] = 0
+
+    footprint = _candidate_foot_positions(
+        volume, dims, threshold=8, headroom=2,
+    )
+    assert footprint.count(1) == 2
+
+    # Historical endpoint-only edge rule incorrectly connected the floors.
+    assert _shortest_walk(
+        (0, 0, 1), (1, 0, 2), footprint, dims, max_step=1,
+    ) is not None
+
+    labels, groups = _label_walk_components(
+        footprint, dims, max_step=1, volume=volume, headroom=2,
+    )
+    assert len(groups) == 2
+    assert sorted(group["voxels"] for group in groups) == [1, 1]
+    assert _shortest_walk(
+        (0, 0, 1), (1, 0, 2), footprint, dims,
+        max_step=1, volume=volume, headroom=2,
+    ) is None
+
+    # Removing the ceiling obstacle makes the transition a valid candidate.
+    volume[3] = 0
+    path = _shortest_walk(
+        (0, 0, 1), (1, 0, 2), footprint, dims,
+        max_step=1, volume=volume, headroom=2,
+    )
+    assert path is not None
+    assert path["rise_clearance_checked"] is True
+    assert path["rise_steps"] == 1
+    assert path["drop_steps"] == 0
+    assert path["unverified_elevation_edges"] == 1
