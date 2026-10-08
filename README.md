@@ -54,6 +54,19 @@ The walker reports candidate voxel density beneath both feet at every
 candidate rise/drop. Partial density below the selected packing's maximum
 (15 for 4 bits, 31 for 5 bits) suggests a surface boundary, **not proof
 of a physically traversable slope**.
+
+For routes with a candidate floor path, Atlas also reports an **experimental
+fractional-height surface profile**. It linearly interpolates the
+chosen density iso-level between the filled support voxel below a
+standing position and the free voxel above it. It shows approximate
+per-segment gradients and an estimated length derived from these
+fractional heights. The threshold and voxel-center positions are
+hypotheses; the result is **not the game's terrain mesh, player collision
+surface, or a routing permission**. The `--elevation-details` flag prints
+segments where the estimated grade exceeds 0.5. JSON includes all
+surface-height samples and segment gradients. Route search still uses
+the original discrete floor graph and retains the existing default
+`--density-bits 4` for reproducibility.
 The object probe currently recognizes fixed 69-byte `unknown` and 65-byte
 `harvestable` records found in Drill2 tile version 15, and reports raw UUID,
 position, rotation and scale. Other record layouts fail closed. Object UUID
