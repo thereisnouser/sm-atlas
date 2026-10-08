@@ -156,6 +156,25 @@ sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --
 sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node2 --to-socket cell0:node5
 ```
 
+## Underground tile-local to saved-world coordinates
+
+When a saved tile has a known layout node ID, inspect its actual saved
+placement and match its socket positions to independent saved tunnel
+endpoints without guessing the world origin:
+
+```powershell
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20"
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json > world-ground-probe.json
+```
+
+The command fails on a tile UUID or dimensions mismatch. It reports world
+coordinates for all local sockets, independent saved tunnel anchor matches,
+and up to 15 proposed XY raycast sampling locations for a cardinal edge.
+It needs the same actual saved world that contains the selected tile
+instance: `--node 322` is a layout node ID, **not a tile-local socket**.
+See [ground-truth validation protocol](docs/VOXEL_GROUND_TRUTH.md).
+**Saved transform agreement is not actual in-game terrain collision validation.**
+
 For validating these candidate surfaces against the actual in-game physics
 terrain, see [Voxel ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md).
 The protocol uses the official game raycast API and explicitly requires a
