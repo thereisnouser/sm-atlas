@@ -62,17 +62,20 @@ def _neighbours(
             zz = z + dz
             if not 0 <= zz < sz:
                 continue
-            if dz > 0 and volume is not None:
-                # Moving to a higher foot cell also requires room for the
-                # player's head on the lower side of the step. The old graph
-                # tested standing clearance only at the two endpoints.
+            if dz != 0 and volume is not None:
+                # Check extra head clearance over the lower foot position,
+                # independent of travel direction. This keeps floor edges
+                # symmetric so connected-component labels stay meaningful.
+                lower_index, lower_z = (
+                    (index, z) if dz > 0 else (base + zz, zz)
+                )
                 extra_clear = all(
-                    z + headroom + rise < sz
-                    and volume[index + headroom + rise] != 255
+                    lower_z + headroom + rise < sz
+                    and volume[lower_index + headroom + rise] != 255
                     and (
-                        volume[index + headroom + rise] & 0x0F
+                        volume[lower_index + headroom + rise] & 0x0F
                     ) < density_threshold
-                    for rise in range(dz)
+                    for rise in range(abs(dz))
                 )
                 if not extra_clear:
                     continue
