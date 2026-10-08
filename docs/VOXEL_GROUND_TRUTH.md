@@ -123,7 +123,7 @@ Once `tile-world-probe` reports at least **two independent tunnel
 anchors**, save the complete JSON and generate a callable Lua diagnostic:
 
 ```powershell
-sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json > .\ground_plan.json
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json --output .\ground_plan.json
 sm-atlas tile-ground-lua .\ground_plan.json --output .\atlas_ground_probe.lua
 ```
 
