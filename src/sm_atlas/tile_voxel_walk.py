@@ -211,7 +211,44 @@ def _shortest_walk(
     descent = sum(max(0, p[2] - q[2]) for p, q in zip(points, points[1:]))
     rises = sum(q[2] > p[2] for p, q in zip(points, points[1:]))
     drops = sum(q[2] < p[2] for p, q in zip(points, points[1:]))
+    elevation_edges = []
+    if volume is not None:
+        for edge_index, (p, q) in enumerate(zip(points, points[1:])):
+            dz = q[2] - p[2]
+            if not dz:
+                continue
+            source_index = (p[0] * sy + p[1]) * sz + p[2] - 1
+            target_index = (q[0] * sy + q[1]) * sz + q[2] - 1
+            a_raw = int(volume[source_index])
+            b_raw = int(volume[target_index])
+            elevation_edges.append({
+                "step_index": edge_index,
+                "from_foot": p,
+                "to_foot": q,
+                "delta_z_m": dz,
+                "from_support_raw": a_raw,
+                "to_support_raw": b_raw,
+                "from_support_density": a_raw & 0x0F,
+                "to_support_density": b_raw & 0x0F,
+                "has_partial_support_density": (
+                    (a_raw & 0x0F) < 15 or (b_raw & 0x0F) < 15
+                ),
+            })
     return {
+        "elevation_support_summary": {
+            "edges_sampled": len(elevation_edges),
+            "partial_density_edges": sum(
+                edge["has_partial_support_density"] for edge in elevation_edges
+            ),
+            "both_full_density_edges": sum(
+                not edge["has_partial_support_density"] for edge in elevation_edges
+            ),
+            "interpretation": (
+                "intermediate density suggests a surface boundary; "
+                "does not prove a traversable slope"
+            ),
+        },
+        "elevation_edge_samples": elevation_edges,
         "grid_steps": len(points) - 1,
         "level_steps": len(points) - 1 - rises - drops,
         "rise_steps": rises,
