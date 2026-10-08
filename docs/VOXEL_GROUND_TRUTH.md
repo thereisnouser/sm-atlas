@@ -234,6 +234,51 @@ When upgrading from an older installed hook: close the game, use
 automatic game-file update. Do NOT enable `-dev` to troubleshoot
 without understanding its possible save/gameplay consequences.
 
+## Guide from the saved Mining Hub portal (optional)
+
+The regular HUD shows only `need world 23` while the player is in
+another world. An opt-in variant can show **the actual XYZ in the hub,
+straight-line distance and signed coordinate differences** to a saved
+portal entrance; once in the target world, the same hook switches to
+the cave target. The entrance must be derived from the *same save copy*
+as the raycast plan.
+
+First, **close the game completely** and remove any installed version
+of the hook, then compare the script to the known clean pre-install
+backup. Only if hashes match, update and run tests. The copy of the
+save remains separate from the main save.
+
+```powershell
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --remove
+# Verify against the exact clean .bak made before installing.
+git pull
+pytest
+sm-atlas portal-probe $testSave --id 67
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --navigation-save $testSave --portal-id 67
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --navigation-save $testSave --portal-id 67 --install
+```
+
+`--navigation-save` and `--portal-id` must be specified together,
+and the portal must be decoded with verified world IDs/coordinates and
+lead to the raycast plan world. The program **reads** the Portal data
+from that save; it doesn't write to any `.db`. The preview is not an
+installation. Uninstall uses the ordinary `--remove` command (without
+navigation flags).
+
+For this specific saved world, the known portal **#67** connects
+Mining Hub (world 12) to Drill2 (world 23). The Mining Hub portal
+approach is around `(-96.013, 157.189, 69.086)`; it is **not** a
+guaranteed entrance button or a wall-free path. The new HUD in world
+12 reads like `Atlas W12 XYZ ... | portal 67 120m | dX... dY... dZ...`.
+Distance is direct 3D Euclidean distance, **not** walkable path
+length. When world 23 is entered, the HUD automatically switches
+to the saved cave's raycast location near `(44.5,-108,82.8)`.
+
+Scrap Mechanic 1.0 may require the launch option `-dev` for patched
+Lua code to be loaded. This option may change gameplay and disable
+achievements: test **only** on `ATLAS_TEST`, then remove `-dev` and
+the installed hook before returning to the main game.
+
 ## Finding the actual in-game world and location
 
 In `--world 23`, **23 is a unique saved game-world ID, not the
