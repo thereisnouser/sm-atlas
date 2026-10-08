@@ -11,6 +11,10 @@ from statistics import mean, median
 
 
 LOG_PREFIX = "ATLAS_GROUND,"
+# Current in-game logs from Scrap Mechanic 1.0 use 'voxelTerrain' for
+# voxel ground hits; earlier API documentation lists 'terrainSurface'.
+# Restrict accepted ground hits to this explicit pair of type strings.
+GROUND_HIT_TYPES = frozenset({"terrainSurface", "voxelTerrain"})
 
 
 def _validated_ground_plan(plan: dict) -> tuple[int, list[dict]]:
@@ -145,10 +149,8 @@ def _parse_probe_logs(log: str) -> dict[int, dict[str, object]]:
                 f"duplicate ATLAS_GROUND index {i}; "
                 "supply only one probe run"
             )
-        if kind not in ("miss", "terrainSurface", "terrainAsset"):
-            # Retain unknown hit types for review, but never treat them as
-            # a verified terrain-surface measurement.
-            kind = str(kind)
+        # Preserve original physics type, including unknown labels;
+        # non-ground collisions are excluded during comparison.
         observations[i] = {
             "index": i,
             "hit": bool(flag),
@@ -169,7 +171,7 @@ def _parse_probe_logs(log: str) -> dict[int, dict[str, object]]:
 
 
 def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
-    """Compare true terrainSurface hits; diagnose missed/misclassified rays."""
+    """Compare upward terrain-surface/voxel hits; preserve other collisions."""
     world_id, samples = _validated_ground_plan(plan)
     observations = _parse_probe_logs(log)
     lines: list[dict[str, object]] = []
@@ -205,7 +207,7 @@ def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
                     "regenerate Lua from the same plan"
                 )
             if (
-                record["hit"] and record["hit_type"] == "terrainSurface"
+                record["hit"] and record["hit_type"] in GROUND_HIT_TYPES
                 and record["normal"][2] <= 0.1
             ):
                 row.update({
@@ -214,7 +216,7 @@ def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
                     "actual_z": record["hit_z"],
                     "normal_world": record["normal"],
                 })
-            elif record["hit"] and record["hit_type"] == "terrainSurface":
+            elif record["hit"] and record["hit_type"] in GROUND_HIT_TYPES:
                 error = record["hit_z"] - predicted_z
                 errors.append(error)
                 row.update({
