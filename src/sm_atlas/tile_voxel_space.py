@@ -96,14 +96,16 @@ def _components(
     volume: bytearray,
     dims: tuple[int, int, int],
     threshold: int,
+    density_bits: int = 4,
 ) -> tuple[array, list[dict[str, object]]]:
     sx, sy, sz = dims
     stride = sy * sz
+    mask = (1 << density_bits) - 1
     labels = array("I", [0]) * len(volume)
     components: list[dict[str, object]] = []
 
     for seed, value in enumerate(volume):
-        if labels[seed] or value == 255 or (value & 15) >= threshold:
+        if labels[seed] or value == 255 or (value & mask) >= threshold:
             continue
         cid = len(components) + 1
         labels[seed] = cid
@@ -138,7 +140,7 @@ def _components(
 
             for q in neighbours:
                 raw = volume[q]
-                if not labels[q] and raw != 255 and (raw & 15) < threshold:
+                if not labels[q] and raw != 255 and (raw & mask) < threshold:
                     labels[q] = cid
                     queue.append(q)
 
@@ -203,14 +205,19 @@ def _nearest_component(
 def probe_tile_voxel_space(
     tile: str | Path,
     *,
-    density_threshold: int = 8,
+    density_threshold: int | None = None,
+    density_bits: int = 4,
     min_component_size: int = 100,
     socket_radius: float = 5.0,
     max_grid_voxels: int = 4_000_000,
 ) -> dict[str, object]:
     """Match tunnel sockets to candidate connected voids without routing."""
-    if not 1 <= density_threshold <= 15:
-        raise ValueError("density_threshold must be 1..15")
+    if density_bits not in (4, 5):
+        raise ValueError("density_bits must be 4 or 5")
+    if density_threshold is None:
+        density_threshold = 1 << (density_bits - 1)
+    if not 1 <= density_threshold <= (1 << density_bits) - 1:
+        raise ValueError("density_threshold outside packing density range")
     if min_component_size < 1:
         raise ValueError("min_component_size must be >= 1")
     if not 0 < socket_radius <= 32:
@@ -223,7 +230,9 @@ def probe_tile_voxel_space(
         raise ValueError(f"voxel grid too large ({count} > {max_grid_voxels})")
 
     volume, missing = _load_density_bytes(path, dims)
-    labels, components = _components(volume, dims, density_threshold)
+    labels, components = _components(
+        volume, dims, density_threshold, density_bits=density_bits,
+    )
     sizes = {
         int(component["id"]): int(component["voxels"])
         for component in components
@@ -262,6 +271,7 @@ def probe_tile_voxel_space(
         "tile": str(path),
         "dimensions_m": dims,
         "density_threshold": density_threshold,
+        "density_bits": density_bits,
         "unknown_voxels": missing,
         "component_count": len(components),
         "major_components": major,
