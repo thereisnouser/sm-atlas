@@ -280,3 +280,65 @@ def test_elevation_edges_report_partial_density_without_claiming_ramp() -> None:
     assert result is not None
     assert result["elevation_support_summary"]["partial_density_edges"] == 1
     assert result["elevation_edge_samples"][0]["from_support_density"] == 10
+
+
+def test_four_and_five_density_bits_classify_boundary_values_differently() -> None:
+    # Raw 111 (0x6f) decodes to density=15 with either mask,
+    # but the density midpoint is 8 in the legacy hypothesis and 16
+    # in the 5-bit hypothesis. Raw 119 (0x77) reverses classification.
+    dims = (1, 1, 4)
+    low_mid = bytearray((31, 111, 111, 31))
+    old_low = _candidate_foot_positions(
+        low_mid, dims, threshold=8, headroom=2, density_bits=4,
+    )
+    five_low = _candidate_foot_positions(
+        low_mid, dims, threshold=16, headroom=2, density_bits=5,
+    )
+    assert old_low.count(1) == 0
+    assert five_low.count(1) == 1
+    assert five_low[1] == 1
+
+    high_mid = bytearray((31, 119, 119, 31))
+    old_high = _candidate_foot_positions(
+        high_mid, dims, threshold=8, headroom=2, density_bits=4,
+    )
+    five_high = _candidate_foot_positions(
+        high_mid, dims, threshold=16, headroom=2, density_bits=5,
+    )
+    assert old_high.count(1) == 1
+    assert five_high.count(1) == 0
+
+
+def test_socket_survey_respects_selected_density_packing() -> None:
+    dims = (8, 5, 5)
+    volume = bytearray([31] * (8 * 5 * 5))
+    volume[(3 * 5 + 2) * 5 + 2] = 111
+    volume[(4 * 5 + 2) * 5 + 2] = 119
+
+    a = _socket_inward_profile(
+        (2.0, 2.5, 2.0), volume, dims,
+        threshold=8, sample_cells=3, density_bits=4,
+    )
+    b = _socket_inward_profile(
+        (2.0, 2.5, 2.0), volume, dims,
+        threshold=16, sample_cells=3, density_bits=5,
+    )
+    assert a["first_open_voxel"] == (4, 2, 2)
+    assert b["first_open_voxel"] == (3, 2, 2)
+    assert [r["density"] for r in a["samples"]] == [15, 15, 7]
+    assert [r["density"] for r in b["samples"]] == [31, 15, 23]
+
+
+def test_unsupported_density_packing_is_rejected_before_tile_read(
+    tmp_path,
+) -> None:
+    with pytest.raises(ValueError, match="density_bits"):
+        probe_tile_voxel_walk(
+            tmp_path / "missing_1x1x1.tile", density_bits=6,
+        )
+    with pytest.raises(ValueError, match="density_threshold"):
+        probe_tile_voxel_walk(
+            tmp_path / "missing_1x1x1.tile",
+            density_bits=5,
+            density_threshold=32,
+        )
