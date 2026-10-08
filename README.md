@@ -182,7 +182,7 @@ at least two independent saved tunnels, Atlas can generate a *callable but
 not installed* Scrap Mechanic Lua function, and compare game log observations:
 
 ```powershell
-sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json > ground_plan.json
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json --output ground_plan.json
 sm-atlas tile-ground-lua ground_plan.json --output atlas_ground_probe.lua
 # Integrate the generated function into your OWN game script, with a real
 # World userdata. Capture ATLAS_GROUND lines from the running game's log.
