@@ -417,7 +417,7 @@ def _socket_inward_profile(
             "inward_cells": step,
             "voxel": (xx, yy, bz),
             "raw": value,
-            "density": value & 0x0F if value != 255 else None,
+            "density": value & density_mask if value != 255 else None,
             "candidate_open": candidate_open,
         })
         if candidate_open and first_open is None:
