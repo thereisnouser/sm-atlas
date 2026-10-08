@@ -40,6 +40,7 @@ from .tile_objects import (
     placements_near_candidate_route,
 )
 from .tile_voxel_walk import probe_tile_voxel_walk
+from .tile_world import probe_tile_world
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -163,6 +164,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print machine-readable JSON.",
     )
+
+    tile_world_parser = subparsers.add_parser(
+        "tile-world-probe",
+        help="Map local .tile sockets into a saved underground world instance.",
+    )
+    tile_world_parser.add_argument("save", type=Path)
+    tile_world_parser.add_argument("tile", type=Path)
+    tile_world_parser.add_argument("--world", type=int, required=True)
+    tile_world_parser.add_argument(
+        "--node", type=int, required=True,
+        help="Layout node ID of this exact tile instance, e.g. 322.",
+    )
+    tile_world_parser.add_argument(
+        "--edge", nargs=2, metavar=("FROM_XYZ", "TO_XYZ"),
+        help="Optional adjacent local foot voxels (e.g. 4,35,19 3,35,20).",
+    )
+    tile_world_parser.add_argument(
+        "--density-bits", type=int, choices=(4, 5), default=5,
+    )
+    tile_world_parser.add_argument(
+        "--match-tolerance", type=float, default=1.0,
+        help="Max residual in metres to match saved tunnels to sockets.",
+    )
+    tile_world_parser.add_argument("--json", action="store_true")
 
     tile_voxel_space_parser = subparsers.add_parser(
         "tile-voxel-space",
@@ -1558,6 +1583,95 @@ def run_tile_object_probe(
     print(
         "WARNING: record transforms/UUIDs do not identify mesh, "
         "solid collision or ramps."
+    )
+    return 0
+
+
+def run_tile_world_probe(
+    save: Path,
+    tile: Path,
+    world_id: int,
+    node_id: int,
+    edge: list[str] | None,
+    density_bits: int,
+    match_tolerance: float,
+    as_json: bool,
+) -> int:
+    try:
+        result = probe_tile_world(
+            SaveDatabase(save), tile,
+            world_id=world_id, node_id=node_id,
+            edge=tuple(edge) if edge is not None else None,
+            density_bits=density_bits, tolerance_m=match_tolerance,
+        )
+    except (
+        FileNotFoundError, InvalidSaveFile, InvalidTileFile,
+        sqlite3.DatabaseError, OSError, ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"World: {result['world_id']} layout node: {result['node_id']}")
+    print(
+        f"Tile: {result['tile_name']} uuid={result['tile_uuid']} "
+        f"kind={result['layout_kind']}"
+    )
+    print(
+        f"Placement: rotation={result['layout_rotation_quarter_turns']}*90deg "
+        f"world_min={result['world_bounds']['min']} "
+        f"world_max={result['world_bounds']['max']}"
+    )
+    print("Saved .tile sockets -> world coordinates:")
+    for socket in result["sockets"]:
+        print(
+            f"  {socket['socket']} "
+            f"local={socket['tile_position']} "
+            f"world={socket['world_position']}"
+        )
+    alignment = result["alignment"]
+    print(
+        f"Tunnel anchor alignment: {alignment['status']} "
+        f"sockets={alignment['distinct_sockets']} "
+        f"tunnels={alignment['distinct_tunnels']} "
+        f"max_residual={alignment['max_match_residual_m']}m"
+    )
+    for match in result["saved_tunnel_matches"]:
+        print(
+            f"  #{match['tunnel_id']} {match['end']} -> "
+            f"{match['socket']} residual={match['residual_m']}m "
+            f"saved={match['saved_world_position']}"
+        )
+
+    critical = result.get("critical_edge")
+    if critical is not None:
+        print(
+            f"Candidate edge gradient={critical['estimated_absolute_gradient']} "
+            f"(unverified voxel iso-surface)"
+        )
+        for endpoint in critical["endpoints"]:
+            print(
+                f"  foot {endpoint['tile_foot_voxel']} "
+                f"-> world reference={endpoint['world_foot_voxel_reference']}"
+            )
+        print(
+            "In-game terrain raycast candidates "
+            "(XY exact under saved placement; Z is unverified estimate):"
+        )
+        for sample in critical["world_samples"]:
+            print(
+                f"  offset={sample['lateral_offset_m']} "
+                f"t={sample['fraction']} "
+                f"world_xy={sample['world_xy']} "
+                f"surface_z_guess={sample['estimated_surface_world_z']}"
+            )
+    print(
+        "WARNING: matching saved tunnel endpoints does not prove "
+        "actual game physics/collision; tile-local voxel sample origin "
+        "and cave raycast frame still need in-game verification."
     )
     return 0
 
@@ -4183,6 +4297,15 @@ def main() -> None:
                 args.tile,
                 args.cell,
                 args.examples,
+                args.json,
+            )
+        )
+
+    if args.command == "tile-world-probe":
+        raise SystemExit(
+            run_tile_world_probe(
+                args.save, args.tile, args.world, args.node,
+                args.edge, args.density_bits, args.match_tolerance,
                 args.json,
             )
         )
