@@ -1469,6 +1469,18 @@ def run_tile_voxel_walk(
             )
         )
         print(f"  {socket['socket']} -> {detail}")
+        closest = socket["nearest_any_foot"]
+        if closest is not None and (
+            near is None
+            or closest["component"] != near["component"]
+        ):
+            print(
+                f"    CAUTION: closer isolated floor at "
+                f"{closest['foot_voxel']} "
+                f"component={closest['component']} "
+                f"offset={closest['distance_m']}m; "
+                f"socket attachment is unverified"
+            )
 
     route = result.get("route")
     if route is not None:
@@ -1476,6 +1488,25 @@ def run_tile_voxel_walk(
             f"Candidate route {route['from_socket']} -> "
             f"{route['to_socket']}: {route['status']}"
         )
+        gap = route.get("gap_diagnostics")
+        if gap is not None:
+            print(
+                f"  rejected adjacent floor links: "
+                f"{gap['reason_counts']}"
+            )
+            for reason, entries in gap["examples"].items():
+                for entry in entries[:2]:
+                    print(
+                        f"    {reason}: "
+                        f"{entry['from_foot']} -> "
+                        f"{entry['to_foot']} "
+                        f"dz={entry['delta_z_m']}m"
+                        + (
+                            f" blocker={entry['blocker']}"
+                            if "blocker" in entry
+                            else ""
+                        )
+                    )
         if route["path"] is not None:
             item = route["path"]
             print(
