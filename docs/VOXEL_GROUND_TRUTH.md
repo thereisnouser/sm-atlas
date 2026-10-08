@@ -52,11 +52,50 @@ local function atlasProbeGround(world, x, y, expectedWorldZ)
 end
 ```
 
-## Coordinate transform is currently unresolved
+## Saved-instance coordinate mapping
 
-Voxel and socket coordinates in Atlas are **tile-local**. They are not
-world-space positions. Database world ID 23 is *not* a World userdata.
-Before using this in-game raycast:
+Atlas now has a diagnostic CLI command (no game modification):
+
+```powershell
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20"
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json > world-ground-probe.json
+```
+
+This resolves the **saved placement** of an exact tile UUID within an
+underground layout node. The command validates the tile UUID, rotated
+dimensions and bounds; then compares every transformed TUNNEL socket with
+saved tunnel endpoints. At least two distinct socket/endpoints on two
+independent tunnels are required for status
+`two_or_more_independent_tunnel_anchors`. Otherwise it reports
+`insufficient_independent_tunnel_anchors`; no match is fabricated.
+
+For the Drill2 tile and world 23, the saved tunnel endpoints previously
+observed for #42 and #269 indicate layout rotation 1 (90 degrees CCW),
+tile bounds minimum `(32,-112,64)` and maximum `(80,-80,96)`. The
+**candidate** local-to-world coordinate map is:
+
+```text
+world_x = 80 - tile_y
+world_y = -112 + tile_x
+world_z = 64 + tile_z
+```
+
+The **integer** voxel indices `(4,35,19) -> (3,35,20)` therefore
+correspond to `(45,-108,83) -> (45,-109,84)`. The **candidate voxel
+centre** XY sampling locations instead correspond to
+`(44.5,-107.5) -> (44.5,-108.5)`. Keep these conventions distinct.
+
+With `--edge`, Atlas prints 15 measurement locations (at 0.25 m XY
+intervals on three parallel tracks), including tentative world Z values.
+The XY transform is derived from the saved layout; the sub-voxel terrain
+Z estimates rely on an **unverified** 5-bit packing and vertical sample
+origin. None are live raycast measurements.
+
+## Live in-game coordinate verification remains unresolved
+
+The saved-instance transform gives **candidate world-space positions**.
+Database world ID 23 is *not* a game-engine World userdata. Before using
+the in-game raycast:
 
 1. Determine this particular tile instance's origin and rotation in the
    correct underground world.
