@@ -239,3 +239,44 @@ def test_socket_inward_profile_uses_actual_closest_face() -> None:
         (2, 1, 2),
         (2, 2, 2),
     ]
+
+
+
+def test_elevation_edges_report_partial_density_without_claiming_ramp() -> None:
+    volume, dims = _stepped_tunnel()
+    volume[0] = 27  # solid, but only density 11 rather than 15
+    volume[7] = 0   # extra headroom over the lower one-metre step
+    footprint = _candidate_foot_positions(
+        volume, dims, threshold=8, headroom=2,
+    )
+    result = _shortest_walk(
+        (0, 0, 1), (4, 0, 2), footprint, dims,
+        max_step=1, volume=volume, headroom=2,
+    )
+
+    assert result is not None
+    summary = result["elevation_support_summary"]
+    assert summary == {
+        "edges_sampled": 1,
+        "partial_density_edges": 0,
+        "both_full_density_edges": 1,
+        "interpretation": (
+            "intermediate density suggests a surface boundary; "
+            "does not prove a traversable slope"
+        ),
+    }
+    # The altered partial support is under x=0, but the height change
+    # occurs at x=1 -> x=2. Metadata must describe the step itself.
+    assert result["elevation_edge_samples"][0]["from_foot"] == (1, 0, 1)
+    assert result["elevation_edge_samples"][0]["to_foot"] == (2, 0, 2)
+    assert result["elevation_edge_samples"][0]["from_support_density"] == 15
+    assert result["elevation_edge_samples"][0]["to_support_density"] == 15
+
+    volume[4] = 26  # x=1 support becomes material1, density10
+    result = _shortest_walk(
+        (0, 0, 1), (4, 0, 2), footprint, dims,
+        max_step=1, volume=volume, headroom=2,
+    )
+    assert result is not None
+    assert result["elevation_support_summary"]["partial_density_edges"] == 1
+    assert result["elevation_edge_samples"][0]["from_support_density"] == 10
