@@ -117,6 +117,68 @@ with the predictions from our candidate iso-surface. Actual character
 walkability additionally requires clearance and collision-radius testing:
 a successful ground raycast is **not** walking proof.
 
+## Generate and compare a real Lua raycast measurement
+
+Once `tile-world-probe` reports at least **two independent tunnel
+anchors**, save the complete JSON and generate a callable Lua diagnostic:
+
+```powershell
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json > .\ground_plan.json
+sm-atlas tile-ground-lua .\ground_plan.json --output .\atlas_ground_probe.lua
+```
+
+The generated `atlas_ground_probe.lua` is **not automatically loaded into
+Scrap Mechanic**. It defines `smAtlasGroundProbe(world)`; integrate the
+function into your own permitted client/server Game script and invoke it
+only after entering the correct, loaded underground world. In a client
+Game script, the documented `sm.localPlayer.getWorld()` gives actual World
+userdata. This reference call must be placed in a real callback, not in
+the terminal or a standalone Lua interpreter:
+
+```lua
+-- From your own already-loaded Game Lua callback, with the probe function
+-- previously loaded/defined in the SAME Lua script context:
+local world = sm.localPlayer.getWorld()  -- CLIENT ONLY
+if world ~= nil then
+    smAtlasGroundProbe(world)
+end
+```
+
+The function checks `world.id == 23` and aborts on mismatch, then casts
+short downward rays starting 1 metre above the predicted surface and
+ending 2 metres below it. It first filters `terrainSurface`; on a miss,
+it checks `allTerrain` to reveal possible terrain asset interceptions.
+It logs 15 records prefixed `ATLAS_GROUND,`, plus a metadata line.
+`terrainAsset` hits or empty casts **do not count as measured ground**.
+**All 15 hits may fail even with a correct world transform** if the
+cave collision mask, terrain engine, or ray intervals behave differently.
+
+Collect the 15 `ATLAS_GROUND,` lines from the actual game log, optionally
+including normal log prefixes, into `atlas_ground_hits.log`. You can
+filter an existing game log with PowerShell (replace `$gameLog` with the
+actual log file path):
+
+```powershell
+Get-Content $gameLog | Select-String "ATLAS_GROUND," |
+    ForEach-Object { $_.Line } | Set-Content .\atlas_ground_hits.log
+
+sm-atlas tile-ground-compare .\ground_plan.json .\atlas_ground_hits.log
+sm-atlas tile-ground-compare .\ground_plan.json .\atlas_ground_hits.log --json > .\ground_comparison.json
+```
+
+The comparator refuses data for a different world or an outdated plan,
+calculates terrain-height errors and a median vertical offset (which
+**must not** be silently interpreted as a constant engine offset),
+and reports observed absolute XY gradients separately on each of
+three tracks across the critical area. Missing measurements do not
+connect neighbouring samples across gaps. None of this determines
+player capsule clearance or jump/stair locomotion.
+
+Official API: https://scrapmechanic.com/api/namespace_Game_sm_physics.html
+and https://scrapmechanic.com/api/namespace_Game_sm_log.html.
+The client World accessor is documented at
+https://scrapmechanic.com/api/namespace_Game_sm_localPlayer.html.
+
 ## Safeguards
 
 - Do not modify original saves or game binaries.
