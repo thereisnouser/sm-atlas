@@ -93,6 +93,22 @@ def test_comparison_does_not_treat_assets_or_misses_as_ground() -> None:
     assert result["measured_minus_predicted"]["median_offset_m"] is None
 
 
+def test_downward_terrain_normal_is_not_accepted_as_floor() -> None:
+    plan = _plan()
+    ceiling = _record(plan, 5, 85.0).replace(
+        ",0.0,0.0,1.0,terrainSurface",
+        ",0.0,0.0,-1.0,terrainSurface",
+    )
+    result = compare_ground_observations(plan, ceiling)
+    assert result["terrain_surface_hits"] == 0
+    assert result["non_upward_terrain_surface_hits"] == 1
+    assert result["other_hits_or_misses"] == 1
+    assert result["samples"][5]["status"] == (
+        "non_upward_terrain_surface_hit"
+    )
+    assert result["track_summaries"] == []
+
+
 def test_comparison_rejects_wrong_world_duplicate_and_stale_plan() -> None:
     plan = _plan()
     line = _record(plan, 0, 82.0)
