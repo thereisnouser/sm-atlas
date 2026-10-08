@@ -342,3 +342,36 @@ def test_unsupported_density_packing_is_rejected_before_tile_read(
             density_bits=5,
             density_threshold=32,
         )
+
+
+
+def test_cli_exposes_packing_hypothesis_without_changing_legacy_default() -> None:
+    from sm_atlas.cli import build_parser
+
+    parser = build_parser()
+    defaults = parser.parse_args([
+        "tile-voxel-walk", "passage_2x3x2.tile",
+    ])
+    assert defaults.density_bits == 4
+    assert defaults.density_threshold is None
+
+    alternative = parser.parse_args([
+        "tile-voxel-walk", "passage_2x3x2.tile",
+        "--density-bits", "5",
+        "--from-socket", "cell0:node7",
+        "--to-socket", "cell0:node2",
+    ])
+    assert alternative.density_bits == 5
+    assert alternative.density_threshold is None
+
+    space = parser.parse_args([
+        "tile-voxel-space", "passage_2x3x2.tile",
+        "--density-bits", "5",
+    ])
+    assert space.density_bits == 5
+
+    objects = parser.parse_args([
+        "tile-object-probe", "passage_2x3x2.tile",
+        "--density-bits", "5",
+    ])
+    assert objects.density_bits == 5
