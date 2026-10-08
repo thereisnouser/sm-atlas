@@ -1,6 +1,7 @@
 """Experimental 3D candidate-void connectivity for Scrap Mechanic .tile voxels.
 
-Low density nibble values are candidate empty space, NOT validated walkability.
+Low packed-density values (4/5-bit hypotheses) are candidate empty space,
+NOT validated walkability. The tile byte packing is not yet confirmed.
 Collision from placed assets, prefabs, and blueprints is not incorporated.
 """
 from __future__ import annotations
