@@ -328,6 +328,112 @@ def _explain_component_gap(
     }
 
 
+def _socket_inward_profile(
+    point: tuple[float, float, float],
+    volume: bytearray,
+    dims: tuple[int, int, int],
+    *,
+    threshold: int,
+    sample_cells: int = 9,
+) -> dict[str, object]:
+    """Inspect terrain voxels from the socket centre toward the tile inside.
+
+    This is a 1D candidate-density survey, not an actual entrance collider
+    test: saved socket positions can lie within the surface boundary band.
+    """
+    sx, sy, sz = dims
+    x, y, z = point
+    boundaries = (
+        (x, "x-", (1, 0)),
+        (sx - x, "x+", (-1, 0)),
+        (y, "y-", (0, 1)),
+        (sy - y, "y+", (0, -1)),
+    )
+    _, face, direction = min(boundaries, key=lambda part: part[0])
+    bx, by, bz = floor(x), floor(y), floor(z)
+    samples: list[dict[str, object]] = []
+    first_open = None
+    reblocked = False
+
+    for step in range(sample_cells):
+        xx = bx + direction[0] * step
+        yy = by + direction[1] * step
+        if not (0 <= xx < sx and 0 <= yy < sy and 0 <= bz < sz):
+            break
+        value = int(volume[(xx * sy + yy) * sz + bz])
+        candidate_open = value != 255 and (value & 0x0F) < threshold
+        samples.append({
+            "inward_cells": step,
+            "voxel": (xx, yy, bz),
+            "raw": value,
+            "density": value & 0x0F if value != 255 else None,
+            "candidate_open": candidate_open,
+        })
+        if candidate_open and first_open is None:
+            first_open = (xx, yy, bz)
+        elif not candidate_open and first_open is not None:
+            reblocked = True
+
+    return {
+        "face": face,
+        "first_open_voxel": first_open,
+        "first_open_offset_cells": next(
+            (
+                sample["inward_cells"] for sample in samples
+                if sample["candidate_open"]
+            ),
+            None,
+        ),
+        "reblocked_after_first_open": reblocked,
+        "samples": samples,
+    }
+
+
+def _straight_candidate_space(
+    start: tuple[int, int, int],
+    end: tuple[int, int, int],
+    volume: bytearray,
+    dims: tuple[int, int, int],
+    *,
+    threshold: int,
+    substep_m: float = 0.25,
+) -> dict[str, object]:
+    """Check only the centreline between candidate-open voxels.
+
+    Clear centreline does NOT mean a human-sized actor can move there.
+    """
+    sx, sy, sz = dims
+    start_center = tuple(coord + 0.5 for coord in start)
+    end_center = tuple(coord + 0.5 for coord in end)
+    length = sqrt(sum(
+        (b - a) ** 2 for a, b in zip(start_center, end_center)
+    ))
+    steps = max(1, ceil(length / substep_m))
+    for step in range(steps + 1):
+        t = step / steps
+        xyz = tuple(
+            floor(a + (b - a) * t)
+            for a, b in zip(start_center, end_center)
+        )
+        x, y, z = xyz
+        if not (0 <= x < sx and 0 <= y < sy and 0 <= z < sz):
+            return {
+                "status": "outside_tile",
+                "first_blocker": {"voxel": xyz},
+            }
+        raw = int(volume[(x * sy + y) * sz + z])
+        if raw == 255 or (raw & 0x0F) >= threshold:
+            return {
+                "status": "candidate_solid_intersection",
+                "first_blocker": {
+                    "voxel": xyz,
+                    "raw": raw,
+                    "density": raw & 0x0F if raw != 255 else None,
+                },
+            }
+    return {"status": "clear_centreline", "first_blocker": None}
+
+
 def probe_tile_voxel_walk(
     tile: str | Path,
     *,
@@ -382,11 +488,26 @@ def probe_tile_voxel_walk(
                 min_component_size=1,
             )
             name = f"cell{chunk['cell']}:node{node['index']}"
+            entrance = _socket_inward_profile(
+                pos, volume, dims, threshold=density_threshold,
+            )
+            to_major = None
+            if (
+                entrance["first_open_voxel"] is not None
+                and nearest is not None
+            ):
+                to_major = _straight_candidate_space(
+                    entrance["first_open_voxel"],
+                    nearest["foot_voxel"],
+                    volume, dims, threshold=density_threshold,
+                )
+            entrance["straight_to_major_floor"] = to_major
             sockets.append({
                 "socket": name,
                 "tile_position": tuple(round(v, 3) for v in pos),
                 "nearest_foot": nearest,
                 "nearest_any_foot": nearest_any,
+                "inward_terrain_probe": entrance,
             })
 
     major = [c for c in components if c["voxels"] >= min_component_size]
