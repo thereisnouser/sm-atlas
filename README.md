@@ -175,6 +175,27 @@ instance: `--node 322` is a layout node ID, **not a tile-local socket**.
 See [ground-truth validation protocol](docs/VOXEL_GROUND_TRUTH.md).
 **Saved transform agreement is not actual in-game terrain collision validation.**
 
+### Optional in-game surface measurement
+
+With a `tile-world-probe` JSON plan whose socket alignment is supported by
+at least two independent saved tunnels, Atlas can generate a *callable but
+not installed* Scrap Mechanic Lua function, and compare game log observations:
+
+```powershell
+sm-atlas tile-world-probe $save $tile --world 23 --node 322 --edge "4,35,19" "3,35,20" --json > ground_plan.json
+sm-atlas tile-ground-lua ground_plan.json --output atlas_ground_probe.lua
+# Integrate the generated function into your OWN game script, with a real
+# World userdata. Capture ATLAS_GROUND lines from the running game's log.
+sm-atlas tile-ground-compare ground_plan.json atlas_ground_hits.log
+```
+
+No mod is installed and no game code is edited by these commands.
+The comparison detects missed rays and terrain assets separately, records
+actual hit heights and surface normals, and estimates observed gradients.
+**No game-physics measurements have yet been taken for this tile.**
+See [ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md) for callback
+integration and interpreting the results.
+
 For validating these candidate surfaces against the actual in-game physics
 terrain, see [Voxel ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md).
 The protocol uses the official game raycast API and explicitly requires a
