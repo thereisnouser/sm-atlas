@@ -43,6 +43,8 @@ sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --
 
 The `tile-voxel-space` command identifies connected *candidate empty space* using the low four voxel bits as a density hypothesis. The `tile-voxel-walk` command adds candidate standing cells (solid support below, two clear cells above by default), and graph edges along cardinal directions with an optional elevation change of up to one voxel. Elevation-change edges additionally require headroom on the lower side for the rise, in both travel directions. Output reports the number of flat, uphill, and downhill edges and separately shows the unverified distance from each socket to its closest candidate floor.
 
+The walker also includes an **experimental inward socket terrain profile**: the raw voxel values sampled horizontally from each socket toward the tile interior, the first candidate-open cell, and a straight-line test from that cell to the chosen large-component floor. The centreline test does not include character radius/height or alternative routes. A blocked centreline indicates an obstruction in the density-based model, not a verified game collision. These fields are visible in text output and `--json`.
+
 When a requested route ends in different candidate floor components, the walker now reports rejected neighbouring edges: elevation changes greater than `--max-step` or blocked lower-side headroom. Sockets also show a warning if the closest standing cell belongs to a different/smaller component than the closest eligible large floor. This makes it possible to investigate a disconnected socket without assuming it is a genuinely blocked doorway.
 
 For example, investigate the passage's secondary floor network:
