@@ -308,6 +308,111 @@ def _candidate_air_bridge(
     }
 
 
+def _interpolated_surface_profile(
+    foot_voxels: list[tuple[int, int, int]],
+    volume: bytearray,
+    dims: tuple[int, int, int],
+    *,
+    density_threshold: int,
+    density_bits: int,
+) -> dict[str, object]:
+    """Estimate the floor's sub-voxel height along a selected candidate path.
+
+    Vertically interpolate a density iso-crossing between support voxel z-1
+    and standing voxel z. The result is *not* the game's collision mesh,
+    slope permission, or proof of walking; grid origins also remain unknown.
+    """
+    sx, sy, sz = dims
+    mask = (1 << density_bits) - 1
+    heights: list[float] = []
+    samples: list[dict[str, object]] = []
+
+    for step, (x, y, z) in enumerate(foot_voxels):
+        if not (0 <= x < sx and 0 <= y < sy and 1 <= z < sz):
+            return {
+                "status": "invalid_foot_voxel",
+                "step_index": step,
+                "voxel": (x, y, z),
+            }
+        base = (x * sy + y) * sz
+        below, above = int(volume[base + z - 1]), int(volume[base + z])
+        d0, d1 = below & mask, above & mask
+        if (
+            below == 255 or above == 255
+            or d0 < density_threshold or d1 >= density_threshold
+            or d0 <= d1
+        ):
+            return {
+                "status": "no_supported_vertical_density_crossing",
+                "step_index": step,
+                "voxel": (x, y, z),
+            }
+        # Height is in voxel-sample coordinates. A constant origin shift
+        # would not change slopes or segment-to-segment differences.
+        height = (z - 1) + (
+            (d0 - density_threshold) / (d0 - d1)
+        )
+        heights.append(height)
+        samples.append({
+            "step_index": step,
+            "foot_voxel": (x, y, z),
+            "support_density": d0,
+            "air_density": d1,
+            "surface_height_grid": round(height, 4),
+        })
+
+    segments = []
+    length = 0.0
+    for i, (a, b) in enumerate(zip(foot_voxels, foot_voxels[1:])):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        horizontal = hypot(dx, dy)
+        rise = heights[i + 1] - heights[i]
+        if horizontal == 0:
+            return {"status": "nonhorizontal_path_edge", "step_index": i}
+        segment_length = hypot(horizontal, rise)
+        length += segment_length
+        segments.append({
+            "step_index": i,
+            "from_foot": a,
+            "to_foot": b,
+            "height_change_m": round(rise, 4),
+            "absolute_gradient": round(abs(rise) / horizontal, 4),
+            "length_m": round(segment_length, 4),
+        })
+
+    absolute_differences = [
+        abs(heights[i + 1] - heights[i]) / hypot(
+            foot_voxels[i + 1][0] - foot_voxels[i][0],
+            foot_voxels[i + 1][1] - foot_voxels[i][1],
+        )
+        for i in range(len(foot_voxels) - 1)
+    ]
+    return {
+        "status": "experimental_vertical_iso_interpolation",
+        "density_bits": density_bits,
+        "density_threshold": density_threshold,
+        "estimated_length_m": round(length, 3),
+        "max_absolute_gradient": round(max(absolute_differences, default=0), 3),
+        "mean_absolute_gradient": round(
+            sum(absolute_differences) / len(absolute_differences)
+            if absolute_differences else 0.0, 3,
+        ),
+        "segments_with_gradient_gt_1": sum(
+            gradient > 1 for gradient in absolute_differences
+        ),
+        "segments_with_gradient_gt_0_5": sum(
+            gradient > 0.5 for gradient in absolute_differences
+        ),
+        "sample_count": len(samples),
+        "height_samples": samples,
+        "segment_samples": segments,
+        "interpretation": (
+            "linear_density_iso_crossing_only; not verified game mesh "
+            "or player walkability"
+        ),
+    }
+
+
 def _shortest_walk(
     start: tuple[int, int, int],
     end: tuple[int, int, int],
@@ -393,7 +498,15 @@ def _shortest_walk(
                     or (b_raw & density_mask) < density_mask
                 ),
             })
+    surface_profile = (
+        _interpolated_surface_profile(
+            points, volume, dims,
+            density_threshold=density_threshold, density_bits=density_bits,
+        )
+        if volume is not None else None
+    )
     return {
+        "interpolated_surface": surface_profile,
         "elevation_support_summary": {
             "edges_sampled": len(elevation_edges),
             "partial_density_edges": sum(
