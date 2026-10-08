@@ -35,6 +35,7 @@ from .tile_file import (
     probe_tile_voxels,
 )
 from .tile_voxel_space import probe_tile_voxel_space
+from .tile_objects import probe_tile_objects
 from .tile_voxel_walk import probe_tile_voxel_walk
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
@@ -177,6 +178,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print machine-readable JSON.",
     )
 
+    tile_object_parser = subparsers.add_parser(
+        "tile-object-probe",
+        help="Inspect placement transforms and UUIDs in tile object chunks.",
+    )
+    tile_object_parser.add_argument("tile", type=Path)
+    tile_object_parser.add_argument(
+        "--examples", type=int, default=12,
+        help="Number of object placements to print.",
+    )
+    tile_object_parser.add_argument(
+        "--json", action="store_true",
+        help="Print full placement inventory as JSON.",
+    )
+
     tile_voxel_walk_parser = subparsers.add_parser(
         "tile-voxel-walk",
         help="Experimental floor/headroom candidate routes inside a tile.",
@@ -212,6 +227,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print full route and results as machine-readable JSON.",
+    )
+    tile_voxel_walk_parser.add_argument(
+        "--elevation-details",
+        action="store_true",
+        help="Show position and support-density data for every rise/drop.",
     )
 
     tile_chunk_probe_parser = subparsers.add_parser(
@@ -1408,6 +1428,50 @@ def run_tile_voxel_space(
     return 0
 
 
+def run_tile_object_probe(
+    tile: Path, examples: int, as_json: bool,
+) -> int:
+    try:
+        result = probe_tile_objects(tile, examples=examples)
+    except (
+        FileNotFoundError,
+        InvalidTileFile,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Tile: {result['path']}")
+    print(
+        f"Placement inventory: total={result['total_placements']} "
+        f"by_kind={result['by_kind']}"
+    )
+    print("Object UUID groups (identity only, no collision model):")
+    for group in result["groups"]:
+        print(
+            f"  kind={group['kind']} "
+            f"uuid={group['uuid_hex']} count={group['count']}"
+        )
+    for item in result["examples"]:
+        print(
+            f"  {item['kind']} cell={item['cell']} "
+            f"index={item['index']} "
+            f"pos={item['tile_position']} "
+            f"scale={item['scale']} "
+            f"uuid={item['uuid_hex']}"
+        )
+    print(
+        "WARNING: record transforms/UUIDs do not identify mesh, "
+        "solid collision or ramps."
+    )
+    return 0
+
+
 def run_tile_voxel_walk(
     tile: Path,
     from_socket: str | None,
@@ -1416,6 +1480,7 @@ def run_tile_voxel_walk(
     headroom: int,
     max_step: int,
     as_json: bool,
+    elevation_details: bool = False,
 ) -> int:
     try:
         result = probe_tile_voxel_walk(
@@ -1556,6 +1621,25 @@ def run_tile_voxel_walk(
                     f"end={attachment['target_offset_m']}m "
                     f"connection_validated={attachment['validated_connection']}"
                 )
+            summary = item.get("elevation_support_summary")
+            if summary is not None:
+                print(
+                    f"  elevation support density: "
+                    f"partial={summary['partial_density_edges']} "
+                    f"full={summary['both_full_density_edges']} "
+                    f"sampled={summary['edges_sampled']}"
+                )
+            if elevation_details:
+                for edge in item.get("elevation_edge_samples", []):
+                    print(
+                        f"    step={edge['step_index']} "
+                        f"{edge['from_foot']} -> {edge['to_foot']} "
+                        f"dz={edge['delta_z_m']} "
+                        f"support_density="
+                        f"{edge['from_support_density']}/"
+                        f"{edge['to_support_density']} "
+                        f"partial={edge['has_partial_support_density']}"
+                    )
             print(
                 "  Full foot-voxel path: use --json "
                 "to retrieve every waypoint."
@@ -3917,6 +4001,15 @@ def main() -> None:
             )
         )
 
+    if args.command == "tile-object-probe":
+        raise SystemExit(
+            run_tile_object_probe(
+                args.tile,
+                args.examples,
+                args.json,
+            )
+        )
+
     if args.command == "tile-voxel-walk":
         raise SystemExit(
             run_tile_voxel_walk(
@@ -3927,6 +4020,7 @@ def main() -> None:
                 args.headroom,
                 args.max_step,
                 args.json,
+                args.elevation_details,
             )
         )
 
