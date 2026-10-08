@@ -249,6 +249,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum distance from socket to selected major floor (m).",
     )
     tile_voxel_walk_parser.add_argument(
+        "--max-surface-gradient",
+        type=float,
+        default=None,
+        help="EXPERIMENTAL: separately check candidate path with a maximum "
+             "density-isosurface height change per horizontal metre.",
+    )
+    tile_voxel_walk_parser.add_argument(
         "--max-step",
         type=int,
         default=1,
@@ -1566,6 +1573,7 @@ def run_tile_voxel_walk(
     elevation_details: bool = False,
     density_bits: int = 4,
     socket_radius: float = 5.0,
+    max_surface_gradient: float | None = None,
 ) -> int:
     try:
         result = probe_tile_voxel_walk(
@@ -1577,6 +1585,7 @@ def run_tile_voxel_walk(
             headroom=headroom,
             max_step=max_step,
             socket_radius=socket_radius,
+            max_surface_gradient=max_surface_gradient,
         )
     except (
         FileNotFoundError,
@@ -1698,6 +1707,44 @@ def run_tile_voxel_walk(
                     f"rises={bridge['rises']} drops={bridge['drops']} "
                     f"z_range={bridge['min_z']}..{bridge['max_z']} "
                     f"(AIR ONLY; NOT A WALKABLE CONNECTION)"
+                )
+        grade_probe = route.get("surface_gradient_probe")
+        if grade_probe is not None:
+            print(
+                f"  experimental surface gradient probe: "
+                f"limit={grade_probe['limit']} "
+                f"status={grade_probe['status']}"
+            )
+            bottleneck = grade_probe.get("minimum_bottleneck")
+            if bottleneck is not None:
+                print(
+                    f"    minimum bottleneck: status={bottleneck['status']} "
+                    f"required_gradient="
+                    f"{bottleneck.get('minimum_required_gradient', 'n/a')}"
+                )
+                for edge in bottleneck.get("critical_edges", [])[:5]:
+                    print(
+                        f"    critical {edge['from_foot']} -> "
+                        f"{edge['to_foot']} "
+                        f"gradient={edge['absolute_gradient']}"
+                    )
+            alternative = grade_probe.get("alternative_path")
+            if alternative is not None:
+                print(
+                    f"    constrained candidate route: "
+                    f"grid_length={alternative['length_m']}m "
+                    f"grid_steps={alternative['grid_steps']}"
+                )
+                surface = alternative.get("interpolated_surface")
+                if surface is not None and surface.get("estimated_length_m") is not None:
+                    print(
+                        f"    constrained density-surface length="
+                        f"{surface['estimated_length_m']}m"
+                    )
+            else:
+                print(
+                    "    No alternative candidate floor route satisfies "
+                    "the selected experimental limit."
                 )
         gap = route.get("gap_diagnostics")
         if gap is not None:
@@ -4176,6 +4223,7 @@ def main() -> None:
                 args.elevation_details,
                 args.density_bits,
                 args.socket_radius,
+                args.max_surface_gradient,
             )
         )
 
