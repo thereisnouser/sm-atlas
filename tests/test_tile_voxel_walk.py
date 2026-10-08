@@ -9,6 +9,7 @@ from sm_atlas.tile_voxel_walk import (
     _explain_component_gap,
     _socket_inward_profile,
     _nearest_candidate_air,
+    _candidate_air_bridge,
     _nearest_foot,
     _straight_candidate_space,
     _label_walk_components,
@@ -438,3 +439,66 @@ def test_nearest_major_floor_is_not_attached_outside_socket_radius() -> None:
     assert extended["component"] == 9
     assert extended["foot_voxel"] == (6, 1, 1)
     assert extended["distance_m"] > 5
+
+
+
+def test_candidate_air_bridge_can_go_around_wall_without_walkable_floor() -> None:
+    dims = (3, 3, 2)
+    volume = bytearray([31] * (3 * 3 * 2))
+    for x, y, z in (
+        (0, 0, 0), (0, 1, 0), (1, 1, 0), (2, 1, 0), (2, 0, 0),
+    ):
+        volume[(x * 3 + y) * 2 + z] = 0
+    footprint = bytearray(len(volume))
+    footprint[0] = 1
+    footprint[(2 * 3) * 2] = 1
+    bridge = _candidate_air_bridge(
+        (0, 0, 0), (2, 0, 0), volume, footprint, dims,
+        density_threshold=16, density_bits=5,
+    )
+    assert bridge["status"] == "candidate_air_path_found"
+    assert bridge["steps"] == 4
+    assert bridge["positions_with_candidate_foot"] == 2
+    assert bridge["positions_without_candidate_foot"] == 3
+    assert bridge["rises"] == bridge["drops"] == 0
+    assert bridge["air_path_voxels"][2] == (1, 1, 0)
+    assert bridge["interpretation"] == "air_only_not_verified_walkability"
+
+
+def test_candidate_air_bridge_reports_disconnected_pockets() -> None:
+    bridge = _candidate_air_bridge(
+        (0, 0, 0), (2, 0, 0),
+        bytearray((0, 31, 0)), bytearray(3),
+        (3, 1, 1), density_threshold=16, density_bits=5,
+    )
+    assert bridge["status"] == "no_candidate_air_connection"
+
+
+def test_candidate_air_bridge_distinguishes_density_hypotheses() -> None:
+    volume = bytearray((0, 111, 0))
+    footsteps = bytearray(3)
+    legacy = _candidate_air_bridge(
+        (0, 0, 0), (2, 0, 0), volume, footsteps,
+        (3, 1, 1), density_threshold=8, density_bits=4,
+    )
+    alternate = _candidate_air_bridge(
+        (0, 0, 0), (2, 0, 0), volume, footsteps,
+        (3, 1, 1), density_threshold=16, density_bits=5,
+    )
+    assert legacy["status"] == "no_candidate_air_connection"
+    assert alternate["status"] == "candidate_air_path_found"
+    assert alternate["steps"] == 2
+
+
+def test_candidate_air_bridge_does_not_treat_unsupported_as_walkable() -> None:
+    volume = bytearray((0, 0, 0, 0))
+    footprint = bytearray((1, 0, 0, 1))
+    bridge = _candidate_air_bridge(
+        (0, 0, 0), (0, 0, 3), volume, footprint,
+        (1, 1, 4), density_threshold=16, density_bits=5,
+    )
+    assert bridge["status"] == "candidate_air_path_found"
+    assert bridge["steps"] == 3
+    assert bridge["positions_without_candidate_foot"] == 2
+    assert bridge["rises"] == 3
+    assert bridge["drops"] == 0
