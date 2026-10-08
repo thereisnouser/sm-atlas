@@ -102,6 +102,11 @@ def test_uphill_transition_requires_clearance_above_lower_head() -> None:
         (0, 0, 1), (1, 0, 2), footprint, dims,
         max_step=1, volume=volume, headroom=2,
     ) is None
+    # The reverse edge is also rejected; floor components are undirected.
+    assert _shortest_walk(
+        (1, 0, 2), (0, 0, 1), footprint, dims,
+        max_step=1, volume=volume, headroom=2,
+    ) is None
 
     # Removing the ceiling obstacle makes the transition a valid candidate.
     volume[3] = 0
