@@ -44,6 +44,7 @@ from .tile_world import probe_tile_world
 from .ground_truth import render_ground_probe_lua, compare_ground_observations
 from .ground_hook import survival_hook_operation, load_portal_entrance
 from .ground_density import inspect_ground_density
+from .ground_hypotheses import compare_trilinear_hypotheses
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -248,6 +249,15 @@ def build_parser() -> argparse.ArgumentParser:
     ground_profile_parser.add_argument("tile", type=Path)
     ground_profile_parser.add_argument("--z-margin", type=int, default=3)
     ground_profile_parser.add_argument("--json", action="store_true")
+
+    ground_hypotheses_parser = subparsers.add_parser(
+        "tile-ground-hypotheses",
+        help="Read-only comparison of 4/5-bit trilinear surface hypotheses.",
+    )
+    ground_hypotheses_parser.add_argument("plan", type=Path)
+    ground_hypotheses_parser.add_argument("log", type=Path)
+    ground_hypotheses_parser.add_argument("tile", type=Path)
+    ground_hypotheses_parser.add_argument("--json", action="store_true")
 
     tile_voxel_space_parser = subparsers.add_parser(
         "tile-voxel-space",
@@ -1760,6 +1770,38 @@ def run_tile_ground_profile(
                 f"    z={item['z']:>2} raw=0x{item['raw_hex']} "
                 f"low4={item['low4']} low5={item['low5']}"
             )
+    print("WARNING: " + result["warning"])
+    return 0
+
+
+def run_tile_ground_hypotheses(
+    plan: Path, log: Path, tile: Path, as_json: bool,
+) -> int:
+    try:
+        result = compare_trilinear_hypotheses(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            log.read_text(encoding="utf-8-sig"), tile,
+        )
+    except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
+        print(f"error: {exc}")
+        return 1
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(
+        f"Ground hypotheses world={result['world_id']} "
+        f"measured_hits={result['hits_from_game']} "
+        f"fixed_models={result['models_evaluated']}"
+    )
+    for model in result["models"]:
+        print(
+            f"  bits={model['bits']} origin={model['lattice_origin_shift_xyz']} "
+            f"single={model['single_candidates']} "
+            f"missing={model['no_candidates']} "
+            f"ambiguous={model['ambiguous_samples']} "
+            f"rmse={model['rmse_m']}m "
+            f"rmse_after_bias={model['rmse_after_median_offset_m']}m"
+        )
     print("WARNING: " + result["warning"])
     return 0
 
@@ -4563,6 +4605,13 @@ def main() -> None:
         raise SystemExit(
             run_tile_ground_profile(
                 args.plan, args.log, args.tile, args.z_margin, args.json,
+            )
+        )
+
+    if args.command == "tile-ground-hypotheses":
+        raise SystemExit(
+            run_tile_ground_hypotheses(
+                args.plan, args.log, args.tile, args.json,
             )
         )
 
