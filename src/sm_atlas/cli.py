@@ -1469,6 +1469,31 @@ def run_tile_voxel_walk(
             )
         )
         print(f"  {socket['socket']} -> {detail}")
+        entry = socket["inward_terrain_probe"]
+        straight = entry["straight_to_major_floor"]
+        ray_status = (
+            "unavailable" if straight is None else straight["status"]
+        )
+        sample_values = [
+            sample["raw"] for sample in entry["samples"]
+        ]
+        print(
+            f"    inward terrain: face={entry['face']} "
+            f"first_candidate_open={entry['first_open_voxel']} "
+            f"offset_cells={entry['first_open_offset_cells']} "
+            f"reblocked={entry['reblocked_after_first_open']} "
+            f"raw={sample_values}"
+        )
+        if straight is not None:
+            print(
+                f"    candidate centreline to selected floor: "
+                f"{ray_status}"
+                + (
+                    f" blocker={straight['first_blocker']}"
+                    if straight["first_blocker"] is not None
+                    else ""
+                )
+            )
         closest = socket["nearest_any_foot"]
         if closest is not None and (
             near is None
@@ -1536,9 +1561,10 @@ def run_tile_voxel_walk(
                 "to retrieve every waypoint."
             )
     print(
-        "WARNING: not verified walkability; a 1m rise is not "
-        "evidence of a traversable ramp/stair. Assets/physics "
-        "and socket-to-floor connections remain unresolved."
+        "WARNING: entrance centreline is not player clearance or "
+        "proof of socket-to-floor attachment. A 1m rise is not "
+        "evidence of a traversable ramp/stair; assets and physics "
+        "are not modelled."
     )
     return 0
 
