@@ -205,6 +205,109 @@ def _nearest_candidate_air(
     }
 
 
+def _candidate_air_bridge(
+    start: tuple[int, int, int],
+    end: tuple[int, int, int],
+    volume: bytearray,
+    footprint: bytearray,
+    dims: tuple[int, int, int],
+    *,
+    density_threshold: int,
+    density_bits: int,
+    max_explored: int = 250_000,
+) -> dict[str, object]:
+    """Shortest 6-neighbour *air* path, not a walkable entrance link."""
+    sx, sy, sz = dims
+    mask = (1 << density_bits) - 1
+
+    def packed(point: tuple[int, int, int]) -> int:
+        return (point[0] * sy + point[1]) * sz + point[2]
+
+    def decode(index: int) -> tuple[int, int, int]:
+        return index // (sy * sz), (index // sz) % sy, index % sz
+
+    if not all(
+        0 <= coordinate < size
+        for point in (start, end)
+        for coordinate, size in zip(point, dims)
+    ):
+        return {"status": "outside_tile"}
+
+    origin, goal = packed(start), packed(end)
+    for index, name in ((origin, "start"), (goal, "target")):
+        raw = volume[index]
+        if raw == 255 or (raw & mask) >= density_threshold:
+            return {"status": f"{name}_not_candidate_free"}
+
+    parents = array("i", [-1]) * len(volume)
+    parents[origin] = origin
+    queue = deque((origin,))
+    explored = 0
+
+    while queue:
+        if explored >= max_explored:
+            return {"status": "search_limit", "explored": explored}
+        current = queue.popleft()
+        explored += 1
+        if current == goal:
+            break
+
+        x, y, z = decode(current)
+        neighbours = []
+        if x > 0:
+            neighbours.append(current - sy * sz)
+        if x + 1 < sx:
+            neighbours.append(current + sy * sz)
+        if y > 0:
+            neighbours.append(current - sz)
+        if y + 1 < sy:
+            neighbours.append(current + sz)
+        if z > 0:
+            neighbours.append(current - 1)
+        if z + 1 < sz:
+            neighbours.append(current + 1)
+
+        for neighbour in neighbours:
+            raw = volume[neighbour]
+            if (
+                parents[neighbour] < 0
+                and raw != 255
+                and (raw & mask) < density_threshold
+            ):
+                parents[neighbour] = current
+                queue.append(neighbour)
+
+    if parents[goal] < 0:
+        return {
+            "status": "no_candidate_air_connection",
+            "explored": explored,
+        }
+
+    indices = [goal]
+    while indices[-1] != origin:
+        indices.append(parents[indices[-1]])
+    indices.reverse()
+    waypoints = [decode(index) for index in indices]
+    with_foot = sum(bool(footprint[index]) for index in indices)
+    return {
+        "status": "candidate_air_path_found",
+        "steps": len(indices) - 1,
+        "positions_with_candidate_foot": with_foot,
+        "positions_without_candidate_foot": len(indices) - with_foot,
+        "rises": sum(
+            b[2] > a[2] for a, b in zip(waypoints, waypoints[1:])
+        ),
+        "drops": sum(
+            b[2] < a[2] for a, b in zip(waypoints, waypoints[1:])
+        ),
+        "min_z": min(point[2] for point in waypoints),
+        "max_z": max(point[2] for point in waypoints),
+        "air_path_voxels": waypoints,
+        "explored": explored,
+        "interpretation": "air_only_not_verified_walkability",
+    }
+
+
 def _shortest_walk(
     start: tuple[int, int, int],
     end: tuple[int, int, int],
@@ -669,7 +772,32 @@ def probe_tile_voxel_walk(
             "to_socket": to_socket,
             "status": "not_connected",
             "path": None,
+            "candidate_air_attachments": {},
         }
+        # A free-space path from a nearby voxel to the chosen floor is
+        # useful for diagnosis, but never validates socket accessibility,
+        # character clearance or player locomotion.
+        for role, socket_name in (
+            ("source", from_socket),
+            ("target", to_socket),
+        ):
+            socket_data = lookup[socket_name]
+            candidate_air = socket_data["nearest_candidate_air"]
+            candidate_floor = socket_data["nearest_foot"]
+            if candidate_air is None or candidate_floor is None:
+                path_result["candidate_air_attachments"][role] = {
+                    "status": "missing_air_or_major_floor",
+                }
+                continue
+            path_result["candidate_air_attachments"][role] = (
+                _candidate_air_bridge(
+                    candidate_air["voxel"],
+                    candidate_floor["foot_voxel"],
+                    volume, footprint, dims,
+                    density_threshold=density_threshold,
+                    density_bits=density_bits,
+                )
+            )
         if source is None or target is None:
             path_result["status"] = "socket_not_attached_to_major_floor"
         elif source["component"] != target["component"]:
