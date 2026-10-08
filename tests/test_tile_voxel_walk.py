@@ -11,6 +11,7 @@ from sm_atlas.tile_voxel_walk import (
     _nearest_candidate_air,
     _candidate_air_bridge,
     _interpolated_surface_profile,
+    _minimum_required_surface_gradient,
     _nearest_foot,
     _straight_candidate_space,
     _label_walk_components,
@@ -554,3 +555,112 @@ def test_legacy_interpolated_surface_uses_4_bit_mask() -> None:
     assert result["height_samples"][0]["surface_height_grid"] == (
         pytest.approx(7 / 15, abs=0.0001)
     )
+
+
+
+def test_experimental_gradient_cap_rejects_steep_density_edge() -> None:
+    dims = (2, 1, 3)
+    volume = bytearray((31, 0, 0, 16, 0, 0))
+    footprint = _candidate_foot_positions(
+        volume, dims, threshold=16, headroom=2, density_bits=5,
+    )
+    start, end = (0, 0, 1), (1, 0, 1)
+
+    legacy = _shortest_walk(
+        start, end, footprint, dims,
+        max_step=0, volume=volume,
+        density_threshold=16, density_bits=5,
+    )
+    assert legacy is not None
+    assert legacy["grid_steps"] == 1
+
+    strict = _shortest_walk(
+        start, end, footprint, dims,
+        max_step=0, volume=volume,
+        density_threshold=16, density_bits=5,
+        max_surface_gradient=0.4,
+    )
+    assert strict is None
+    allowed = _shortest_walk(
+        start, end, footprint, dims,
+        max_step=0, volume=volume,
+        density_threshold=16, density_bits=5,
+        max_surface_gradient=0.5,
+    )
+    assert allowed is not None
+
+    min_grade = _minimum_required_surface_gradient(
+        start, end, footprint, volume, dims,
+        max_step=0, density_threshold=16,
+        density_bits=5, headroom=2,
+    )
+    assert min_grade["status"] == "minimum_bottleneck_found"
+    assert min_grade["minimum_required_gradient"] == pytest.approx(
+        15 / 31, abs=0.000001,
+    )
+    assert len(min_grade["critical_edges"]) == 1
+
+
+def test_grade_limit_finds_alternative_flat_route() -> None:
+    dims = (3, 2, 3)
+    # All cells support a level surface except (x=1,y=0), which is lower.
+    volume = bytearray([0] * (3 * 2 * 3))
+    for x in range(3):
+        for y in range(2):
+            volume[(x * 2 + y) * 3] = 16 if (x, y) == (1, 0) else 31
+    footprint = _candidate_foot_positions(
+        volume, dims, threshold=16, headroom=2, density_bits=5,
+    )
+    start, end = (0, 0, 1), (2, 0, 1)
+    direct = _shortest_walk(
+        start, end, footprint, dims,
+        max_step=0, volume=volume,
+        density_threshold=16, density_bits=5,
+    )
+    assert direct is not None
+    assert direct["grid_steps"] == 2
+
+    detour = _shortest_walk(
+        start, end, footprint, dims,
+        max_step=0, volume=volume,
+        density_threshold=16, density_bits=5,
+        max_surface_gradient=0.2,
+    )
+    assert detour is not None
+    assert detour["grid_steps"] == 4
+    assert (1, 0, 1) not in detour["foot_voxels"]
+
+    minimax = _minimum_required_surface_gradient(
+        start, end, footprint, volume, dims,
+        max_step=0, density_threshold=16,
+        density_bits=5, headroom=2,
+    )
+    assert minimax["minimum_required_gradient"] == 0
+    assert minimax["alternative_grid_steps"] == 4
+
+
+def test_invalid_experimental_gradient_limit_rejected(tmp_path) -> None:
+    for value in (0, -1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="max_surface_gradient"):
+            probe_tile_voxel_walk(
+                tmp_path / "missing_1x1x1.tile",
+                max_surface_gradient=value,
+            )
+
+
+def test_cli_parses_surface_gradient_probe_without_changing_defaults() -> None:
+    from sm_atlas.cli import build_parser
+
+    parser = build_parser()
+    defaults = parser.parse_args([
+        "tile-voxel-walk", "passage_2x3x2.tile",
+    ])
+    assert defaults.max_surface_gradient is None
+
+    args = parser.parse_args([
+        "tile-voxel-walk", "passage_2x3x2.tile",
+        "--density-bits", "5",
+        "--max-surface-gradient", "1.0",
+    ])
+    assert args.max_surface_gradient == 1.0
+    assert args.density_bits == 5
