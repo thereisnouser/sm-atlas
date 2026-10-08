@@ -78,6 +78,15 @@ tile's byte encoding. Do not apply different 4/5-bit route results as
 ground truth. The separate modded runtime voxel format described at
 scrapmechanictools.com is not evidence that an old tile uses the same packing.
 
+To investigate an entrance with no large floor inside the default 5 m
+socket radius, use `--socket-radius 6` (or another measured distance).
+The CLI now independently reports (a) the closest low-density voxel within
+2.5 m in *any direction* and (b) a candidate major floor inside a separate
+10 m diagnostic search if it was missed by the requested socket radius.
+These are proximity findings, **never confirmation of a traversable
+entrance-to-floor connection**. The inward ray is only one sample line; it can
+miss nearby open cells to the side.
+
 For a controlled comparison:
 
 ```bash
@@ -85,6 +94,7 @@ sm-atlas tile-voxel-space path/to/passage_2x3x2.tile --density-bits 4
 sm-atlas tile-voxel-space path/to/passage_2x3x2.tile --density-bits 5
 sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node6 --density-bits 4
 sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node6 --density-bits 5
+sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node4 --to-socket cell0:node6 --density-bits 5 --socket-radius 6
 sm-atlas tile-object-probe path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node6 --density-bits 5 --examples 0
 ```
  The `tile-voxel-walk` command adds candidate standing cells (solid support below, two clear cells above by default), and graph edges along cardinal directions with an optional elevation change of up to one voxel. Elevation-change edges additionally require headroom on the lower side for the rise, in both travel directions. Output reports the number of flat, uphill, and downhill edges and separately shows the unverified distance from each socket to its closest candidate floor.
