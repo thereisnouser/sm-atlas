@@ -42,6 +42,7 @@ from .tile_objects import (
 from .tile_voxel_walk import probe_tile_voxel_walk
 from .tile_world import probe_tile_world
 from .ground_truth import render_ground_probe_lua, compare_ground_observations
+from .ground_hook import survival_hook_operation
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -200,6 +201,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ground_lua_parser.add_argument("plan", type=Path)
     ground_lua_parser.add_argument("--output", type=Path, required=True)
+
+    ground_hook_parser = subparsers.add_parser(
+        "tile-ground-survival",
+        help="Preview or explicitly install/remove one-shot Survival Lua hook.",
+    )
+    ground_hook_parser.add_argument("plan", type=Path)
+    ground_hook_parser.add_argument("game_script", type=Path)
+    ground_hook_parser.add_argument(
+        "--lua", type=Path, required=True,
+        help="Exact atlas_ground_probe.lua generated from this plan.",
+    )
+    ground_action = ground_hook_parser.add_mutually_exclusive_group()
+    ground_action.add_argument(
+        "--install", action="store_true",
+        help="Back up and patch the local SurvivalGame.lua (close game first).",
+    )
+    ground_action.add_argument(
+        "--remove", action="store_true",
+        help="Back up and remove only the marked SM Atlas block.",
+    )
 
     ground_compare_parser = subparsers.add_parser(
         "tile-ground-compare",
@@ -1604,6 +1625,46 @@ def run_tile_object_probe(
         "WARNING: record transforms/UUIDs do not identify mesh, "
         "solid collision or ramps."
     )
+    return 0
+
+
+def run_tile_ground_survival(
+    plan: Path,
+    lua_file: Path,
+    game_script: Path,
+    install: bool,
+    remove: bool,
+) -> int:
+    try:
+        result = survival_hook_operation(
+            game_script,
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            lua_text=lua_file.read_text(encoding="utf-8-sig"),
+            action="install" if install else ("remove" if remove else "preview"),
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}")
+        return 1
+    print(
+        f"Survival Lua hook: action={result['action']} "
+        f"installed={result['already_installed']} "
+        f"changed={result['will_modify']}"
+    )
+    print(f"Target: {result['target']}")
+    if result.get("backup"):
+        print(f"Backup: {result['backup']}")
+    print(result["note"])
+    if result["action"] == "preview":
+        print(
+            "No file changed. Completely exit Scrap Mechanic first, "
+            "then run again with --install if you want this diagnostic."
+        )
+    else:
+        print(
+            "Restart Scrap Mechanic. Enter world 23 and approach within "
+            "40m of the target voxel area; the hook will probe once. "
+            "After capturing logs, run again with --remove."
+        )
     return 0
 
 
@@ -4405,6 +4466,14 @@ def main() -> None:
                 args.cell,
                 args.examples,
                 args.json,
+            )
+        )
+
+    if args.command == "tile-ground-survival":
+        raise SystemExit(
+            run_tile_ground_survival(
+                args.plan, args.lua, args.game_script,
+                args.install, args.remove,
             )
         )
 
