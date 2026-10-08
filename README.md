@@ -87,6 +87,20 @@ These are proximity findings, **never confirmation of a traversable
 entrance-to-floor connection**. The inward ray is only one sample line; it can
 miss nearby open cells to the side.
 
+If a route is requested with `--from-socket` and `--to-socket`,
+`tile-voxel-walk` additionally probes each endpoint by a bounded shortest
+**six-connected candidate-air path** from the nearest low-density voxel
+(inside 2.5 m) to the selected candidate floor. The output counts positions
+that do *not* satisfy the standing-support/headroom test. An air bridge
+does **not** establish walkability, even if the selected floor-to-floor
+route itself exists. The full air waypoints are available via `--json`.
+
+The original Drill2 passage's `cell0:node4` socket is a useful example:
+with `--density-bits 5 --socket-radius 6`, a 12-step air-only bridge can
+be reconstructed between its nearby free voxel and a major floor anchor,
+but **10 of the 13 sampled positions lack candidate standing support**.
+This explicitly leaves `node4` entrance attachment unresolved.
+
 For a controlled comparison:
 
 ```bash
