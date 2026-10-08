@@ -36,6 +36,10 @@ function SurvivalGame.client_onUpdate(self, dt)
     if atlasOldClientOnUpdate ~= nil then
         atlasOldClientOnUpdate(self, dt)
     end
+    if not self.atlasGroundHookReadyLogged then
+        self.atlasGroundHookReadyLogged = true
+        sm.log.info("ATLAS_GROUND_HOOK,ready,world={world_id},radius=40")
+    end
     if self.atlasGroundDidRun then return end
     local world = sm.localPlayer.getWorld()
     if world == nil or world.id ~= {world_id} then return end
@@ -148,11 +152,13 @@ def survival_hook_operation(
             raise ValueError("SM Atlas hook already installed")
         _check_game_script(data)
         line_end = "\r\n" if b"\r\n" in data else "\n"
-        chunk = build_survival_hook(plan).replace("\n", line_end)
         separator = (
             b"" if not data or data.endswith((b"\n", b"\r"))
             else line_end.encode("ascii")
         )
+        chunk = build_survival_hook(plan).replace(
+            BEGIN, BEGIN + f" separator={int(bool(separator))}", 1,
+        ).replace("\n", line_end)
         new_contents = data + separator + chunk.encode("utf-8")
     else:
         if beginning < 0:
@@ -169,10 +175,27 @@ def survival_hook_operation(
                 "there is content after the installed Atlas hook; "
                 "manual review required"
             )
-        new_contents = data[:beginning]
-        # Remove only the separator added during install if the original
-        # ended without a trailing newline. Otherwise preserve the end.
-        # Most game Lua files end with a newline.
+        first_line_end = data.find(b"\n", beginning)
+        marker_line = data[
+            beginning:first_line_end if first_line_end >= 0 else len(data)
+        ].decode("ascii").strip()
+        if "separator=1" in marker_line:
+            # Remove the extra CRLF/LF introduced for a script whose
+            # original final line had no trailing newline.
+            prefix_end = beginning
+            if data[:beginning].endswith(b"\r\n"):
+                prefix_end -= 2
+            elif data[:beginning].endswith(b"\n"):
+                prefix_end -= 1
+            else:
+                raise ValueError("marked separator missing; manual review")
+        elif "separator=0" in marker_line:
+            prefix_end = beginning
+        else:
+            raise ValueError(
+                "unknown SM Atlas marker version; manual review required"
+            )
+        new_contents = data[:prefix_end]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backup = target.with_name(f"{target.name}.sm-atlas-{stamp}.bak")
     shutil.copy2(target, backup)
