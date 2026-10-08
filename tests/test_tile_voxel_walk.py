@@ -9,6 +9,7 @@ from sm_atlas.tile_voxel_walk import (
     _explain_component_gap,
     _socket_inward_profile,
     _nearest_candidate_air,
+    _nearest_foot,
     _straight_candidate_space,
     _label_walk_components,
     _shortest_walk,
@@ -414,3 +415,26 @@ def test_socket_radius_can_expand_floor_anchor_search() -> None:
     ])
     assert args.socket_radius == 6.0
     assert args.density_bits == 5
+
+
+
+def test_nearest_major_floor_is_not_attached_outside_socket_radius() -> None:
+    dims = (10, 3, 3)
+    labels = array("I", [0] * (10 * 3 * 3))
+    labels[(6 * 3 + 1) * 3 + 1] = 9
+    size_by_component = {9: 100}
+    point = (1.2, 1.2, 1.2)
+
+    near = _nearest_foot(
+        point, labels, size_by_component, dims,
+        radius=5, min_component_size=50,
+    )
+    extended = _nearest_foot(
+        point, labels, size_by_component, dims,
+        radius=6, min_component_size=50,
+    )
+    assert near is None
+    assert extended is not None
+    assert extended["component"] == 9
+    assert extended["foot_voxel"] == (6, 1, 1)
+    assert extended["distance_m"] > 5
