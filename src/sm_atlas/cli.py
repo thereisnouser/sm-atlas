@@ -243,6 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Required clear vertical voxel cells above the floor.",
     )
     tile_voxel_walk_parser.add_argument(
+        "--socket-radius",
+        type=float,
+        default=5.0,
+        help="Maximum distance from socket to selected major floor (m).",
+    )
+    tile_voxel_walk_parser.add_argument(
         "--max-step",
         type=int,
         default=1,
@@ -1559,6 +1565,7 @@ def run_tile_voxel_walk(
     as_json: bool,
     elevation_details: bool = False,
     density_bits: int = 4,
+    socket_radius: float = 5.0,
 ) -> int:
     try:
         result = probe_tile_voxel_walk(
@@ -1569,6 +1576,7 @@ def run_tile_voxel_walk(
             density_bits=density_bits,
             headroom=headroom,
             max_step=max_step,
+            socket_radius=socket_radius,
         )
     except (
         FileNotFoundError,
@@ -1614,6 +1622,23 @@ def run_tile_voxel_walk(
             )
         )
         print(f"  {socket['socket']} -> {detail}")
+        air = socket["nearest_candidate_air"]
+        if air is not None:
+            print(
+                f"    nearest candidate-free voxel={air['voxel']} "
+                f"offset={air['offset_m']}m raw={air['raw']} "
+                f"(not validated as walkable)"
+            )
+        extended = socket["nearest_major_floor_beyond_radius"]
+        if extended is not None:
+            print(
+                f"    CAUTION: major floor just outside {result['socket_radius_m']}m "
+                f"socket radius: {extended['foot_voxel']} "
+                f"component={extended['component']} "
+                f"offset={extended['distance_m']}m "
+                f"(searched within {socket['extended_search_radius_m']}m; "
+                f"not an attached entrance)"
+            )
         entry = socket["inward_terrain_probe"]
         straight = entry["straight_to_major_floor"]
         ray_status = (
@@ -4107,6 +4132,7 @@ def main() -> None:
                 args.json,
                 args.elevation_details,
                 args.density_bits,
+                args.socket_radius,
             )
         )
 
