@@ -93,8 +93,8 @@ function SurvivalGame.client_onUpdate(self, dt)
 end
 """
     boot = (
-        'sm.log.info("ATLAS_GROUND_BOOT,file_loaded,world='
-        + str(world_id) + '")'
+        'pcall(function() sm.log.info("ATLAS_GROUND_BOOT,'
+        'file_loaded,world=' + str(world_id) + '") end)'
     )
     return BEGIN + "\n" + boot + "\n" + lua + "\n" + callback.strip() + "\n" + END + "\n"
 
