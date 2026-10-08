@@ -159,6 +159,52 @@ def _nearest_foot(
     }
 
 
+def _nearest_candidate_air(
+    point: tuple[float, float, float],
+    volume: bytearray,
+    dims: tuple[int, int, int],
+    *,
+    density_threshold: int,
+    density_bits: int,
+    radius: float = 2.5,
+) -> dict[str, object] | None:
+    """Nearest candidate-free voxel centre, regardless of floor support.
+
+    Helps reveal when a single inward line sample misses a nearby opening.
+    This neither verifies an entrance aperture nor a path for a character.
+    """
+    sx, sy, sz = dims
+    mask = (1 << density_bits) - 1
+    best = None
+    for x in range(max(0, floor(point[0] - radius)),
+                   min(sx - 1, ceil(point[0] + radius)) + 1):
+        for y in range(max(0, floor(point[1] - radius)),
+                       min(sy - 1, ceil(point[1] + radius)) + 1):
+            for z in range(max(0, floor(point[2] - radius)),
+                           min(sz - 1, ceil(point[2] + radius)) + 1):
+                raw = int(volume[(x * sy + y) * sz + z])
+                if raw == 255 or (raw & mask) >= density_threshold:
+                    continue
+                dist2 = sum(
+                    (coord + 0.5 - target) ** 2
+                    for coord, target in zip((x, y, z), point)
+                )
+                if dist2 <= radius * radius:
+                    candidate = (dist2, x, y, z, raw)
+                    if best is None or candidate < best:
+                        best = candidate
+    if best is None:
+        return None
+    d2, x, y, z, raw = best
+    return {
+        "voxel": (x, y, z),
+        "offset_m": round(sqrt(d2), 3),
+        "raw": raw,
+        "density": raw & mask,
+        "candidate_floor_validated": False,
+    }
+
+
 def _shortest_walk(
     start: tuple[int, int, int],
     end: tuple[int, int, int],
@@ -547,6 +593,21 @@ def probe_tile_voxel_walk(
                 pos, labels, sizes, dims, radius=socket_radius,
                 min_component_size=1,
             )
+            # A missing major-floor anchor may simply sit just outside
+            # the requested socket radius; report it, but never attach
+            # the socket automatically to a more distant foot cell.
+            extended_radius = max(10.0, socket_radius)
+            nearest_extended = (
+                _nearest_foot(
+                    pos, labels, sizes, dims, radius=extended_radius,
+                    min_component_size=min_component_size,
+                )
+                if nearest is None else None
+            )
+            nearest_air = _nearest_candidate_air(
+                pos, volume, dims, density_threshold=density_threshold,
+                density_bits=density_bits,
+            )
             name = f"cell{chunk['cell']}:node{node['index']}"
             entrance = _socket_inward_profile(
                 pos, volume, dims, threshold=density_threshold,
@@ -569,6 +630,9 @@ def probe_tile_voxel_walk(
                 "tile_position": tuple(round(v, 3) for v in pos),
                 "nearest_foot": nearest,
                 "nearest_any_foot": nearest_any,
+                "nearest_major_floor_beyond_radius": nearest_extended,
+                "nearest_candidate_air": nearest_air,
+                "extended_search_radius_m": extended_radius,
                 "inward_terrain_probe": entrance,
             })
 
