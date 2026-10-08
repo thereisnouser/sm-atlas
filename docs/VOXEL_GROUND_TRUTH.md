@@ -149,7 +149,9 @@ short downward rays starting 1 metre above the predicted surface and
 ending 2 metres below it. It first filters `terrainSurface`; on a miss,
 it checks `allTerrain` to reveal possible terrain asset interceptions.
 It logs 15 records prefixed `ATLAS_GROUND,`, plus a metadata line.
-`terrainAsset` hits or empty casts **do not count as measured ground**.
+`terrainAsset` hits, empty casts and `terrainSurface` intersections
+with a non-upward normal (`normalWorld.z <= 0.1`) **do not count as
+measured standing ground**. Their observations are retained separately.
 **All 15 hits may fail even with a correct world transform** if the
 cave collision mask, terrain engine, or ray intervals behave differently.
 
