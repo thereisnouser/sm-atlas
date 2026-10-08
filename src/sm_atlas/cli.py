@@ -189,6 +189,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max residual in metres to match saved tunnels to sockets.",
     )
     tile_world_parser.add_argument("--json", action="store_true")
+    tile_world_parser.add_argument(
+        "--output", type=Path,
+        help="Write JSON plan as UTF-8 instead of shell redirection (requires --json).",
+    )
 
     ground_lua_parser = subparsers.add_parser(
         "tile-ground-lua",
@@ -1686,8 +1690,11 @@ def run_tile_world_probe(
     density_bits: int,
     match_tolerance: float,
     as_json: bool,
+    output: Path | None = None,
 ) -> int:
     try:
+        if output is not None and not as_json:
+            raise ValueError("--output requires --json")
         result = probe_tile_world(
             SaveDatabase(save), tile,
             world_id=world_id, node_id=node_id,
@@ -1702,7 +1709,17 @@ def run_tile_world_probe(
         return 1
 
     if as_json:
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        rendered = json.dumps(result, indent=2, ensure_ascii=False)
+        if output is not None:
+            try:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(rendered + "\n", encoding="utf-8")
+            except OSError as exc:
+                print(f"error: {exc}")
+                return 1
+            print(f"Wrote UTF-8 tile ground plan: {output}")
+        else:
+            print(rendered)
         return 0
 
     print(f"World: {result['world_id']} layout node: {result['node_id']}")
@@ -4406,7 +4423,7 @@ def main() -> None:
             run_tile_world_probe(
                 args.save, args.tile, args.world, args.node,
                 args.edge, args.density_bits, args.match_tolerance,
-                args.json,
+                args.json, args.output,
             )
         )
 
