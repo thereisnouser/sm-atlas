@@ -1742,6 +1742,33 @@ def run_tile_voxel_walk(
                     f"end={attachment['target_offset_m']}m "
                     f"connection_validated={attachment['validated_connection']}"
                 )
+            surface = item.get("interpolated_surface")
+            if surface is not None:
+                print(
+                    f"  experimental density surface: "
+                    f"status={surface['status']}"
+                )
+                if surface["status"] == "experimental_vertical_iso_interpolation":
+                    print(
+                        f"    estimated_length={surface['estimated_length_m']}m "
+                        f"max_gradient={surface['max_absolute_gradient']} "
+                        f"mean_gradient={surface['mean_absolute_gradient']} "
+                        f"gradient>1={surface['segments_with_gradient_gt_1']} "
+                        f"gradient>0.5={surface['segments_with_gradient_gt_0_5']} "
+                        f"(not actual game mesh/collision)"
+                    )
+                    if elevation_details:
+                        for segment in surface["segment_samples"]:
+                            if (
+                                abs(segment["height_change_m"]) > 0.5
+                                or segment["absolute_gradient"] > 1
+                            ):
+                                print(
+                                    f"    interpolated step={segment['step_index']} "
+                                    f"{segment['from_foot']} -> {segment['to_foot']} "
+                                    f"height_delta={segment['height_change_m']}m "
+                                    f"gradient={segment['absolute_gradient']}"
+                                )
             summary = item.get("elevation_support_summary")
             if summary is not None:
                 print(
