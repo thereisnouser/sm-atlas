@@ -181,6 +181,73 @@ and https://scrapmechanic.com/api/namespace_Game_sm_log.html.
 The client World accessor is documented at
 https://scrapmechanic.com/api/namespace_Game_sm_localPlayer.html.
 
+## Opt-in reversible Survival script hook
+
+**This step edits an installed game script only when you explicitly run
+`--install`. Close Scrap Mechanic first, and back up your Survival
+save as well. Modifying installed game files can affect achievements,
+multiplayer compatibility, updates and other mods. It is not as isolated as
+running a standalone Custom Game.**
+
+Atlas now has a reversible helper for its generated ground probe:
+
+```powershell
+$gameScript = 'F:\Steam\steamapps\common\Scrap Mechanic\Survival\Scripts\game\SurvivalGame.lua'
+
+# Check that the actual game script is present; this does not change it.
+Test-Path $gameScript
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua
+
+# Only after fully quitting Scrap Mechanic and backing up the save:
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --install
+```
+
+`--install` first creates a timestamped
+`SurvivalGame.lua.sm-atlas-*.bak`, then appends a uniquely marked
+experimental Lua block. It wraps the existing `SurvivalGame.client_onUpdate`
+without deleting the original callback.
+
+The hook logs `ATLAS_GROUND_HOOK,ready,world=23,radius=40` after
+the Game client begins updating. When the local player enters **world 23**
+and is within **40 m** of the sampled target (roughly world
+`(44.5,-108,82.8)`), it waits two seconds, then runs the ground probe
+**once per loaded Game script**. There is no teleportation and no auto
+travel; reach the underground area by ordinary gameplay. A player
+approaching a remote chunk may still need to wait for terrain loading
+or retry by relaunching; zero raycast hits is not negative geometry
+evidence.
+
+Recent Scrap Mechanic patch notes locate game logs in its `Logs`
+directory. For this Steam installation, search:
+
+```powershell
+Get-ChildItem 'F:\Steam\steamapps\common\Scrap Mechanic\Logs' -File |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 5
+
+# After the probe has run, replace this path with the correct recent log:
+$gameLog = 'F:\Steam\steamapps\common\Scrap Mechanic\Logs\<actual-log-name>'
+Get-Content $gameLog | Select-String 'ATLAS_GROUND,' |
+    ForEach-Object { $_.Line } | Set-Content .\atlas_ground_hits.log
+
+sm-atlas tile-ground-compare .\ground_plan.json .\atlas_ground_hits.log
+```
+
+**Remove the hook after capturing the logs. Exit the game first:**
+
+```powershell
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --remove
+```
+
+`--remove` first creates another backup, then deletes only the exact
+SM Atlas marked block; unrelated user edits to the rest of the Lua file
+are not overwritten. If code appears after the managed block, removal
+refuses to proceed rather than deleting it. The original backup is never
+silently erased. Restart the game after install or removal.
+
+Both the dry-run mode and every generated raycast source are diagnostic
+and untested inside the user's actual installation. Do not use the
+hook in a multiplayer session or on an irreplaceable save.
+
 ## Safeguards
 
 - Do not modify original saves or game binaries.
