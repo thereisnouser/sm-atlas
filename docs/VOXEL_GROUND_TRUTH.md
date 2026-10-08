@@ -192,6 +192,26 @@ sm-atlas worlds $save | Select-String '^\[23\]' -Context 0,3
 sm-atlas underground-tunnels $save --world 23
 ```
 
+For the previously examined save, world 23 is
+`UndergroundWorldDrill2`, label `undergroundworld_drill_02`,
+with generation parameter `depth=6`. This is **not floor 23** and
+`depth=6` is not automatically the count of accessible elevator floors.
+Portal #67 links world 12 (Mining Hub) to world 23, arriving near
+`(31.987, 39.189, 74.086)`. This is the saved entry to the target
+underground world.
+
+To view Atlas's already available *candidate* 2D route from the
+world's elevator to the specific saved passage node 322:
+
+```powershell
+sm-atlas underground-route $save --world 23 --node 322
+sm-atlas underground-route-map $save --world 23 --node 322 --output .\drill2_to_322.svg
+Invoke-Item .\drill2_to_322.svg
+```
+
+The resulting SVG is a structural schematic (candidate graph),
+**not an in-game minimap or a confirmed traversable route**.
+
 Inspect the `depth` / `Depth` value and the world path. The examined
 `drill2_tunnelpocket_small_passage_08_2x3x2.tile` comes from
 `Drill2`; that filename alone is not proof of the exact saved-world
