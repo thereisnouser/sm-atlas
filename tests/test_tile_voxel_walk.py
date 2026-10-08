@@ -8,6 +8,7 @@ from sm_atlas.tile_voxel_walk import (
     _candidate_foot_positions,
     _explain_component_gap,
     _socket_inward_profile,
+    _nearest_candidate_air,
     _straight_candidate_space,
     _label_walk_components,
     _shortest_walk,
@@ -375,3 +376,41 @@ def test_cli_exposes_packing_hypothesis_without_changing_legacy_default() -> Non
         "--density-bits", "5",
     ])
     assert objects.density_bits == 5
+
+
+
+def test_nearest_candidate_air_finds_off_axis_opening() -> None:
+    dims = (8, 5, 5)
+    voxels = bytearray([31] * (8 * 5 * 5))
+    # The inward x ray at y=2 misses this adjacent candidate opening.
+    voxels[(3 * 5 + 1) * 5 + 2] = 111
+
+    nearest = _nearest_candidate_air(
+        (2.667, 2.0, 2.0),
+        voxels, dims, density_threshold=16, density_bits=5,
+        radius=2.5,
+    )
+    assert nearest is not None
+    assert nearest["voxel"] == (3, 1, 2)
+    assert nearest["raw"] == 111
+    assert nearest["density"] == 15
+    assert nearest["candidate_floor_validated"] is False
+
+    legacy = _nearest_candidate_air(
+        (2.667, 2.0, 2.0),
+        voxels, dims, density_threshold=8, density_bits=4,
+        radius=2.5,
+    )
+    assert legacy is None
+
+
+def test_socket_radius_can_expand_floor_anchor_search() -> None:
+    from sm_atlas.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args([
+        "tile-voxel-walk", "passage_2x3x2.tile",
+        "--density-bits", "5", "--socket-radius", "6",
+    ])
+    assert args.socket_radius == 6.0
+    assert args.density_bits == 5
