@@ -45,6 +45,9 @@ def _neighbours(
     dims: tuple[int, int, int],
     *,
     max_step: int,
+    volume: bytearray | None = None,
+    density_threshold: int = 8,
+    headroom: int = 2,
 ):
     sx, sy, sz = dims
     stride = sy * sz
@@ -57,8 +60,23 @@ def _neighbours(
         base = (xx * sy + yy) * sz
         for dz in range(-max_step, max_step + 1):
             zz = z + dz
-            if 0 <= zz < sz:
-                yield base + zz, dz
+            if not 0 <= zz < sz:
+                continue
+            if dz > 0 and volume is not None:
+                # Moving to a higher foot cell also requires room for the
+                # player's head on the lower side of the step. The old graph
+                # tested standing clearance only at the two endpoints.
+                extra_clear = all(
+                    z + headroom + rise < sz
+                    and volume[index + headroom + rise] != 255
+                    and (
+                        volume[index + headroom + rise] & 0x0F
+                    ) < density_threshold
+                    for rise in range(dz)
+                )
+                if not extra_clear:
+                    continue
+            yield base + zz, dz
 
 
 def _label_walk_components(
@@ -66,6 +84,9 @@ def _label_walk_components(
     dims: tuple[int, int, int],
     *,
     max_step: int,
+    volume: bytearray | None = None,
+    density_threshold: int = 8,
+    headroom: int = 2,
 ) -> tuple[array, list[dict[str, int]]]:
     labels = array("I", [0]) * len(footprint)
     components = []
@@ -79,7 +100,10 @@ def _label_walk_components(
         while queue:
             node = queue.popleft()
             size += 1
-            for neighbour, _ in _neighbours(node, dims, max_step=max_step):
+            for neighbour, _ in _neighbours(
+                node, dims, max_step=max_step, volume=volume,
+                density_threshold=density_threshold, headroom=headroom,
+            ):
                 if footprint[neighbour] and not labels[neighbour]:
                     labels[neighbour] = cid
                     queue.append(neighbour)
@@ -133,6 +157,9 @@ def _shortest_walk(
     dims: tuple[int, int, int],
     *,
     max_step: int,
+    volume: bytearray | None = None,
+    density_threshold: int = 8,
+    headroom: int = 2,
 ) -> dict[str, object] | None:
     _, sy, sz = dims
 
@@ -157,7 +184,10 @@ def _shortest_walk(
             continue
         if node == b:
             break
-        for neighbour, dz in _neighbours(node, dims, max_step=max_step):
+        for neighbour, dz in _neighbours(
+            node, dims, max_step=max_step, volume=volume,
+            density_threshold=density_threshold, headroom=headroom,
+        ):
             if not footprint[neighbour]:
                 continue
             alt = cost + hypot(1.0, dz)
@@ -176,8 +206,15 @@ def _shortest_walk(
     points = [xyz(node) for node in path]
     climb = sum(max(0, q[2] - p[2]) for p, q in zip(points, points[1:]))
     descent = sum(max(0, p[2] - q[2]) for p, q in zip(points, points[1:]))
+    rises = sum(q[2] > p[2] for p, q in zip(points, points[1:]))
+    drops = sum(q[2] < p[2] for p, q in zip(points, points[1:]))
     return {
         "grid_steps": len(points) - 1,
+        "level_steps": len(points) - 1 - rises - drops,
+        "rise_steps": rises,
+        "drop_steps": drops,
+        "unverified_elevation_edges": rises + drops,
+        "rise_clearance_checked": volume is not None,
         "length_m": round(best[b], 3),
         "climb_m": climb,
         "descent_m": descent,
@@ -223,7 +260,8 @@ def probe_tile_voxel_walk(
         volume, dims, threshold=density_threshold, headroom=headroom,
     )
     labels, components = _label_walk_components(
-        footprint, dims, max_step=max_step,
+        footprint, dims, max_step=max_step, volume=volume,
+        density_threshold=density_threshold, headroom=headroom,
     )
     sizes = {int(c["id"]): c["voxels"] for c in components}
     sockets = []
@@ -250,6 +288,7 @@ def probe_tile_voxel_walk(
         "density_threshold": density_threshold,
         "headroom_m": headroom,
         "max_step_m": max_step,
+        "rise_clearance_checked": True,
         "socket_radius_m": socket_radius,
         "min_component_size": min_component_size,
         "unknown_voxels": missing,
@@ -281,10 +320,16 @@ def probe_tile_voxel_walk(
         else:
             walk = _shortest_walk(
                 source["foot_voxel"], target["foot_voxel"],
-                footprint, dims, max_step=max_step,
+                footprint, dims, max_step=max_step, volume=volume,
+                density_threshold=density_threshold, headroom=headroom,
             )
             if walk is not None:
                 path_result["status"] = "candidate_path_found"
                 path_result["path"] = walk
+                path_result["socket_attachment"] = {
+                    "source_offset_m": source["distance_m"],
+                    "target_offset_m": target["distance_m"],
+                    "validated_connection": False,
+                }
         output["route"] = path_result
     return output
