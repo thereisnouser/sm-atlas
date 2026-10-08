@@ -246,8 +246,6 @@ def _shortest_walk(
             })
     return {
         "elevation_support_summary": {
-            "density_bits": density_bits,
-            "max_density": density_mask,
             "edges_sampled": len(elevation_edges),
             "partial_density_edges": sum(
                 edge["has_partial_support_density"] for edge in elevation_edges
@@ -414,7 +412,7 @@ def _socket_inward_profile(
         if not (0 <= xx < sx and 0 <= yy < sy and 0 <= bz < sz):
             break
         value = int(volume[(xx * sy + yy) * sz + bz])
-        candidate_open = value != 255 and (value & 0x0F) < threshold
+        candidate_open = value != 255 and (value & density_mask) < threshold
         samples.append({
             "inward_cells": step,
             "voxel": (xx, yy, bz),
