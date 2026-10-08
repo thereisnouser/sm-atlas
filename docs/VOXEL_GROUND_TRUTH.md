@@ -227,6 +227,32 @@ With the updated comparator, re-run against the existing
 - The raycasts do not establish player walkability, path continuity,
   overhead clearance, or the correct voxel-density bit packing.
 
+## Offline raw voxel profile alongside verified raycasts
+
+Once the 15 `ATLAS_GROUND,` lines are saved, the *read-only*
+`tile-ground-profile` command can inspect the original voxel bytes near
+the actual observed standing-surface heights:
+
+```powershell
+sm-atlas tile-ground-profile .\ground_plan.json .\atlas_ground_hits.log $tile
+sm-atlas tile-ground-profile .\ground_plan.json .\atlas_ground_hits.log $tile --json > .\ground_voxel_profile.json
+```
+
+It requires the **same original .tile file** used to generate the anchored
+plan. It checks tile UUID, dimensions, saved node rotation/bounds and
+world/sample coordinates, then maps observed ground hit XYZ back into
+tile-local coordinates. For each nearest integer XY column, it prints
+a narrow Z window of **raw bytes, low 4 bits and low 5 bits**, together
+with any candidate vertical crossings using the existing midpoint
+thresholds (8 for 4 bits and 16 for 5 bits).
+
+These are *diagnostic byte columns*, not the physics engine's mesh.
+The exact sample/voxel alignment and spatial interpolation are not
+known: a raycast position may depend on multiple voxel neighbours.
+A failed 4-bit crossing at the original two endpoints is local evidence
+only; it does not refute every possible 4-bit packing or threshold.
+Do not interpret matching candidate bytes as proof of walkability.
+
 ## Diagnosing a hook that shows no HUD
 
 In the October 8 game log, the Game state loaded and the runtime emitted
