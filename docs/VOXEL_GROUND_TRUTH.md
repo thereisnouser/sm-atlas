@@ -1,8 +1,10 @@
 # Verification against Scrap Mechanic's actual terrain collision
 
-**Status: proposed in-game measurement, not performed.** Neither Atlas's
-five-bit density hypothesis nor its fractional-height iso-surface has been
-verified against the engine's collision mesh.
+**Status (2026-10-08): real in-game raycast measurement completed.** All
+15 probe rays recorded collision type `voxelTerrain` in underground world
+23, with upward normals at the target XY positions. This challenges the
+candidate five-bit-density interpolated surface heights. The 5-bit
+interpretation and walking/capsule clearance remain unverified.
 
 ## Reference data (Drill2 passage)
 
@@ -22,6 +24,10 @@ The game-script API documents:
 - `sm.physics.raycast(start, end, body?, mask?, world?, ignoreUuids?)`
 - `sm.physics.filter.terrainSurface` (ground) versus `terrainAsset`
 - `RaycastResult.pointWorld`, `RaycastResult.normalWorld` and `.type`
+- Older published `sm.physics.types` lists `terrainSurface`, but the
+  2026 in-game Drill2 result explicitly used `voxelTerrain`. The
+  comparator accepts both as candidate *ground collision* types and
+  still requires an upward normal; it excludes assets/unknown hits.
 - `sm.physics.capsulecast` for later character-clearance experiments
 
 Sources:
@@ -41,7 +47,8 @@ local function atlasProbeGround(world, x, y, expectedWorldZ)
     local hit, result = sm.physics.raycast(
         top, bottom, nil, sm.physics.filter.terrainSurface, world
     )
-    if not hit or result.type ~= "terrainSurface" then
+    if not hit or (result.type ~= "terrainSurface"
+        and result.type ~= "voxelTerrain") then
         return { hit = false, x = x, y = y }
     end
     local p, n = result.pointWorld, result.normalWorld
@@ -149,9 +156,12 @@ short downward rays starting 1 metre above the predicted surface and
 ending 2 metres below it. It first filters `terrainSurface`; on a miss,
 it checks `allTerrain` to reveal possible terrain asset interceptions.
 It logs 15 records prefixed `ATLAS_GROUND,`, plus a metadata line.
-`terrainAsset` hits, empty casts and `terrainSurface` intersections
+`terrainAsset` hits, empty casts and terrain/voxel intersections
 with a non-upward normal (`normalWorld.z <= 0.1`) **do not count as
 measured standing ground**. Their observations are retained separately.
+The current engine reports `voxelTerrain`, while old samples may use
+`terrainSurface`. Neither a terrain raycast nor an upward normal proves
+walkable character clearance.
 **All 15 hits may fail even with a correct world transform** if the
 cave collision mask, terrain engine, or ray intervals behave differently.
 
@@ -180,6 +190,27 @@ Official API: https://scrapmechanic.com/api/namespace_Game_sm_physics.html
 and https://scrapmechanic.com/api/namespace_Game_sm_log.html.
 The client World accessor is documented at
 https://scrapmechanic.com/api/namespace_Game_sm_localPlayer.html.
+
+## Real-world Drill2 ground measurement (2026-10-08)
+
+In the test save (world 23, node 322, center line x=44.5), we obtained
+15/15 valid `voxelTerrain` hit records, including the three 5-sample
+horizontal tracks. **Important regression:** an earlier version of
+`tile-ground-compare` classified these as `other_or_miss` because it
+recognized only `terrainSurface`. The hit data themselves were valid.
+With the updated comparator, re-run against the existing
+`atlas_ground_hits.log`; no new in-game probing is necessary.
+
+- For x=44.5, y=-107.5..-108.5, the 5 observed Z values were
+  81.833336, 81.860001, 81.886673, 81.913338, and 81.940002 m.
+- The tentative predicted Z series was 82.1667, 82.4750, 82.7833,
+  83.0917, and 83.4000 m.
+- Over this 1 m XY distance, observed absolute elevation change was
+  ~0.1067 m rather than predicted ~1.2333 m. Adjacent normal Z values
+  were strongly upward. This suggests the candidate height interpolation
+  is incorrect at this location (not merely a uniform vertical offset).
+- The raycasts do not establish player walkability, path continuity,
+  overhead clearance, or the correct voxel-density bit packing.
 
 ## Diagnosing a hook that shows no HUD
 
