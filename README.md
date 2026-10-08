@@ -67,6 +67,25 @@ segments where the estimated grade exceeds 0.5. JSON includes all
 surface-height samples and segment gradients. Route search still uses
 the original discrete floor graph and retains the existing default
 `--density-bits 4` for reproducibility.
+
+**Surface-gradient sensitivity (opt-in):** `--max-surface-gradient 1.0`
+runs a second floor-path search that discards candidate edges exceeding
+that experimental vertical isoheight change per horizontal metre. The
+original unconstrained path is still reported unchanged. The additional
+diagnostic also finds the *minimum possible bottleneck grade* between
+the same fixed candidate floor endpoints and lists the critical edge(s).
+A missing constrained path does not imply the real terrain is unwalkable;
+this is a test of an unverified density interpretation and a 1 m grid,
+not verified game character slopes or collision geometry.
+
+```bash
+sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node6 --density-bits 5 --max-surface-gradient 1.0
+```
+
+On the Drill2 passage, the current estimated path has a maximum sampled
+grade around 1.256; a minimax search can reduce the bottleneck to
+approximately 1.233, but not to 1.0 without changing its candidate
+start/end floors or the terrain model.
 The object probe currently recognizes fixed 69-byte `unknown` and 65-byte
 `harvestable` records found in Drill2 tile version 15, and reports raw UUID,
 position, rotation and scale. Other record layouts fail closed. Object UUID
