@@ -201,6 +201,14 @@ sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_groun
 sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --remove
 ```
 
+The hook displays an in-game text alert with the current world ID
+and, in the target world, the player's XYZ, distance to the measurement
+location and coordinate differences. **World 23 is a save-world ID,
+not level 23.** Check `sm-atlas worlds $save` for the actual mine depth.
+To update an already installed older hook: remove the old block first
+with the original plan and Lua file, `git pull`, run tests, then install
+the new block. Pulling code does not change an installed game Lua hook.
+
 The hook automatically runs once when your character approaches the
 measured location in the correct loaded world. It creates timestamped
 backups before modifying `SurvivalGame.lua`, and removal is conservative.
