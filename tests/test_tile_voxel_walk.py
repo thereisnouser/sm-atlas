@@ -7,6 +7,8 @@ import pytest
 from sm_atlas.tile_voxel_walk import (
     _candidate_foot_positions,
     _explain_component_gap,
+    _socket_inward_profile,
+    _straight_candidate_space,
     _label_walk_components,
     _shortest_walk,
     probe_tile_voxel_walk,
@@ -170,3 +172,53 @@ def test_component_gap_reports_low_side_ceiling_blocker() -> None:
         "raw": 31,
         "density": 15,
     }
+
+
+def test_socket_entrance_profile_records_solid_surface_then_void() -> None:
+    dims = (8, 5, 5)
+    # x=2 -> solid shell, x=3-4 -> air, x=5 -> second wall.
+    volume = bytearray([31] * (8 * 5 * 5))
+    for x in (3, 4):
+        volume[(x * 5 + 2) * 5 + 2] = 0
+    profile = _socket_inward_profile(
+        (2.667, 2.0, 2.0),
+        volume, dims, threshold=8, sample_cells=5,
+    )
+
+    assert profile["face"] == "x-"
+    assert profile["first_open_voxel"] == (3, 2, 2)
+    assert profile["first_open_offset_cells"] == 1
+    assert profile["reblocked_after_first_open"] is True
+    assert [sample["raw"] for sample in profile["samples"]] == [
+        31, 0, 0, 31, 31
+    ]
+
+
+def test_socket_entrance_profile_handles_positive_edge() -> None:
+    dims = (8, 5, 5)
+    volume = bytearray([31] * (8 * 5 * 5))
+    volume[(5 * 5 + 2) * 5 + 2] = 0
+    profile = _socket_inward_profile(
+        (6.333, 2.0, 2.0),
+        volume, dims, threshold=8, sample_cells=3,
+    )
+    assert profile["face"] == "x+"
+    assert profile["first_open_offset_cells"] == 1
+    assert profile["first_open_voxel"] == (5, 2, 2)
+
+
+def test_candidate_centreline_reports_first_solid_intersection() -> None:
+    dims = (1, 1, 5)
+    volume = bytearray((0, 0, 111, 0, 0))
+    result = _straight_candidate_space(
+        (0, 0, 0), (0, 0, 4), volume, dims, threshold=8,
+    )
+    assert result == {
+        "status": "candidate_solid_intersection",
+        "first_blocker": {"voxel": (0, 0, 2), "raw": 111, "density": 15},
+    }
+
+    volume[2] = 0
+    assert _straight_candidate_space(
+        (0, 0, 0), (0, 0, 4), volume, dims, threshold=8,
+    ) == {"status": "clear_centreline", "first_blocker": None}
