@@ -202,6 +202,32 @@ registration; with callback but no ready, look for an error in the
 original callback. A boot marker alone is not evidence of running
 raycasts or correct world coordinates.
 
+**Scrap Mechanic 1.0 (2026) script cache caveat:** Steam and Reddit
+players report that vanilla Survival can run cached Lua instead of newly
+modified `.lua` files. The `-dev` launch option forces script reloading
+in documented workflows; it also changes engine behavior and can prevent
+achievements. This is a **hypothesis**, not proof that a particular user's
+installed file was skipped. Before another test:
+
+1. Check that the *installed* `SurvivalGame.lua` contains both
+   `ATLAS_GROUND_BOOT` and `ATLAS_GROUND_HOOK,callback_entered`. If not,
+   it contains an old version; remove it, update Atlas, run tests, reinstall
+   with the game shut down.
+2. If these markers are present but absent from the **newest run's** log,
+   test with Steam launch option `-dev` **only on a verified test-save
+   copy**, without opening the original world. Do not modify
+   `g_survivalDev` or enable cheat commands as part of the experiment.
+3. Close the game, inspect the new log, **remove `-dev` from Steam** and
+   uninstall the Atlas hook using `--remove` before returning to normal
+   gameplay.
+
+Do not delete game cache files or verify/reinstall all Steam game files
+as a first troubleshooting step; those operations can overwrite other
+local modifications and should require a separate rollback plan.
+References:
+- https://scrapmechanic.fandom.com/wiki/Launch_options
+- https://www.reddit.com/r/ScrapMechanic/comments/1v9tr1i/how_to_edit_loot_in_survival/
+
 When upgrading from an older installed hook: close the game, use
 `tile-ground-survival ... --remove` with the existing plan and Lua,
 `git pull`, then `pytest` before reinstalling. This is not an
