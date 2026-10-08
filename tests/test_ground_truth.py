@@ -168,6 +168,24 @@ def test_tile_ground_commands_have_explicit_file_paths() -> None:
     assert compare_args.json
 
 
+def test_tile_world_probe_utf8_json_output_parser_and_guard() -> None:
+    from sm_atlas.cli import build_parser, run_tile_world_probe
+
+    parser = build_parser()
+    args = parser.parse_args([
+        "tile-world-probe", "save.db", "tile.tile",
+        "--world", "23", "--node", "322", "--json",
+        "--output", "ground_plan.json",
+    ])
+    assert args.output.name == "ground_plan.json"
+    # Reject output without JSON before trying to open either input file.
+    assert run_tile_world_probe(
+        args.save, args.tile, args.world, args.node,
+        None, args.density_bits, args.match_tolerance,
+        False, args.output,
+    ) == 1
+
+
 def test_no_gap_bridging_when_a_raycast_sample_is_missing() -> None:
     plan = _plan()
     # Centre track indexes 5 and 7 are separated by one missing point.
