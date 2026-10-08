@@ -189,7 +189,25 @@ sm-atlas tile-ground-lua ground_plan.json --output atlas_ground_probe.lua
 sm-atlas tile-ground-compare ground_plan.json atlas_ground_hits.log
 ```
 
-No mod is installed and no game code is edited by these commands.
+No game file is edited by those export/compare commands. A separate
+**explicit opt-in** helper is available for a temporary Survival script hook:
+
+```powershell
+$gameScript = 'F:\Steam\steamapps\common\Scrap Mechanic\Survival\Scripts\game\SurvivalGame.lua'
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua
+# Read the dry-run output; exit the game and back up your save first.
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --install
+# After capturing raycast logs, exit the game and undo only our managed block:
+sm-atlas tile-ground-survival .\ground_plan.json $gameScript --lua .\atlas_ground_probe.lua --remove
+```
+
+The hook automatically runs once when your character approaches the
+measured location in the correct loaded world. It creates timestamped
+backups before modifying `SurvivalGame.lua`, and removal is conservative.
+This temporarily modifies installed game scripts and may affect mods,
+multiplayer, achievements and game updates. **Do not try it on an
+irreplaceable save.** Consult the [ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md)
+for step-by-step safeguards, log collection and rollback.
 The comparison detects missed rays and terrain assets separately, records
 actual hit heights and surface normals, and estimates observed gradients.
 **No game-physics measurements have yet been taken for this tile.**
