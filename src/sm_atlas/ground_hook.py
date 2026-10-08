@@ -6,6 +6,8 @@ always created before modification. This is diagnostic tooling only.
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 import os
 import re
@@ -13,13 +15,71 @@ import shutil
 import tempfile
 
 from .ground_truth import _validated_ground_plan, render_ground_probe_lua
+from .database import SaveDatabase
+from .portals import probe_portals
 
 
 BEGIN = "-- SM_ATLAS_GROUND_BEGIN (experimental, managed by sm-atlas)"
 END = "-- SM_ATLAS_GROUND_END (experimental, managed by sm-atlas)"
 
 
-def build_survival_hook(plan: dict) -> str:
+@dataclass(frozen=True)
+class PortalEntrance:
+    """Saved portal's approach side in a different world from the target."""
+
+    portal_id: int
+    world_id: int
+    xyz: tuple[float, float, float]
+
+
+def load_portal_entrance(
+    save: str | Path, *, destination_world_id: int, portal_id: int,
+) -> PortalEntrance:
+    """Resolve a hub-side destination from the saved Portal table, read-only.
+
+    World IDs and portal positions are specific to a save. Do not hardcode
+    them as globally applicable coordinates or assume portal approach is
+    a straight-line navigable player path.
+    """
+    if destination_world_id <= 0 or portal_id <= 0:
+        raise ValueError("destination world ID and portal ID must be positive")
+    candidates = probe_portals(
+        SaveDatabase(Path(save)), portal_id=portal_id,
+    )
+    if len(candidates) != 1:
+        raise ValueError(f"portal {portal_id} not found in the specified save")
+    portal = candidates[0]
+    decoded = portal.decoded
+    if (
+        portal.decoded_matches_columns is not True
+        or decoded is None
+        or decoded.position_b is None
+    ):
+        raise ValueError(
+            f"portal {portal_id} has no verified two-sided world positions"
+        )
+    if portal.world_id_b == destination_world_id:
+        entry_world, entry_xyz = portal.world_id_a, decoded.position_a
+    elif portal.world_id_a == destination_world_id:
+        entry_world, entry_xyz = portal.world_id_b, decoded.position_b
+    else:
+        raise ValueError(
+            f"portal {portal_id} does not lead to world {destination_world_id}"
+        )
+    if entry_world <= 0 or entry_world == destination_world_id:
+        raise ValueError("portal entrance world is not a different saved world")
+    if not all(isfinite(v) for v in entry_xyz):
+        raise ValueError("portal entrance coordinates are not finite")
+    return PortalEntrance(
+        portal_id=portal_id,
+        world_id=entry_world,
+        xyz=tuple(float(v) for v in entry_xyz),
+    )
+
+
+def build_survival_hook(
+    plan: dict, *, entrance: PortalEntrance | None = None,
+) -> str:
     """Self-contained generated Lua and one-shot existing-callback wrapper."""
     world_id, samples = _validated_ground_plan(plan)
     x = sum(float(s["world_xy"][0]) for s in samples) / len(samples)
@@ -27,6 +87,36 @@ def build_survival_hook(plan: dict) -> str:
     z = sum(float(s["estimated_surface_world_z"]) for s in samples) / len(samples)
 
     lua = render_ground_probe_lua(plan).rstrip()
+    other_world_hud = f'''sm.gui.displayAlertText(string.format(
+                "Atlas: world %d | need world {world_id} (Drill2)", worldId
+            ), 4.0, false)'''
+    if entrance is not None:
+        if entrance.portal_id <= 0 or entrance.world_id <= 0:
+            raise ValueError("invalid portal navigation identifiers")
+        if entrance.world_id == world_id:
+            raise ValueError("portal navigation must begin in another world")
+        if len(entrance.xyz) != 3 or not all(
+            isfinite(v) for v in entrance.xyz
+        ):
+            raise ValueError("portal navigation coordinates must be finite")
+        px, py, pz = entrance.xyz
+        other_world_hud = f'''if worldId == {entrance.world_id} and playerPos ~= nil then
+                local deltaX = {px:.6f} - playerPos.x
+                local deltaY = {py:.6f} - playerPos.y
+                local deltaZ = {pz:.6f} - playerPos.z
+                local distance = math.sqrt(
+                    deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ
+                )
+                sm.gui.displayAlertText(string.format(
+                    "Atlas W%d XYZ %.0f %.0f %.0f | portal {entrance.portal_id} %.0fm | dX%+.0f dY%+.0f dZ%+.0f",
+                    worldId, playerPos.x, playerPos.y, playerPos.z,
+                    distance, deltaX, deltaY, deltaZ
+                ), 4.0, false)
+            else
+                sm.gui.displayAlertText(string.format(
+                    "Atlas: world %d | need world {world_id} (Drill2)", worldId
+                ), 4.0, false)
+            end'''
     callback = f"""
 -- Wrap the existing game's client callback without changing its behaviour.
 -- Only execute ONCE after the local player is near this cave area.
@@ -53,9 +143,7 @@ function SurvivalGame.client_onUpdate(self, dt)
     if self.atlasGroundHudClock >= 5.0 then
         self.atlasGroundHudClock = 0
         if worldId ~= {world_id} then
-            sm.gui.displayAlertText(string.format(
-                "Atlas: world %d | need world {world_id} (Drill2)", worldId
-            ), 4.0, false)
+            {other_world_hud}
         elseif playerPos ~= nil then
             local deltaX = {x:.6f} - playerPos.x
             local deltaY = {y:.6f} - playerPos.y
@@ -138,6 +226,7 @@ def survival_hook_operation(
     *,
     lua_text: str,
     action: str = "preview",
+    entrance: PortalEntrance | None = None,
 ) -> dict[str, object]:
     """Preview, install, or remove an Atlas hook in a vanilla Game script.
 
@@ -191,7 +280,7 @@ def survival_hook_operation(
             b"" if not data or data.endswith((b"\n", b"\r"))
             else line_end.encode("ascii")
         )
-        chunk = build_survival_hook(plan).replace(
+        chunk = build_survival_hook(plan, entrance=entrance).replace(
             BEGIN, BEGIN + f" separator={int(bool(separator))}", 1,
         ).replace("\n", line_end)
         new_contents = data + separator + chunk.encode("utf-8")
