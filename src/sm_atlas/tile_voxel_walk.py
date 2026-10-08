@@ -21,19 +21,21 @@ def _candidate_foot_positions(
     *,
     threshold: int,
     headroom: int,
+    density_bits: int = 4,
 ) -> bytearray:
     sx, sy, sz = dims
+    density_mask = (1 << density_bits) - 1
     footprint = bytearray(len(volume))
     for x in range(sx):
         for y in range(sy):
             offset = (x * sy + y) * sz
             for z in range(1, sz - headroom + 1):
                 support = volume[offset + z - 1]
-                if support == 255 or (support & 15) < threshold:
+                if support == 255 or (support & density_mask) < threshold:
                     continue
                 if all(
                     volume[offset + z + h] != 255
-                    and (volume[offset + z + h] & 15) < threshold
+                    and (volume[offset + z + h] & density_mask) < threshold
                     for h in range(headroom)
                 ):
                     footprint[offset + z] = 1
@@ -48,9 +50,11 @@ def _neighbours(
     volume: bytearray | None = None,
     density_threshold: int = 8,
     headroom: int = 2,
+    density_bits: int = 4,
 ):
     sx, sy, sz = dims
     stride = sy * sz
+    density_mask = (1 << density_bits) - 1
     x, rem = divmod(index, stride)
     y, z = divmod(rem, sz)
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -73,7 +77,7 @@ def _neighbours(
                     lower_z + headroom + rise < sz
                     and volume[lower_index + headroom + rise] != 255
                     and (
-                        volume[lower_index + headroom + rise] & 0x0F
+                        volume[lower_index + headroom + rise] & density_mask
                     ) < density_threshold
                     for rise in range(abs(dz))
                 )
@@ -90,6 +94,7 @@ def _label_walk_components(
     volume: bytearray | None = None,
     density_threshold: int = 8,
     headroom: int = 2,
+    density_bits: int = 4,
 ) -> tuple[array, list[dict[str, int]]]:
     labels = array("I", [0]) * len(footprint)
     components = []
@@ -106,6 +111,7 @@ def _label_walk_components(
             for neighbour, _ in _neighbours(
                 node, dims, max_step=max_step, volume=volume,
                 density_threshold=density_threshold, headroom=headroom,
+                density_bits=density_bits,
             ):
                 if footprint[neighbour] and not labels[neighbour]:
                     labels[neighbour] = cid
@@ -163,8 +169,10 @@ def _shortest_walk(
     volume: bytearray | None = None,
     density_threshold: int = 8,
     headroom: int = 2,
+    density_bits: int = 4,
 ) -> dict[str, object] | None:
     _, sy, sz = dims
+    density_mask = (1 << density_bits) - 1
 
     def idx(point: tuple[int, int, int]) -> int:
         return (point[0] * sy + point[1]) * sz + point[2]
@@ -190,6 +198,7 @@ def _shortest_walk(
         for neighbour, dz in _neighbours(
             node, dims, max_step=max_step, volume=volume,
             density_threshold=density_threshold, headroom=headroom,
+            density_bits=density_bits,
         ):
             if not footprint[neighbour]:
                 continue
@@ -228,14 +237,17 @@ def _shortest_walk(
                 "delta_z_m": dz,
                 "from_support_raw": a_raw,
                 "to_support_raw": b_raw,
-                "from_support_density": a_raw & 0x0F,
-                "to_support_density": b_raw & 0x0F,
+                "from_support_density": a_raw & density_mask,
+                "to_support_density": b_raw & density_mask,
                 "has_partial_support_density": (
-                    (a_raw & 0x0F) < 15 or (b_raw & 0x0F) < 15
+                    (a_raw & density_mask) < density_mask
+                    or (b_raw & density_mask) < density_mask
                 ),
             })
     return {
         "elevation_support_summary": {
+            "density_bits": density_bits,
+            "max_density": density_mask,
             "edges_sampled": len(elevation_edges),
             "partial_density_edges": sum(
                 edge["has_partial_support_density"] for edge in elevation_edges
@@ -274,6 +286,7 @@ def _explain_component_gap(
     volume: bytearray,
     density_threshold: int,
     headroom: int,
+    density_bits: int = 4,
     examples_per_reason: int = 3,
 ) -> dict[str, object]:
     """Find adjacent candidate floors blocked by slope or headroom rules.
@@ -283,6 +296,7 @@ def _explain_component_gap(
     """
     sx, sy, sz = dims
     stride = sy * sz
+    density_mask = (1 << density_bits) - 1
     causes: dict[str, int] = {}
     examples: dict[str, list[dict[str, object]]] = {}
     nearest: dict[str, object] | None = None
@@ -322,14 +336,14 @@ def _explain_component_gap(
                             }
                             break
                         raw = volume[low_index + headroom + rise]
-                        if raw == 255 or (raw & 0x0F) >= density_threshold:
+                        if raw == 255 or (raw & density_mask) >= density_threshold:
                             blocker = {
                                 "position": (
                                     (x, y, sample_z)
                                     if dz > 0 else (xx, yy, sample_z)
                                 ),
                                 "raw": int(raw),
-                                "density": int(raw & 0x0F),
+                                "density": int(raw & density_mask),
                             }
                             break
                     reason = (
@@ -372,6 +386,7 @@ def _socket_inward_profile(
     *,
     threshold: int,
     sample_cells: int = 9,
+    density_bits: int = 4,
 ) -> dict[str, object]:
     """Inspect terrain voxels from the socket centre toward the tile inside.
 
@@ -379,6 +394,7 @@ def _socket_inward_profile(
     test: saved socket positions can lie within the surface boundary band.
     """
     sx, sy, sz = dims
+    density_mask = (1 << density_bits) - 1
     x, y, z = point
     boundaries = (
         (x, "x-", (1, 0)),
@@ -434,12 +450,14 @@ def _straight_candidate_space(
     *,
     threshold: int,
     substep_m: float = 0.25,
+    density_bits: int = 4,
 ) -> dict[str, object]:
     """Check only the centreline between candidate-open voxels.
 
     Clear centreline does NOT mean a human-sized actor can move there.
     """
     sx, sy, sz = dims
+    density_mask = (1 << density_bits) - 1
     start_center = tuple(coord + 0.5 for coord in start)
     end_center = tuple(coord + 0.5 for coord in end)
     length = sqrt(sum(
@@ -459,13 +477,13 @@ def _straight_candidate_space(
                 "first_blocker": {"voxel": xyz},
             }
         raw = int(volume[(x * sy + y) * sz + z])
-        if raw == 255 or (raw & 0x0F) >= threshold:
+        if raw == 255 or (raw & density_mask) >= threshold:
             return {
                 "status": "candidate_solid_intersection",
                 "first_blocker": {
                     "voxel": xyz,
                     "raw": raw,
-                    "density": raw & 0x0F if raw != 255 else None,
+                    "density": raw & density_mask if raw != 255 else None,
                 },
             }
     return {"status": "clear_centreline", "first_blocker": None}
@@ -474,7 +492,8 @@ def _straight_candidate_space(
 def probe_tile_voxel_walk(
     tile: str | Path,
     *,
-    density_threshold: int = 8,
+    density_threshold: int | None = None,
+    density_bits: int = 4,
     headroom: int = 2,
     max_step: int = 1,
     min_component_size: int = 50,
@@ -483,8 +502,12 @@ def probe_tile_voxel_walk(
     to_socket: str | None = None,
     max_grid_voxels: int = 4_000_000,
 ) -> dict[str, object]:
-    if not 1 <= density_threshold <= 15:
-        raise ValueError("density_threshold must be 1..15")
+    if density_bits not in (4, 5):
+        raise ValueError("density_bits must be 4 or 5")
+    if density_threshold is None:
+        density_threshold = 1 << (density_bits - 1)
+    if not 1 <= density_threshold <= (1 << density_bits) - 1:
+        raise ValueError("density_threshold outside packing density range")
     if not 1 <= headroom <= 8:
         raise ValueError("headroom must be 1..8")
     if not 0 <= max_step <= 2:
@@ -505,10 +528,12 @@ def probe_tile_voxel_walk(
     volume, missing = _load_density_bytes(path, dims)
     footprint = _candidate_foot_positions(
         volume, dims, threshold=density_threshold, headroom=headroom,
+        density_bits=density_bits,
     )
     labels, components = _label_walk_components(
         footprint, dims, max_step=max_step, volume=volume,
         density_threshold=density_threshold, headroom=headroom,
+        density_bits=density_bits,
     )
     sizes = {int(c["id"]): c["voxels"] for c in components}
     sockets = []
@@ -527,6 +552,7 @@ def probe_tile_voxel_walk(
             name = f"cell{chunk['cell']}:node{node['index']}"
             entrance = _socket_inward_profile(
                 pos, volume, dims, threshold=density_threshold,
+                density_bits=density_bits,
             )
             to_major = None
             if (
@@ -537,6 +563,7 @@ def probe_tile_voxel_walk(
                     entrance["first_open_voxel"],
                     nearest["foot_voxel"],
                     volume, dims, threshold=density_threshold,
+                    density_bits=density_bits,
                 )
             entrance["straight_to_major_floor"] = to_major
             sockets.append({
@@ -553,6 +580,7 @@ def probe_tile_voxel_walk(
         "tile": str(path),
         "dimensions_m": dims,
         "density_threshold": density_threshold,
+        "density_bits": density_bits,
         "headroom_m": headroom,
         "max_step_m": max_step,
         "rise_clearance_checked": True,
@@ -588,12 +616,14 @@ def probe_tile_voxel_walk(
                 labels, dims, source["component"], target["component"],
                 max_step=max_step, volume=volume,
                 density_threshold=density_threshold, headroom=headroom,
+                density_bits=density_bits,
             )
         else:
             walk = _shortest_walk(
                 source["foot_voxel"], target["foot_voxel"],
                 footprint, dims, max_step=max_step, volume=volume,
                 density_threshold=density_threshold, headroom=headroom,
+                density_bits=density_bits,
             )
             if walk is not None:
                 path_result["status"] = "candidate_path_found"
