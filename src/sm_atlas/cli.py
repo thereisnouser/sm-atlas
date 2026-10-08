@@ -1371,7 +1371,11 @@ def run_tile_voxel_probe(
         f"unique_headers={result['unique_headers']}"
     )
     print(f"Header bounds: {result['header_bounds']}")
-    print("Voxel byte packing: material=(value >> 4), density=(value & 0x0F)")
+    print(
+        "Legacy, UNVERIFIED 4-bit packing shown below: "
+        "material=value>>4, density=value&0x0F; "
+        "also consider 5-bit density=value&0x1F."
+    )
     print(f"Global top values: {result['global_top_values']}")
     for chunk in result["chunks"]:
         print(
