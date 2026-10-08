@@ -10,6 +10,7 @@ from sm_atlas.tile_voxel_walk import (
     _socket_inward_profile,
     _nearest_candidate_air,
     _candidate_air_bridge,
+    _interpolated_surface_profile,
     _nearest_foot,
     _straight_candidate_space,
     _label_walk_components,
@@ -502,3 +503,54 @@ def test_candidate_air_bridge_does_not_treat_unsupported_as_walkable() -> None:
     assert bridge["positions_without_candidate_foot"] == 2
     assert bridge["rises"] == 3
     assert bridge["drops"] == 0
+
+
+
+def test_interpolated_surface_uses_crossing_below_standing_voxel() -> None:
+    dims = (2, 1, 3)
+    volume = bytearray((31, 0, 0, 16, 0, 0))
+    path = [(0, 0, 1), (1, 0, 1)]
+
+    surface = _interpolated_surface_profile(
+        path, volume, dims, density_bits=5, density_threshold=16,
+    )
+    assert surface["status"] == "experimental_vertical_iso_interpolation"
+    assert surface["sample_count"] == 2
+    assert surface["height_samples"][0]["surface_height_grid"] == (
+        pytest.approx(15 / 31, abs=0.0001)
+    )
+    assert surface["height_samples"][1]["surface_height_grid"] == 0.0
+    assert surface["segments_with_gradient_gt_1"] == 0
+    assert surface["segments_with_gradient_gt_0_5"] == 0
+    assert surface["max_absolute_gradient"] == 0.484
+    assert surface["estimated_length_m"] == pytest.approx(
+        (1 + (15 / 31) ** 2) ** 0.5, abs=0.001,
+    )
+    assert surface["interpretation"].startswith(
+        "linear_density_iso_crossing_only"
+    )
+
+
+def test_interpolated_surface_is_not_a_walkability_permission() -> None:
+    dims = (2, 1, 3)
+    volume = bytearray((31, 0, 0, 31, 31, 0))
+    # Second point is not a candidate stand position: head voxel is solid.
+    result = _interpolated_surface_profile(
+        [(0, 0, 1), (1, 0, 1)],
+        volume, dims, density_bits=5, density_threshold=16,
+    )
+    assert result["status"] == "no_supported_vertical_density_crossing"
+    assert result["step_index"] == 1
+
+
+def test_legacy_interpolated_surface_uses_4_bit_mask() -> None:
+    dims = (1, 1, 3)
+    volume = bytearray((31, 0, 0))
+    result = _interpolated_surface_profile(
+        [(0, 0, 1)], volume, dims,
+        density_bits=4, density_threshold=8,
+    )
+    assert result["status"] == "experimental_vertical_iso_interpolation"
+    assert result["height_samples"][0]["surface_height_grid"] == (
+        pytest.approx(7 / 15, abs=0.0001)
+    )
