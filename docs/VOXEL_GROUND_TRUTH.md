@@ -209,6 +209,21 @@ With the updated comparator, re-run against the existing
   ~0.1067 m rather than predicted ~1.2333 m. Adjacent normal Z values
   were strongly upward. This suggests the candidate height interpolation
   is incorrect at this location (not merely a uniform vertical offset).
+- After fixing the comparator's `voxelTerrain` classification, the
+  actual CLI reported:
+  `logged=15/15 terrain_surface=15 non_upward=0 other_or_miss=0`;
+  `median_bias=-0.896627m`, `mean_error=-0.893857m`,
+  `rmse=0.979018m`, `max_error=1.529997m`,
+  `max_after_bias=0.633370m`.
+  Track maximum adjacent absolute gradients (left/center/right) were
+  `0.106692`, `0.106688` and `0.201752`.
+  The substantial residual **after** removal of a constant Z offset is
+  evidence of shape/grade disagreement, not just vertical translation.
+- Next read-only diagnostic: use `tile-world-probe` with
+  `--density-bits 4` on the **test save** and same tile, node and
+  edge to see whether the alternative bit hypothesis produces a
+  candidate vertical iso-crossing at all. If it fails to produce one,
+  that does not prove the four-bit hypothesis globally false.
 - The raycasts do not establish player walkability, path continuity,
   overhead clearance, or the correct voxel-density bit packing.
 
