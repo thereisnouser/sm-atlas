@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from sm_atlas.ground_hook import (
     BEGIN,
     END,
+    PortalEntrance,
     build_survival_hook,
+    load_portal_entrance,
     survival_hook_operation,
 )
 
@@ -170,6 +173,14 @@ def test_survival_hook_cli_is_opt_in_and_parseable() -> None:
     ])
     assert remove.remove is True
 
+    nav = parser.parse_args([
+        "tile-ground-survival", "ground_plan.json", "SurvivalGame.lua",
+        "--lua", "atlas_ground_probe.lua", "--navigation-save",
+        "ATLAS_TEST.db", "--portal-id", "67", "--install",
+    ])
+    assert nav.navigation_save.name == "ATLAS_TEST.db"
+    assert nav.portal_id == 67
+
 
 def test_hook_rejects_mismatched_file_name(tmp_path) -> None:
     from sm_atlas.ground_truth import render_ground_probe_lua
@@ -181,4 +192,73 @@ def test_hook_rejects_mismatched_file_name(tmp_path) -> None:
         survival_hook_operation(
             path, plan,
             lua_text=render_ground_probe_lua(plan),
+        )
+
+
+
+def test_survival_hook_shows_saved_hub_portal_and_restores_original(tmp_path) -> None:
+    from sm_atlas.ground_truth import render_ground_probe_lua
+
+    original = _source()
+    game_script = tmp_path / "SurvivalGame.lua"
+    game_script.write_bytes(original)
+    plan = _plan()
+    entrance = PortalEntrance(
+        portal_id=67, world_id=12, xyz=(-96.0129, 157.1889, 69.0861),
+    )
+    survival_hook_operation(
+        game_script, plan, lua_text=render_ground_probe_lua(plan),
+        action="install", entrance=entrance,
+    )
+    content = game_script.read_text(encoding="utf-8")
+    assert "if worldId == 12 and playerPos ~= nil then" in content
+    assert "portal 67 %.0fm" in content
+    assert "-96.012900 - playerPos.x" in content
+    assert "157.188900 - playerPos.y" in content
+    assert "69.086100 - playerPos.z" in content
+    assert "need world 23 (Drill2)" in content
+    assert "ATLAS_GROUND_META,world=23" in content
+    survival_hook_operation(
+        game_script, plan, lua_text=render_ground_probe_lua(plan),
+        action="remove",
+    )
+    assert game_script.read_bytes() == original
+
+
+def test_load_portal_entrance_checks_verified_saved_world_pair(monkeypatch) -> None:
+    from sm_atlas import ground_hook
+
+    portal = SimpleNamespace(
+        world_id_a=12,
+        world_id_b=23,
+        decoded_matches_columns=True,
+        decoded=SimpleNamespace(
+            position_a=(-96.012878, 157.188904, 69.086082),
+            position_b=(31.987, 39.189, 74.086),
+        ),
+    )
+    monkeypatch.setattr(ground_hook, "SaveDatabase", lambda path: path)
+    monkeypatch.setattr(
+        ground_hook, "probe_portals",
+        lambda database, *, portal_id: [portal] if portal_id == 67 else [],
+    )
+    entrance = load_portal_entrance(
+        "ATLAS_TEST.db", destination_world_id=23, portal_id=67,
+    )
+    assert entrance.portal_id == 67
+    assert entrance.world_id == 12
+    assert entrance.xyz == portal.decoded.position_a
+
+    with pytest.raises(ValueError, match="does not lead"):
+        load_portal_entrance(
+            "ATLAS_TEST.db", destination_world_id=10, portal_id=67,
+        )
+    with pytest.raises(ValueError, match="not found"):
+        load_portal_entrance(
+            "ATLAS_TEST.db", destination_world_id=23, portal_id=99,
+        )
+    portal.decoded_matches_columns = False
+    with pytest.raises(ValueError, match="verified"):
+        load_portal_entrance(
+            "ATLAS_TEST.db", destination_world_id=23, portal_id=67,
         )
