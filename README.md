@@ -156,6 +156,11 @@ sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --
 sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node2 --to-socket cell0:node5
 ```
 
+For validating these candidate surfaces against the actual in-game physics
+terrain, see [Voxel ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md).
+The protocol uses the official game raycast API and explicitly requires a
+verified tile-local to underground-world transform; it has not yet been run.
+
 **Neither command establishes actual player walkability.** Both depend on an unverified density interpretation; the walk command does not yet account for game collision of placed assets, ramps, ladders, actual slope, or attachment distances between sockets and the nearest standing voxel. Results are diagnostics only and are not injected into normal Underground navigation.
 
 SM Atlas is an unofficial community project and is not affiliated with Axolot Games.
