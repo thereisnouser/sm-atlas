@@ -18,6 +18,41 @@ from .tile_file import InvalidTileFile, decompress_lz4_block, probe_tile
 _RECORD_SIZES = {"unknown": 69, "harvestable": 65}
 
 
+def placements_near_candidate_route(
+    placements: list[dict[str, object]],
+    foot_voxels: list[tuple[int, int, int]],
+    *,
+    radius_m: float = 5.0,
+) -> list[dict[str, object]]:
+    """Return nearby placement *origins*, not asset collision overlaps."""
+    if radius_m <= 0:
+        raise ValueError("radius_m must be positive")
+    if not foot_voxels:
+        return []
+    results = []
+    for placement in placements:
+        pos = placement["tile_position"]
+        nearest = min(
+            (
+                sum((p + 0.5 - v) ** 2 for p, v in zip(foot, pos)),
+                foot,
+            )
+            for foot in foot_voxels
+        )
+        if nearest[0] <= radius_m ** 2:
+            results.append({
+                "kind": placement["kind"],
+                "index": placement["index"],
+                "cell": placement["cell"],
+                "uuid_hex": placement["uuid_hex"],
+                "tile_position": placement["tile_position"],
+                "distance_to_footpath_m": round(nearest[0] ** 0.5, 3),
+                "nearest_foot": nearest[1],
+            })
+    results.sort(key=lambda entry: entry["distance_to_footpath_m"])
+    return results
+
+
 def probe_tile_objects(
     path: str | Path,
     *,
