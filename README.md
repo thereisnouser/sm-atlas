@@ -43,6 +43,15 @@ sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --
 
 The `tile-voxel-space` command identifies connected *candidate empty space* using the low four voxel bits as a density hypothesis. The `tile-voxel-walk` command adds candidate standing cells (solid support below, two clear cells above by default), and graph edges along cardinal directions with an optional elevation change of up to one voxel. Elevation-change edges additionally require headroom on the lower side for the rise, in both travel directions. Output reports the number of flat, uphill, and downhill edges and separately shows the unverified distance from each socket to its closest candidate floor.
 
+When a requested route ends in different candidate floor components, the walker now reports rejected neighbouring edges: elevation changes greater than `--max-step` or blocked lower-side headroom. Sockets also show a warning if the closest standing cell belongs to a different/smaller component than the closest eligible large floor. This makes it possible to investigate a disconnected socket without assuming it is a genuinely blocked doorway.
+
+For example, investigate the passage's secondary floor network:
+
+```bash
+sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node2
+sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node2 --to-socket cell0:node5
+```
+
 **Neither command establishes actual player walkability.** Both depend on an unverified density interpretation; the walk command does not yet account for game collision of placed assets, ramps, ladders, actual slope, or attachment distances between sockets and the nearest standing voxel. Results are diagnostics only and are not injected into normal Underground navigation.
 
 SM Atlas is an unofficial community project and is not affiliated with Axolot Games.
