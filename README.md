@@ -50,15 +50,44 @@ sm-atlas tile-object-probe path/to/passage_2x3x2.tile --from-socket cell0:node7 
 sm-atlas tile-object-probe path/to/passage_2x3x2.tile --json
 ```
 
-The walker reports low-nibble voxel density beneath both feet at every
-candidate rise/drop. Intermediate values (8..14) suggest a boundary rather
-than a fully dense voxel, **not proof of a physically traversable slope**.
+The walker reports candidate voxel density beneath both feet at every
+candidate rise/drop. Partial density below the selected packing's maximum
+(15 for 4 bits, 31 for 5 bits) suggests a surface boundary, **not proof
+of a physically traversable slope**.
 The object probe currently recognizes fixed 69-byte `unknown` and 65-byte
 `harvestable` records found in Drill2 tile version 15, and reports raw UUID,
 position, rotation and scale. Other record layouts fail closed. Object UUID
 and transforms do not supply the base mesh or collision definition. Optional `--from-socket` / `--to-socket` adds a distance-to-candidate-route list: distances refer only to placement origins, not object extents, collisions or navigability.
 
-The `tile-voxel-space` command identifies connected *candidate empty space* using the low four voxel bits as a density hypothesis. The `tile-voxel-walk` command adds candidate standing cells (solid support below, two clear cells above by default), and graph edges along cardinal directions with an optional elevation change of up to one voxel. Elevation-change edges additionally require headroom on the lower side for the rise, in both travel directions. Output reports the number of flat, uphill, and downhill edges and separately shows the unverified distance from each socket to its closest candidate floor.
+The `tile-voxel-space` command identifies connected *candidate empty space*
+under a **selectable, unverified byte-packing hypothesis**.
+Both `tile-voxel-space` and `tile-voxel-walk` accept
+`--density-bits 4` (legacy interpretation, mask `0x0f`, default cutoff `8`)
+or `--density-bits 5` (alternate interpretation, mask `0x1f`, default cutoff `16`).
+The **default remains 4 bits** to preserve earlier diagnostic outputs;
+it is not an endorsement of that model. `--density-threshold` can override
+the derived midpoint and is in raw masked density units, **not** normalized
+physics density. The byte's upper bits are only *candidate* material IDs.
+
+On the Drill2 `passage_08_2x3x2.tile`, the 4-bit model produces 142 candidate
+floor components and an apparently disconnected passage. The 5-bit model
+produces 46 components and a significantly smoother floor trajectory.
+**This suggests the 5-bit hypothesis may be better**; it is not yet
+verified by the game engine or an authoritative description of this old
+tile's byte encoding. Do not apply different 4/5-bit route results as
+ground truth. The separate modded runtime voxel format described at
+scrapmechanictools.com is not evidence that an old tile uses the same packing.
+
+For a controlled comparison:
+
+```bash
+sm-atlas tile-voxel-space path/to/passage_2x3x2.tile --density-bits 4
+sm-atlas tile-voxel-space path/to/passage_2x3x2.tile --density-bits 5
+sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node6 --density-bits 4
+sm-atlas tile-voxel-walk path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node6 --density-bits 5
+sm-atlas tile-object-probe path/to/passage_2x3x2.tile --from-socket cell0:node7 --to-socket cell0:node6 --density-bits 5 --examples 0
+```
+ The `tile-voxel-walk` command adds candidate standing cells (solid support below, two clear cells above by default), and graph edges along cardinal directions with an optional elevation change of up to one voxel. Elevation-change edges additionally require headroom on the lower side for the rise, in both travel directions. Output reports the number of flat, uphill, and downhill edges and separately shows the unverified distance from each socket to its closest candidate floor.
 
 The walker also includes an **experimental inward socket terrain profile**: the raw voxel values sampled horizontally from each socket toward the tile interior, the first candidate-open cell, and a straight-line test from that cell to the chosen large-component floor. The centreline test does not include character radius/height or alternative routes. A blocked centreline indicates an obstruction in the density-based model, not a verified game collision. These fields are visible in text output and `--json`.
 
