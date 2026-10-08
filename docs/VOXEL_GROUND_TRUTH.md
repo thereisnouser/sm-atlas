@@ -181,6 +181,33 @@ and https://scrapmechanic.com/api/namespace_Game_sm_log.html.
 The client World accessor is documented at
 https://scrapmechanic.com/api/namespace_Game_sm_localPlayer.html.
 
+## Diagnosing a hook that shows no HUD
+
+In the October 8 game log, the Game state loaded and the runtime emitted
+other `[Lua]` messages, but there were no `ATLAS_GROUND` markers.
+That is **not enough** to assert that the hook ran. New hooks now emit
+two independent, one-time diagnostics:
+
+- `ATLAS_GROUND_BOOT,file_loaded,world=23` means the modified
+  `SurvivalGame.lua` was executed (module top level).
+- `ATLAS_GROUND_HOOK,callback_entered,world=23` means the wrapped
+  `client_onUpdate` callback started, **before** the original update
+  function is forwarded.
+- `ATLAS_GROUND_HOOK,ready,world=23,radius=40` means the original
+  client update returned and the Atlas HUD/probe logic was reached.
+
+With none of these logs, inspect whether the installed script path is
+being loaded at all; with boot but no callback, inspect Game callback
+registration; with callback but no ready, look for an error in the
+original callback. A boot marker alone is not evidence of running
+raycasts or correct world coordinates.
+
+When upgrading from an older installed hook: close the game, use
+`tile-ground-survival ... --remove` with the existing plan and Lua,
+`git pull`, then `pytest` before reinstalling. This is not an
+automatic game-file update. Do NOT enable `-dev` to troubleshoot
+without understanding its possible save/gameplay consequences.
+
 ## Finding the actual in-game world and location
 
 In `--world 23`, **23 is a unique saved game-world ID, not the
