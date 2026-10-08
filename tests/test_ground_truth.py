@@ -79,6 +79,65 @@ def test_comparison_tracks_measured_gradient_and_bias_separately() -> None:
     assert result["track_summaries"][0]["max_observed_absolute_gradient"] == 1.4
 
 
+def test_actual_voxel_terrain_raycast_series_is_measured_ground() -> None:
+    """Regression for 15 raycast hits captured in Survival 1.0 (2026-10-08)."""
+    plan = _plan()
+    predicted_z = [82.1667, 82.4750, 82.7833, 83.0917, 83.4]
+    for index, sample in enumerate(plan["critical_edge"]["world_samples"]):
+        sample["estimated_surface_world_z"] = predicted_z[index % 5]
+    observed_z = [
+        81.785721, 81.801186, 81.816666, 81.843330, 81.870003,
+        81.833336, 81.860001, 81.886673, 81.913338, 81.940002,
+        81.890808, 81.917473, 81.944138, 81.994568, 82.045006,
+    ]
+    logs = "\n".join(
+        _record(plan, i, z, kind="voxelTerrain")
+        for i, z in enumerate(observed_z)
+    )
+    result = compare_ground_observations(plan, logs)
+    assert result["logged_points"] == 15
+    assert result["terrain_surface_hits"] == 15
+    assert result["other_hits_or_misses"] == 0
+    assert result["non_upward_terrain_surface_hits"] == 0
+    assert result["not_sampled"] == 0
+    assert all(
+        row["status"] == "terrain_surface_hit"
+        for row in result["samples"]
+    )
+    assert len(result["track_summaries"]) == 3
+    assert all(
+        track["adjacent_measured_segments"] == 4
+        for track in result["track_summaries"]
+    )
+    assert result["measured_minus_predicted"]["median_offset_m"] is not None
+    assert result["track_summaries"][1]["max_observed_absolute_gradient"] == (
+        pytest.approx(0.106688, abs=1e-6)
+    )
+
+
+def test_voxel_terrain_requires_upward_normal() -> None:
+    plan = _plan()
+    downward = _record(plan, 5, 82.0, kind="voxelTerrain").replace(
+        ",0.0,0.0,1.0,voxelTerrain",
+        ",0.0,0.0,-1.0,voxelTerrain",
+    )
+    result = compare_ground_observations(plan, downward)
+    assert result["terrain_surface_hits"] == 0
+    assert result["non_upward_terrain_surface_hits"] == 1
+    assert result["samples"][5]["status"] == (
+        "non_upward_terrain_surface_hit"
+    )
+
+
+def test_unknown_physics_hit_is_not_silently_treated_as_ground() -> None:
+    plan = _plan()
+    unknown = _record(plan, 0, 82.0, kind="body")
+    result = compare_ground_observations(plan, unknown)
+    assert result["terrain_surface_hits"] == 0
+    assert result["other_hits_or_misses"] == 1
+    assert result["samples"][0]["hit_type"] == "body"
+
+
 def test_comparison_does_not_treat_assets_or_misses_as_ground() -> None:
     plan = _plan()
     observations = "\n".join([
