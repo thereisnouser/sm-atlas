@@ -1645,6 +1645,7 @@ def run_tile_ground_compare(plan: Path, log: Path, as_json: bool) -> int:
         f"Ground comparison world={result['world_id']} "
         f"logged={result['logged_points']}/{result['planned_points']} "
         f"terrain_surface={result['terrain_surface_hits']} "
+        f"non_upward={result['non_upward_terrain_surface_hits']} "
         f"other_or_miss={result['other_hits_or_misses']} "
         f"not_sampled={result['not_sampled']}"
     )
