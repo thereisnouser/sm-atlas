@@ -180,8 +180,10 @@ def test_socket_entrance_profile_records_solid_surface_then_void() -> None:
     volume = bytearray([31] * (8 * 5 * 5))
     for x in (3, 4):
         volume[(x * 5 + 2) * 5 + 2] = 0
+    # x- (distance 2m) is strictly closer than either y edge (2.5m).
+    # Keep floor(x, y, z) == (2, 2, 2) for the voxel fixture.
     profile = _socket_inward_profile(
-        (2.667, 2.0, 2.0),
+        (2.0, 2.5, 2.0),
         volume, dims, threshold=8, sample_cells=5,
     )
 
@@ -222,3 +224,18 @@ def test_candidate_centreline_reports_first_solid_intersection() -> None:
     assert _straight_candidate_space(
         (0, 0, 0), (0, 0, 4), volume, dims, threshold=8,
     ) == {"status": "clear_centreline", "first_blocker": None}
+
+
+def test_socket_inward_profile_uses_actual_closest_face() -> None:
+    dims = (8, 5, 5)
+    volume = bytearray([31] * (8 * 5 * 5))
+    # y- is 1m away and x- is 2.667m away.
+    profile = _socket_inward_profile(
+        (2.667, 1.0, 2.0),
+        volume, dims, threshold=8, sample_cells=2,
+    )
+    assert profile["face"] == "y-"
+    assert [sample["voxel"] for sample in profile["samples"]] == [
+        (2, 1, 2),
+        (2, 2, 2),
+    ]
