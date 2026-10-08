@@ -41,6 +41,7 @@ from .tile_objects import (
 )
 from .tile_voxel_walk import probe_tile_voxel_walk
 from .tile_world import probe_tile_world
+from .ground_truth import render_ground_probe_lua, compare_ground_observations
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -188,6 +189,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max residual in metres to match saved tunnels to sockets.",
     )
     tile_world_parser.add_argument("--json", action="store_true")
+
+    ground_lua_parser = subparsers.add_parser(
+        "tile-ground-lua",
+        help="Generate non-installed Lua raycast fragment from tile-world-probe JSON.",
+    )
+    ground_lua_parser.add_argument("plan", type=Path)
+    ground_lua_parser.add_argument("--output", type=Path, required=True)
+
+    ground_compare_parser = subparsers.add_parser(
+        "tile-ground-compare",
+        help="Compare logged in-game terrain raycasts to the saved-world plan.",
+    )
+    ground_compare_parser.add_argument("plan", type=Path)
+    ground_compare_parser.add_argument("log", type=Path)
+    ground_compare_parser.add_argument("--json", action="store_true")
 
     tile_voxel_space_parser = subparsers.add_parser(
         "tile-voxel-space",
@@ -1583,6 +1599,79 @@ def run_tile_object_probe(
     print(
         "WARNING: record transforms/UUIDs do not identify mesh, "
         "solid collision or ramps."
+    )
+    return 0
+
+
+def run_tile_ground_lua(plan: Path, output: Path) -> int:
+    try:
+        plan_data = json.loads(plan.read_text(encoding="utf-8-sig"))
+        generated = render_ground_probe_lua(plan_data)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(generated, encoding="utf-8")
+    except (
+        OSError, ValueError, json.JSONDecodeError,
+    ) as exc:
+        print(f"error: {exc}")
+        return 1
+    print(f"Generated Lua probe: {output}")
+    print(
+        "This is a callable Lua fragment, NOT an installed mod. "
+        "Run smAtlasGroundProbe(actualWorldUserdata) from a permitted "
+        "game script in the correct loaded underground world."
+    )
+    print(
+        "Collect ATLAS_GROUND log lines and compare with "
+        "'sm-atlas tile-ground-compare'."
+    )
+    return 0
+
+
+def run_tile_ground_compare(plan: Path, log: Path, as_json: bool) -> int:
+    try:
+        result = compare_ground_observations(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            log.read_text(encoding="utf-8-sig"),
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(
+        f"Ground comparison world={result['world_id']} "
+        f"logged={result['logged_points']}/{result['planned_points']} "
+        f"terrain_surface={result['terrain_surface_hits']} "
+        f"other_or_miss={result['other_hits_or_misses']} "
+        f"not_sampled={result['not_sampled']}"
+    )
+    errors = result["measured_minus_predicted"]
+    print(
+        f"  Height difference: median_bias={errors['median_offset_m']}m "
+        f"mean_error={errors['mean_error_m']}m "
+        f"rmse={errors['rmse_m']}m "
+        f"max_error={errors['max_absolute_error_m']}m "
+        f"max_after_bias={errors['max_residual_after_median_offset_m']}m"
+    )
+    for track in result["track_summaries"]:
+        print(
+            f"  track lateral={track['lateral_offset_m']}m "
+            f"terrain_hits={track['terrain_surface_hits']} "
+            f"adjacent_segments={track['adjacent_measured_segments']} "
+            f"max_observed_gradient={track['max_observed_absolute_gradient']}"
+        )
+    if result["terrain_surface_hits"] < result["planned_points"]:
+        print(
+            "WARNING: incomplete ground hits. Cave ceiling, unloaded cell, "
+            "asset intercept or wrong cast interval may be responsible. "
+            "Do not infer walkability."
+        )
+    print(
+        "WARNING: physics raycast hits are observations, not proof "
+        "of character movement or capsule clearance."
     )
     return 0
 
@@ -4299,6 +4388,16 @@ def main() -> None:
                 args.examples,
                 args.json,
             )
+        )
+
+    if args.command == "tile-ground-lua":
+        raise SystemExit(
+            run_tile_ground_lua(args.plan, args.output)
+        )
+
+    if args.command == "tile-ground-compare":
+        raise SystemExit(
+            run_tile_ground_compare(args.plan, args.log, args.json)
         )
 
     if args.command == "tile-world-probe":
