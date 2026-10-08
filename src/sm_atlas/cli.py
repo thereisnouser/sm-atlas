@@ -43,6 +43,7 @@ from .tile_voxel_walk import probe_tile_voxel_walk
 from .tile_world import probe_tile_world
 from .ground_truth import render_ground_probe_lua, compare_ground_observations
 from .ground_hook import survival_hook_operation, load_portal_entrance
+from .ground_density import inspect_ground_density
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -237,6 +238,16 @@ def build_parser() -> argparse.ArgumentParser:
     ground_compare_parser.add_argument("plan", type=Path)
     ground_compare_parser.add_argument("log", type=Path)
     ground_compare_parser.add_argument("--json", action="store_true")
+
+    ground_profile_parser = subparsers.add_parser(
+        "tile-ground-profile",
+        help="Read-only raw tile voxel columns beside logged game ground hits.",
+    )
+    ground_profile_parser.add_argument("plan", type=Path)
+    ground_profile_parser.add_argument("log", type=Path)
+    ground_profile_parser.add_argument("tile", type=Path)
+    ground_profile_parser.add_argument("--z-margin", type=int, default=3)
+    ground_profile_parser.add_argument("--json", action="store_true")
 
     tile_voxel_space_parser = subparsers.add_parser(
         "tile-voxel-space",
@@ -1712,6 +1723,44 @@ def run_tile_ground_lua(plan: Path, output: Path) -> int:
         "Collect ATLAS_GROUND log lines and compare with "
         "'sm-atlas tile-ground-compare'."
     )
+    return 0
+
+
+def run_tile_ground_profile(
+    plan: Path, log: Path, tile: Path, z_margin: int, as_json: bool,
+) -> int:
+    try:
+        result = inspect_ground_density(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            log.read_text(encoding="utf-8-sig"), tile,
+            z_margin=z_margin,
+        )
+    except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
+        print(f"error: {exc}")
+        return 1
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(
+        f"Ground voxel profile world={result['world_id']} "
+        f"hits={result['hits']}/{result['planned_points']} "
+        f"columns={len(result['columns'])} "
+        f"local_Z={result['observed_local_z_range']} "
+        f"column_window={result['column_z_window']}"
+    )
+    for column in result["columns"]:
+        print(
+            f"  XY local={tuple(column['local_xy'])} "
+            f"sample_indexes={column['sample_indexes']} "
+            f"candidate_z_4bit={column['candidate_vertical_crossings_world_z']['4']} "
+            f"candidate_z_5bit={column['candidate_vertical_crossings_world_z']['5']}"
+        )
+        for item in column["raw_vertical_bytes"]:
+            print(
+                f"    z={item['z']:>2} raw=0x{item['raw_hex']} "
+                f"low4={item['low4']} low5={item['low5']}"
+            )
+    print("WARNING: " + result["warning"])
     return 0
 
 
@@ -4508,6 +4557,13 @@ def main() -> None:
     if args.command == "tile-ground-compare":
         raise SystemExit(
             run_tile_ground_compare(args.plan, args.log, args.json)
+        )
+
+    if args.command == "tile-ground-profile":
+        raise SystemExit(
+            run_tile_ground_profile(
+                args.plan, args.log, args.tile, args.z_margin, args.json,
+            )
         )
 
     if args.command == "tile-world-probe":
