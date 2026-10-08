@@ -8,7 +8,7 @@ from __future__ import annotations
 from array import array
 from collections import deque
 import heapq
-from math import ceil, floor, hypot, sqrt
+from math import ceil, floor, hypot, isfinite, sqrt
 from pathlib import Path
 
 from .tile_voxel_space import _dimensions, _load_density_bytes
@@ -413,6 +413,124 @@ def _interpolated_surface_profile(
     }
 
 
+def _surface_sample_height(
+    point: tuple[int, int, int],
+    volume: bytearray,
+    dims: tuple[int, int, int],
+    *,
+    density_threshold: int,
+    density_bits: int,
+) -> float | None:
+    """Estimate a vertical density isocrossing, not game collision."""
+    x, y, z = point
+    sx, sy, sz = dims
+    if not (0 <= x < sx and 0 <= y < sy and 1 <= z < sz):
+        return None
+    offset = (x * sy + y) * sz
+    lower = int(volume[offset + z - 1])
+    upper = int(volume[offset + z])
+    mask = (1 << density_bits) - 1
+    d0, d1 = lower & mask, upper & mask
+    if (
+        lower == 255 or upper == 255
+        or d0 < density_threshold or d1 >= density_threshold
+        or d0 <= d1
+    ):
+        return None
+    return (z - 1) + (d0 - density_threshold) / (d0 - d1)
+
+
+def _minimum_required_surface_gradient(
+    start: tuple[int, int, int],
+    end: tuple[int, int, int],
+    footprint: bytearray,
+    volume: bytearray,
+    dims: tuple[int, int, int],
+    *,
+    max_step: int,
+    density_threshold: int,
+    density_bits: int,
+    headroom: int,
+) -> dict[str, object]:
+    """Minimax bottleneck grade for the *fixed* candidate floor endpoints."""
+    _, sy, sz = dims
+
+    def pack(point: tuple[int, int, int]) -> int:
+        return (point[0] * sy + point[1]) * sz + point[2]
+
+    def unpack(index: int) -> tuple[int, int, int]:
+        x, rem = divmod(index, sy * sz)
+        y, z = divmod(rem, sz)
+        return x, y, z
+
+    source, target = pack(start), pack(end)
+    if not footprint[source] or not footprint[target]:
+        return {"status": "endpoint_not_candidate_floor"}
+    heights: dict[int, float | None] = {}
+
+    def height(index: int) -> float | None:
+        if index not in heights:
+            heights[index] = _surface_sample_height(
+                unpack(index), volume, dims,
+                density_threshold=density_threshold, density_bits=density_bits,
+            )
+        return heights[index]
+
+    costs = {source: (0.0, 0.0)}
+    parents: dict[int, int] = {}
+    heap = [(0.0, 0.0, source)]
+    while heap:
+        highest, length, node = heapq.heappop(heap)
+        if (highest, length) > costs[node]:
+            continue
+        if node == target:
+            break
+        a_height = height(node)
+        if a_height is None:
+            continue
+        for nxt, dz in _neighbours(
+            node, dims, max_step=max_step,
+            volume=volume, density_threshold=density_threshold,
+            headroom=headroom, density_bits=density_bits,
+        ):
+            if not footprint[nxt]:
+                continue
+            b_height = height(nxt)
+            if b_height is None:
+                continue
+            grade = abs(b_height - a_height)
+            candidate = (max(highest, grade), length + hypot(1.0, grade))
+            if candidate < costs.get(nxt, (float("inf"), float("inf"))):
+                costs[nxt] = candidate
+                parents[nxt] = node
+                heapq.heappush(heap, (*candidate, nxt))
+
+    if target not in costs:
+        return {"status": "no_candidate_floor_connection"}
+    path = [target]
+    while path[-1] != source:
+        path.append(parents[path[-1]])
+    path.reverse()
+    worst = []
+    for i, (a, b) in enumerate(zip(path, path[1:])):
+        diff = abs(height(b) - height(a))
+        if abs(diff - costs[target][0]) <= 1e-8:
+            worst.append({
+                "step_index": i,
+                "from_foot": unpack(a),
+                "to_foot": unpack(b),
+                "absolute_gradient": round(diff, 6),
+            })
+    return {
+        "status": "minimum_bottleneck_found",
+        "minimum_required_gradient": round(costs[target][0], 6),
+        "alternative_surface_length_m": round(costs[target][1], 3),
+        "alternative_grid_steps": len(path) - 1,
+        "critical_edges": worst,
+        "interpretation": "density_iso_graph_only; not game movement physics",
+    }
+
+
 def _shortest_walk(
     start: tuple[int, int, int],
     end: tuple[int, int, int],
@@ -424,6 +542,7 @@ def _shortest_walk(
     density_threshold: int = 8,
     headroom: int = 2,
     density_bits: int = 4,
+    max_surface_gradient: float | None = None,
 ) -> dict[str, object] | None:
     _, sy, sz = dims
     density_mask = (1 << density_bits) - 1
@@ -442,6 +561,19 @@ def _shortest_walk(
     best = {a: 0.0}
     previous: dict[int, int] = {}
     heap = [(0.0, a)]
+    surface_cache: dict[int, float | None] = {}
+
+    def surface(index: int) -> float | None:
+        if index not in surface_cache:
+            surface_cache[index] = (
+                _surface_sample_height(
+                    xyz(index), volume, dims,
+                    density_threshold=density_threshold,
+                    density_bits=density_bits,
+                )
+                if volume is not None else None
+            )
+        return surface_cache[index]
 
     while heap:
         cost, node = heapq.heappop(heap)
@@ -456,6 +588,13 @@ def _shortest_walk(
         ):
             if not footprint[neighbour]:
                 continue
+            if max_surface_gradient is not None:
+                old_height, new_height = surface(node), surface(neighbour)
+                if (
+                    old_height is None or new_height is None
+                    or abs(new_height - old_height) > max_surface_gradient
+                ):
+                    continue
             alt = cost + hypot(1.0, dz)
             if alt + 1e-9 < best.get(neighbour, float("inf")):
                 best[neighbour] = alt
@@ -758,6 +897,7 @@ def probe_tile_voxel_walk(
     max_step: int = 1,
     min_component_size: int = 50,
     socket_radius: float = 5.0,
+    max_surface_gradient: float | None = None,
     from_socket: str | None = None,
     to_socket: str | None = None,
     max_grid_voxels: int = 4_000_000,
@@ -776,6 +916,10 @@ def probe_tile_voxel_walk(
         raise ValueError("min_component_size must be >= 1")
     if not 0 < socket_radius <= 32:
         raise ValueError("socket_radius must be > 0 and <= 32")
+    if max_surface_gradient is not None and (
+        not isfinite(max_surface_gradient) or max_surface_gradient <= 0
+    ):
+        raise ValueError("max_surface_gradient must be finite and > 0")
     if (from_socket is None) != (to_socket is None):
         raise ValueError("both from_socket and to_socket are required")
 
@@ -863,6 +1007,7 @@ def probe_tile_voxel_walk(
         "max_step_m": max_step,
         "rise_clearance_checked": True,
         "socket_radius_m": socket_radius,
+        "max_surface_gradient_probe": max_surface_gradient,
         "min_component_size": min_component_size,
         "unknown_voxels": missing,
         "candidate_foot_positions": footprint.count(1),
@@ -935,6 +1080,40 @@ def probe_tile_voxel_walk(
                     "source_offset_m": source["distance_m"],
                     "target_offset_m": target["distance_m"],
                     "validated_connection": False,
+                }
+        if max_surface_gradient is not None:
+            if source is None or target is None:
+                path_result["surface_gradient_probe"] = {
+                    "status": "missing_socket_floor_anchor",
+                    "limit": max_surface_gradient,
+                }
+            else:
+                minimum = _minimum_required_surface_gradient(
+                    source["foot_voxel"], target["foot_voxel"],
+                    footprint, volume, dims,
+                    max_step=max_step, density_threshold=density_threshold,
+                    density_bits=density_bits, headroom=headroom,
+                )
+                alternative = _shortest_walk(
+                    source["foot_voxel"], target["foot_voxel"],
+                    footprint, dims,
+                    max_step=max_step, density_threshold=density_threshold,
+                    density_bits=density_bits, headroom=headroom,
+                    volume=volume, max_surface_gradient=max_surface_gradient,
+                )
+                path_result["surface_gradient_probe"] = {
+                    "status": (
+                        "candidate_path_within_limit"
+                        if alternative is not None
+                        else "no_candidate_path_within_limit"
+                    ),
+                    "limit": max_surface_gradient,
+                    "minimum_bottleneck": minimum,
+                    "alternative_path": alternative,
+                    "interpretation": (
+                        "experimental_iso_surface_constraint_only; "
+                        "not validated player locomotion"
+                    ),
                 }
         output["route"] = path_result
     return output
