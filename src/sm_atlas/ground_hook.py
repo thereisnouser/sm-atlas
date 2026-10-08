@@ -40,11 +40,38 @@ function SurvivalGame.client_onUpdate(self, dt)
         self.atlasGroundHookReadyLogged = true
         sm.log.info("ATLAS_GROUND_HOOK,ready,world={world_id},radius=40")
     end
-    if self.atlasGroundDidRun then return end
     local world = sm.localPlayer.getWorld()
-    if world == nil or world.id ~= {world_id} then return end
+    local worldId = (world ~= nil) and world.id or -1
     local playerPos = sm.localPlayer.getPosition()
-    if playerPos == nil then return end
+    -- User-facing orientation: identify the saved world and the player's
+    -- actual XYZ; don't require guessing where world 23 is located.
+    self.atlasGroundHudClock = (self.atlasGroundHudClock or 4.9) + dt
+    if self.atlasGroundHudClock >= 5.0 then
+        self.atlasGroundHudClock = 0
+        if worldId ~= {world_id} then
+            sm.gui.displayAlertText(string.format(
+                "Atlas: world %d | need world {world_id} (Drill2)", worldId
+            ), 4.0, false)
+        elseif playerPos ~= nil then
+            local deltaX = {x:.6f} - playerPos.x
+            local deltaY = {y:.6f} - playerPos.y
+            local deltaZ = {z:.6f} - playerPos.z
+            local distance = math.sqrt(
+                deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ
+            )
+            sm.gui.displayAlertText(string.format(
+                "Atlas W%d | XYZ %.0f %.0f %.0f | goal %.0fm | dX%+.0f dY%+.0f dZ%+.0f",
+                worldId, playerPos.x, playerPos.y, playerPos.z,
+                distance, deltaX, deltaY, deltaZ
+            ), 4.0, false)
+        else
+            sm.gui.displayAlertText(
+                "Atlas: world {world_id} | waiting for player position", 4.0, false
+            )
+        end
+    end
+    if self.atlasGroundDidRun then return end
+    if world == nil or worldId ~= {world_id} or playerPos == nil then return end
     local dx = playerPos.x - {x:.6f}
     local dy = playerPos.y - {y:.6f}
     local dz = playerPos.z - {z:.6f}
