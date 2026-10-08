@@ -42,7 +42,7 @@ from .tile_objects import (
 from .tile_voxel_walk import probe_tile_voxel_walk
 from .tile_world import probe_tile_world
 from .ground_truth import render_ground_probe_lua, compare_ground_observations
-from .ground_hook import survival_hook_operation
+from .ground_hook import survival_hook_operation, load_portal_entrance
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -211,6 +211,14 @@ def build_parser() -> argparse.ArgumentParser:
     ground_hook_parser.add_argument(
         "--lua", type=Path, required=True,
         help="Exact atlas_ground_probe.lua generated from this plan.",
+    )
+    ground_hook_parser.add_argument(
+        "--navigation-save", type=Path,
+        help="Read-only save to resolve a verified portal approach position.",
+    )
+    ground_hook_parser.add_argument(
+        "--portal-id", type=int,
+        help="Saved portal ID to navigate to before entering the target world.",
     )
     ground_action = ground_hook_parser.add_mutually_exclusive_group()
     ground_action.add_argument(
@@ -1634,13 +1642,28 @@ def run_tile_ground_survival(
     game_script: Path,
     install: bool,
     remove: bool,
+    navigation_save: Path | None = None,
+    portal_id: int | None = None,
 ) -> int:
     try:
+        if (navigation_save is None) != (portal_id is None):
+            raise ValueError(
+                "--navigation-save and --portal-id must be provided together"
+            )
+        plan_data = json.loads(plan.read_text(encoding="utf-8-sig"))
+        entrance = None
+        if navigation_save is not None and not remove:
+            entrance = load_portal_entrance(
+                navigation_save,
+                destination_world_id=plan_data["world_id"],
+                portal_id=portal_id,
+            )
         result = survival_hook_operation(
             game_script,
-            json.loads(plan.read_text(encoding="utf-8-sig")),
+            plan_data,
             lua_text=lua_file.read_text(encoding="utf-8-sig"),
             action="install" if install else ("remove" if remove else "preview"),
+            entrance=entrance,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"error: {exc}")
@@ -4473,7 +4496,7 @@ def main() -> None:
         raise SystemExit(
             run_tile_ground_survival(
                 args.plan, args.lua, args.game_script,
-                args.install, args.remove,
+                args.install, args.remove, args.navigation_save, args.portal_id,
             )
         )
 
