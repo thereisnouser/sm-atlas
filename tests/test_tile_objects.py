@@ -6,7 +6,10 @@ import struct
 import pytest
 
 from sm_atlas.tile_file import InvalidTileFile
-from sm_atlas.tile_objects import probe_tile_objects
+from sm_atlas.tile_objects import (
+    probe_tile_objects,
+    placements_near_candidate_route,
+)
 
 
 def _literal_lz4(data: bytes) -> bytes:
@@ -94,3 +97,36 @@ def test_object_probe_rejects_unsupported_record_stride(tmp_path: Path) -> None:
 def test_object_probe_rejects_negative_example_count(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="examples"):
         probe_tile_objects(tmp_path / "fixture_1x1x1.tile", examples=-1)
+
+
+
+def test_placement_proximity_is_to_record_origin_not_collision_shape() -> None:
+    placements = [
+        {
+            "kind": "unknown",
+            "index": 2,
+            "cell": 0,
+            "uuid_hex": "abcd",
+            "tile_position": (1.5, 0.5, 1.5),
+        },
+        {
+            "kind": "harvestable",
+            "index": 7,
+            "cell": 0,
+            "uuid_hex": "ffff",
+            "tile_position": (8.0, 9.0, 1.5),
+        },
+    ]
+    near = placements_near_candidate_route(
+        placements, [(0, 0, 1), (1, 0, 1)],
+        radius_m=1,
+    )
+    assert len(near) == 1
+    assert near[0]["index"] == 2
+    assert near[0]["distance_to_footpath_m"] == 0
+    assert near[0]["nearest_foot"] == (1, 0, 1)
+
+
+def test_placement_proximity_rejects_empty_radius() -> None:
+    with pytest.raises(ValueError, match="radius_m"):
+        placements_near_candidate_route([], [(0, 0, 1)], radius_m=0)
