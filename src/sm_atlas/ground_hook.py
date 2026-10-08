@@ -33,6 +33,10 @@ def build_survival_hook(plan: dict) -> str:
 -- No save mutations, teleportation, or persistent player state.
 local atlasOldClientOnUpdate = SurvivalGame.client_onUpdate
 function SurvivalGame.client_onUpdate(self, dt)
+    if not self.atlasGroundHookSawUpdate then
+        self.atlasGroundHookSawUpdate = true
+        sm.log.info("ATLAS_GROUND_HOOK,callback_entered,world={world_id}")
+    end
     if atlasOldClientOnUpdate ~= nil then
         atlasOldClientOnUpdate(self, dt)
     end
@@ -88,7 +92,11 @@ function SurvivalGame.client_onUpdate(self, dt)
     end
 end
 """
-    return BEGIN + "\n" + lua + "\n" + callback.strip() + "\n" + END + "\n"
+    boot = (
+        'sm.log.info("ATLAS_GROUND_BOOT,file_loaded,world='
+        + str(world_id) + '")'
+    )
+    return BEGIN + "\n" + boot + "\n" + lua + "\n" + callback.strip() + "\n" + END + "\n"
 
 
 def _check_game_script(data: bytes) -> None:
