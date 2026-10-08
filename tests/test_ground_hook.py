@@ -73,6 +73,10 @@ def test_survival_hook_dry_run_install_and_remove_preserves_bytes(
     assert "atlasOldClientOnUpdate(self, dt)" in patched
     assert "world.id ~= 23" in patched
     assert "ATLAS_GROUND_HOOK,ready,world=23,radius=40" in patched
+    assert "sm.gui.displayAlertText" in patched
+    assert "need world 23 (Drill2)" in patched
+    assert "goal %.0fm" in patched
+    assert "playerPos.x, playerPos.y, playerPos.z" in patched
     assert "if self.atlasGroundDidRun then return end" in patched
 
     preview_installed = survival_hook_operation(path, plan, lua_text=lua)
