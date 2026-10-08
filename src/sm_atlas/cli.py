@@ -35,7 +35,10 @@ from .tile_file import (
     probe_tile_voxels,
 )
 from .tile_voxel_space import probe_tile_voxel_space
-from .tile_objects import probe_tile_objects
+from .tile_objects import (
+    probe_tile_objects,
+    placements_near_candidate_route,
+)
 from .tile_voxel_walk import probe_tile_voxel_walk
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
@@ -190,6 +193,20 @@ def build_parser() -> argparse.ArgumentParser:
     tile_object_parser.add_argument(
         "--json", action="store_true",
         help="Print full placement inventory as JSON.",
+    )
+    tile_object_parser.add_argument(
+        "--from-socket",
+        help="Optional socket at start of candidate route.",
+    )
+    tile_object_parser.add_argument(
+        "--to-socket",
+        help="Optional socket at end of candidate route.",
+    )
+    tile_object_parser.add_argument(
+        "--radius",
+        type=float,
+        default=5.0,
+        help="Distance from placement origin to candidate footpath (metres).",
     )
 
     tile_voxel_walk_parser = subparsers.add_parser(
@@ -1429,10 +1446,37 @@ def run_tile_voxel_space(
 
 
 def run_tile_object_probe(
-    tile: Path, examples: int, as_json: bool,
+    tile: Path,
+    examples: int,
+    as_json: bool,
+    from_socket: str | None = None,
+    to_socket: str | None = None,
+    radius: float = 5.0,
 ) -> int:
     try:
+        if (from_socket is None) != (to_socket is None):
+            raise ValueError("both from_socket and to_socket are required")
+        if radius <= 0:
+            raise ValueError("radius must be positive")
         result = probe_tile_objects(tile, examples=examples)
+        if from_socket is not None:
+            route = probe_tile_voxel_walk(
+                tile, from_socket=from_socket, to_socket=to_socket,
+            )["route"]
+            result["selected_route"] = {
+                "from_socket": from_socket,
+                "to_socket": to_socket,
+                "status": route["status"],
+                "radius_m": radius,
+            }
+            candidate_path = (
+                route["path"]["foot_voxels"]
+                if route["path"] is not None
+                else []
+            )
+            result["near_route"] = placements_near_candidate_route(
+                result["placements"], candidate_path, radius_m=radius,
+            )
     except (
         FileNotFoundError,
         InvalidTileFile,
@@ -1465,6 +1509,20 @@ def run_tile_object_probe(
             f"scale={item['scale']} "
             f"uuid={item['uuid_hex']}"
         )
+    if "selected_route" in result:
+        route = result["selected_route"]
+        print(
+            f"Candidate route: {route['from_socket']} -> "
+            f"{route['to_socket']} status={route['status']} "
+            f"radius={route['radius_m']}m"
+        )
+        for item in result["near_route"]:
+            print(
+                f"  nearby {item['kind']} index={item['index']} "
+                f"uuid={item['uuid_hex']} "
+                f"pos={item['tile_position']} "
+                f"origin_distance={item['distance_to_footpath_m']}m"
+            )
     print(
         "WARNING: record transforms/UUIDs do not identify mesh, "
         "solid collision or ramps."
@@ -4007,6 +4065,9 @@ def main() -> None:
                 args.tile,
                 args.examples,
                 args.json,
+                args.from_socket,
+                args.to_socket,
+                args.radius,
             )
         )
 
