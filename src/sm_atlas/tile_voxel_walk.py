@@ -227,6 +227,107 @@ def _shortest_walk(
     }
 
 
+def _explain_component_gap(
+    labels: array,
+    dims: tuple[int, int, int],
+    component_a: int,
+    component_b: int,
+    *,
+    max_step: int,
+    volume: bytearray,
+    density_threshold: int,
+    headroom: int,
+    examples_per_reason: int = 3,
+) -> dict[str, object]:
+    """Find adjacent candidate floors blocked by slope or headroom rules.
+
+    Explains rejected voxel-graph edges only. It does not prove actual
+    collision or find bridges represented by separate game assets.
+    """
+    sx, sy, sz = dims
+    stride = sy * sz
+    causes: dict[str, int] = {}
+    examples: dict[str, list[dict[str, object]]] = {}
+    nearest: dict[str, object] | None = None
+    search_z = max(2, max_step)
+
+    for p, cid in enumerate(labels):
+        if cid != component_a:
+            continue
+        x, rem = divmod(p, stride)
+        y, z = divmod(rem, sz)
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            xx, yy = x + dx, y + dy
+            if not (0 <= xx < sx and 0 <= yy < sy):
+                continue
+            base = (xx * sy + yy) * sz
+            for dz in range(-search_z, search_z + 1):
+                zz = z + dz
+                if not 0 <= zz < sz or labels[base + zz] != component_b:
+                    continue
+                if abs(dz) > max_step:
+                    reason = "step_exceeds_limit"
+                    blocker = None
+                else:
+                    low_index, low_z = (
+                        (p, z) if dz > 0 else (base + zz, zz)
+                    )
+                    blocker = None
+                    for rise in range(abs(dz)):
+                        sample_z = low_z + headroom + rise
+                        if sample_z >= sz:
+                            blocker = {
+                                "position": (
+                                    (x, y, sample_z)
+                                    if dz > 0 else (xx, yy, sample_z)
+                                ),
+                                "reason": "outside_tile",
+                            }
+                            break
+                        raw = volume[low_index + headroom + rise]
+                        if raw == 255 or (raw & 0x0F) >= density_threshold:
+                            blocker = {
+                                "position": (
+                                    (x, y, sample_z)
+                                    if dz > 0 else (xx, yy, sample_z)
+                                ),
+                                "raw": int(raw),
+                                "density": int(raw & 0x0F),
+                            }
+                            break
+                    reason = (
+                        "low_side_headroom_blocked"
+                        if blocker is not None
+                        else "unexplained_graph_disconnect"
+                    )
+
+                from_point = (x, y, z)
+                to_point = (xx, yy, zz)
+                entry: dict[str, object] = {
+                    "from_foot": from_point,
+                    "to_foot": to_point,
+                    "delta_z_m": dz,
+                    "distance_m": round(hypot(1.0, dz), 3),
+                }
+                if blocker is not None:
+                    entry["blocker"] = blocker
+                causes[reason] = causes.get(reason, 0) + 1
+                examples.setdefault(reason, [])
+                if len(examples[reason]) < examples_per_reason:
+                    examples[reason].append(entry)
+                if nearest is None or entry["distance_m"] < nearest["distance_m"]:
+                    nearest = entry
+
+    return {
+        "from_component": component_a,
+        "to_component": component_b,
+        "reason_counts": causes,
+        "examples": examples,
+        "closest_adjacent_candidate": nearest,
+        "interpretation": "blocked_voxel_edges_only; not verified game collision",
+    }
+
+
 def probe_tile_voxel_walk(
     tile: str | Path,
     *,
@@ -276,11 +377,16 @@ def probe_tile_voxel_walk(
                 pos, labels, sizes, dims, radius=socket_radius,
                 min_component_size=min_component_size,
             )
+            nearest_any = _nearest_foot(
+                pos, labels, sizes, dims, radius=socket_radius,
+                min_component_size=1,
+            )
             name = f"cell{chunk['cell']}:node{node['index']}"
             sockets.append({
                 "socket": name,
                 "tile_position": tuple(round(v, 3) for v in pos),
                 "nearest_foot": nearest,
+                "nearest_any_foot": nearest_any,
             })
 
     major = [c for c in components if c["voxels"] >= min_component_size]
@@ -320,6 +426,11 @@ def probe_tile_voxel_walk(
             path_result["status"] = "socket_not_attached_to_major_floor"
         elif source["component"] != target["component"]:
             path_result["status"] = "different_candidate_floor_components"
+            path_result["gap_diagnostics"] = _explain_component_gap(
+                labels, dims, source["component"], target["component"],
+                max_step=max_step, volume=volume,
+                density_threshold=density_threshold, headroom=headroom,
+            )
         else:
             walk = _shortest_walk(
                 source["foot_voxel"], target["foot_voxel"],
