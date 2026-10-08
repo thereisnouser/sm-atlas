@@ -204,7 +204,17 @@ def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
                     f"sample index {index} differs from plan coordinates; "
                     "regenerate Lua from the same plan"
                 )
-            if record["hit"] and record["hit_type"] == "terrainSurface":
+            if (
+                record["hit"] and record["hit_type"] == "terrainSurface"
+                and record["normal"][2] <= 0.1
+            ):
+                row.update({
+                    "status": "non_upward_terrain_surface_hit",
+                    "hit_type": record["hit_type"],
+                    "actual_z": record["hit_z"],
+                    "normal_world": record["normal"],
+                })
+            elif record["hit"] and record["hit_type"] == "terrainSurface":
                 error = record["hit_z"] - predicted_z
                 errors.append(error)
                 row.update({
@@ -274,7 +284,14 @@ def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
         "logged_points": len(observations),
         "terrain_surface_hits": len(errors),
         "other_hits_or_misses": sum(
-            row["status"] in ("no_hit", "other_collision_type")
+            row["status"] in (
+                "no_hit", "other_collision_type",
+                "non_upward_terrain_surface_hit",
+            )
+            for row in lines
+        ),
+        "non_upward_terrain_surface_hits": sum(
+            row["status"] == "non_upward_terrain_surface_hit"
             for row in lines
         ),
         "not_sampled": sum(
