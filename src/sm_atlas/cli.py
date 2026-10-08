@@ -1486,12 +1486,28 @@ def run_tile_voxel_walk(
                 f"z_range={item['min_z']}..{item['max_z']}"
             )
             print(
+                f"  edges: level={item['level_steps']} "
+                f"rises={item['rise_steps']} "
+                f"drops={item['drop_steps']} "
+                f"unverified_elevation={item['unverified_elevation_edges']} "
+                f"rise_ceiling_checked={item['rise_clearance_checked']}"
+            )
+            attachment = route.get("socket_attachment")
+            if attachment is not None:
+                print(
+                    f"  socket-to-floor offsets: "
+                    f"start={attachment['source_offset_m']}m "
+                    f"end={attachment['target_offset_m']}m "
+                    f"connection_validated={attachment['validated_connection']}"
+                )
+            print(
                 "  Full foot-voxel path: use --json "
                 "to retrieve every waypoint."
             )
     print(
-        "WARNING: not verified walkability; assets/physics, "
-        "ramp geometry, and socket attachment remain unresolved."
+        "WARNING: not verified walkability; a 1m rise is not "
+        "evidence of a traversable ramp/stair. Assets/physics "
+        "and socket-to-floor connections remain unresolved."
     )
     return 0
 
