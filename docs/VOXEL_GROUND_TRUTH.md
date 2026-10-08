@@ -181,6 +181,39 @@ and https://scrapmechanic.com/api/namespace_Game_sm_log.html.
 The client World accessor is documented at
 https://scrapmechanic.com/api/namespace_Game_sm_localPlayer.html.
 
+## Finding the actual in-game world and location
+
+In `--world 23`, **23 is a unique saved game-world ID, not the
+twenty-third dungeon floor**. To read the type and level from *your*
+save:
+
+```powershell
+sm-atlas worlds $save | Select-String '^\[23\]' -Context 0,3
+sm-atlas underground-tunnels $save --world 23
+```
+
+Inspect the `depth` / `Depth` value and the world path. The examined
+`drill2_tunnelpocket_small_passage_08_2x3x2.tile` comes from
+`Drill2`; that filename alone is not proof of the exact saved-world
+depth. You normally enter underground worlds through the mine and
+progress to deeper levels via the in-game mine elevator. A save may
+assign different world IDs.
+
+Game World coordinates are *not* coordinates on Scrap Mechanic's
+ordinary map. A player cannot type `44.5, -108, 83` in a vanilla map
+and get a route. To help, the opt-in Survival hook prints a compact
+alert every 5 seconds: the current world ID; and, in world 23, the
+player's XYZ, 3D straight-line distance to the target, and differences
+(`dX dY dZ`). Reduce the distance by moving toward the target,
+but obey real caves/walls — straight-line geometry is not a walkable
+route or a compass navigation guarantee. This HUD is only available
+in hook versions installed after the HUD change.
+
+**If an earlier Atlas hook is already installed**, exit Scrap Mechanic,
+run `--remove` with the exact original JSON/Lua pair before pulling
+or installing a new hook, update the repo, and then `--install` again.
+Do not append a second hook on top of an existing one.
+
 ## Opt-in reversible Survival script hook
 
 **This step edits an installed game script only when you explicitly run
@@ -208,7 +241,9 @@ experimental Lua block. It wraps the existing `SurvivalGame.client_onUpdate`
 without deleting the original callback.
 
 The hook logs `ATLAS_GROUND_HOOK,ready,world=23,radius=40` after
-the Game client begins updating. When the local player enters **world 23**
+the Game client begins updating. It also displays current world ID and
+a navigation status alert every five seconds (using
+`sm.gui.displayAlertText`). When the local player enters **world 23**
 and is within **40 m** of the sampled target (roughly world
 `(44.5,-108,82.8)`), it waits two seconds, then runs the ground probe
 **once per loaded Game script**. There is no teleportation and no auto
