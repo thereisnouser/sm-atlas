@@ -170,10 +170,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tile_voxel_space_parser.add_argument("tile", type=Path)
     tile_voxel_space_parser.add_argument(
-        "--density-threshold",
-        type=int,
-        default=8,
-        help="Treat low density nibbles below this as candidate void (1..15).",
+        "--density-bits", type=int, choices=(4, 5), default=4,
+        help="Experimental density-bit hypothesis (default=4 legacy).",
+    )
+    tile_voxel_space_parser.add_argument(
+        "--density-threshold", type=int, default=None,
+        help="Candidate void cutoff (default=half of selected density range).",
     )
     tile_voxel_space_parser.add_argument(
         "--json",
@@ -208,6 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=5.0,
         help="Distance from placement origin to candidate footpath (metres).",
     )
+    tile_object_parser.add_argument(
+        "--density-bits", type=int, choices=(4, 5), default=4,
+        help="Candidate density model for route proximity (default=4 legacy).",
+    )
 
     tile_voxel_walk_parser = subparsers.add_parser(
         "tile-voxel-walk",
@@ -223,10 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Destination socket identifier, e.g. cell0:node6.",
     )
     tile_voxel_walk_parser.add_argument(
-        "--density-threshold",
-        type=int,
-        default=8,
-        help="Candidate free density values strictly below this value.",
+        "--density-bits", type=int, choices=(4, 5), default=4,
+        help="Experimental density-bit hypothesis (default=4 legacy).",
+    )
+    tile_voxel_walk_parser.add_argument(
+        "--density-threshold", type=int, default=None,
+        help="Candidate void cutoff (default=half of selected density range).",
     )
     tile_voxel_walk_parser.add_argument(
         "--headroom",
@@ -1392,13 +1400,15 @@ def run_tile_voxel_probe(
 
 def run_tile_voxel_space(
     tile: Path,
-    density_threshold: int,
+    density_threshold: int | None,
     as_json: bool,
+    density_bits: int = 4,
 ) -> int:
     try:
         result = probe_tile_voxel_space(
             tile,
             density_threshold=density_threshold,
+            density_bits=density_bits,
         )
     except (
         FileNotFoundError,
@@ -1416,6 +1426,7 @@ def run_tile_voxel_space(
     print(f"Tile: {result['tile']}")
     print(
         f"Candidate voxel space: dims={result['dimensions_m']} "
+        f"density_bits={result['density_bits']} "
         f"density_threshold={result['density_threshold']} "
         f"components={result['component_count']} "
         f"unknown={result['unknown_voxels']}"
@@ -1452,6 +1463,7 @@ def run_tile_object_probe(
     from_socket: str | None = None,
     to_socket: str | None = None,
     radius: float = 5.0,
+    density_bits: int = 4,
 ) -> int:
     try:
         if (from_socket is None) != (to_socket is None):
@@ -1462,12 +1474,14 @@ def run_tile_object_probe(
         if from_socket is not None:
             route = probe_tile_voxel_walk(
                 tile, from_socket=from_socket, to_socket=to_socket,
+                density_bits=density_bits,
             )["route"]
             result["selected_route"] = {
                 "from_socket": from_socket,
                 "to_socket": to_socket,
                 "status": route["status"],
                 "radius_m": radius,
+                "density_bits": density_bits,
             }
             candidate_path = (
                 route["path"]["foot_voxels"]
@@ -1514,7 +1528,8 @@ def run_tile_object_probe(
         print(
             f"Candidate route: {route['from_socket']} -> "
             f"{route['to_socket']} status={route['status']} "
-            f"radius={route['radius_m']}m"
+            f"radius={route['radius_m']}m "
+            f"density_bits={route['density_bits']}"
         )
         for item in result["near_route"]:
             print(
@@ -1534,11 +1549,12 @@ def run_tile_voxel_walk(
     tile: Path,
     from_socket: str | None,
     to_socket: str | None,
-    density_threshold: int,
+    density_threshold: int | None,
     headroom: int,
     max_step: int,
     as_json: bool,
     elevation_details: bool = False,
+    density_bits: int = 4,
 ) -> int:
     try:
         result = probe_tile_voxel_walk(
@@ -1546,6 +1562,7 @@ def run_tile_voxel_walk(
             from_socket=from_socket,
             to_socket=to_socket,
             density_threshold=density_threshold,
+            density_bits=density_bits,
             headroom=headroom,
             max_step=max_step,
         )
@@ -1570,7 +1587,8 @@ def run_tile_voxel_walk(
         f"unknown={result['unknown_voxels']}"
     )
     print(
-        f"Settings: density<{result['density_threshold']} "
+        f"Settings: density_bits={result['density_bits']} "
+        f"density<{result['density_threshold']} "
         f"headroom={result['headroom_m']}m "
         f"max_step={result['max_step_m']}m "
         f"socket_radius={result['socket_radius_m']}m"
@@ -4056,6 +4074,7 @@ def main() -> None:
                 args.tile,
                 args.density_threshold,
                 args.json,
+                args.density_bits,
             )
         )
 
@@ -4068,6 +4087,7 @@ def main() -> None:
                 args.from_socket,
                 args.to_socket,
                 args.radius,
+                args.density_bits,
             )
         )
 
@@ -4082,6 +4102,7 @@ def main() -> None:
                 args.max_step,
                 args.json,
                 args.elevation_details,
+                args.density_bits,
             )
         )
 
