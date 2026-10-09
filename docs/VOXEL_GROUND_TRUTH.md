@@ -390,6 +390,40 @@ same-signed residual grades over uniformly spaced edges. It is **not**
 evidence of twelve independent confirmations of a candidate. The
 expanded transverse check directly measures a second spatial direction.
 
+### Distinguish consistent tilt error from incorrect surface shape
+
+A model can be wrong in two very different ways:
+
+1. It can have a nearly **constant extra tilt** across the patch,
+   producing very similar signed errors on adjacent edges.
+2. It can have the **wrong local bumps**, with some slope errors
+   positive and others negative, even when total rise matches.
+
+The read-only audit adds `along_direction_bias` and
+`cross_direction_bias` for each model. The CLI prints these for the
+highest-ranked coverage-first candidate:
+
+- `game_mean`: measured mean **signed** grade in the direction of
+  the recorded edge (world Y decreasing for along, world X increasing
+  for cross in this Drill2 measurement).
+- `model_mean`: model's mean signed grade in the same direction.
+- `mean_error`: mean(model grade - measured grade).
+- `error_after_tilt_diagnostic`: mean absolute error left *after
+  subtracting that mean error* from the same set of grade residuals.
+
+The last number is deliberately named **diagnostic**: subtracting a
+mean error here is in-sample arithmetic, not an authorized correction
+to the surface, game collision, transform, or voxel decoder. A low
+residual means the measured mismatch resembles a constant plane tilt
+on this tiny region; it does not establish the cause or generalize to
+other terrain. A high residual means a uniform tilt alone would not
+explain the local shape mismatch. A missing or ambiguous crossing
+remains unscored, with `null` fields if no edges are valid.
+
+Do **not** select or validate a model using these corrected-in-sample
+diagnostics. Independent raycast patches and geometry interpretation
+remain necessary.
+
 ## Diagnosing a hook that shows no HUD
 
 In the October 8 game log, the Game state loaded and the runtime emitted

@@ -1860,6 +1860,24 @@ def run_tile_ground_slope_audit(
             f"rise_mae={model['mean_absolute_rise_error_m']}m "
             f"height_rmse={model['rmse_height_m']}m"
         )
+    # This is NOT a correction of the candidate surface: a constant
+    # tilt is fitted to the same game observations merely to identify
+    # systematic versus irregular mismatch.
+    top_model = result["models_ranked_by_patch_grade_error"][0]
+    print("  Leading model: signed tilt error vs local irregularity (m/m):")
+    for direction, key in (
+        ("along", "along_direction_bias"),
+        ("cross", "cross_direction_bias"),
+    ):
+        diagnostic = top_model[key]
+        print(
+            f"    {direction} "
+            f"game_mean={diagnostic['observed_mean_grade']} "
+            f"model_mean={diagnostic['model_mean_grade']} "
+            f"mean_error={diagnostic['mean_signed_grade_error']} "
+            f"error_after_tilt_diagnostic="
+            f"{diagnostic['mae_after_constant_tilt_diagnostic']}"
+        )
     print("WARNING: " + result["warning"])
     return 0
 
