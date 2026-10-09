@@ -286,6 +286,68 @@ Even an apparent near-perfect match at these coordinates cannot
 distinguish different unseen packing or demonstrate a walkable route.
 Repeat on distinct tiles/terrain before making any general claims.
 
+## Raw byte forensics anchored to the real cave floor
+
+**Problem:** Choosing a four-, five- or six-bit mask still assumes
+that the byte means what our model thinks it means. Previous model
+rankings test predicted heights, not the byte encoding itself. The
+read-only `tile-ground-byte-audit` command instead examines original
+voxel bytes surrounding the **15 already recorded game-raycast hits**.
+
+```powershell
+git pull
+sm-atlas tile-ground-byte-audit .\ground_plan.json .\atlas_ground_hits.log $tile
+sm-atlas tile-ground-byte-audit .\ground_plan.json .\atlas_ground_hits.log $tile --radius 0 --json > .\ground_byte_audit.json
+```
+
+It uses the anchored plan and matching tile UUID, rotation, dimensions
+and world ID already checked by `tile-ground-profile`. It reads the
+same underlying 16³ block records; it does not change them.
+
+The report keeps **unique integer XY voxel columns** instead of counting
+repeated raycasts that hit the same raw column as extra independent
+byte evidence. It considers the two previously tested vertical origin
+shifts (0 and 0.5 voxel), and reads the two recorded voxel bytes
+bracketing each *measured* hit Z. With the default `--radius 1`,
+neighbouring columns are included for context; their approximate floor
+height is borrowed from the closest genuine game hit. Use `--radius 0`
+for the strictest comparison, but expect fewer unique columns.
+
+Outputs:
+
+- `recorded_pairs / candidate_columns`: only both-byte-written
+  pairs count. A missing or out-of-bounds voxel is never given a
+  made-up density.
+- `bit transitions`: which of the eight individual raw bits switch
+  from 1→0 or 0→1 as we move upward past the observed floor height.
+- `bits=4/5/6`: how many byte pairs cross each **assumed midpoint**
+  in the expected ground-to-air or the reverse direction, or
+  remain on one side. This is a test of the assumption, not proof
+  of a mask or true physics.
+- `common raw byte pairs`: frequent original hex pairs
+  (example: `1F->03`) for investigation without assuming a packing.
+- JSON includes every column, nearest actual game hit, local height,
+  raw before/after bytes, and record presence for later analysis.
+
+**Crucial limit:** the engine may interpolate across several
+neighbouring voxels, use a different grid origin, or build triangles
+whose collision positions do not match a two-byte vertical crossing.
+A missing apparent 4-bit crossing in one column does **not** disprove
+the 4-bit mask. Data from neighbouring columns are not additional
+independent game-raycast measurements. No decoder is automatically
+chosen or fitted, and this tool does not install game scripts.
+
+The native `sm.voxelTerrainCell.copyTileCellVoxels` API establishes
+that the engine can copy voxel data from a tile into a runtime grid,
+but does not reveal byte packing or collision triangulation. The
+native `sm.terrainTile.getHeightAt` returns a *single* height at
+each (x,y) and does not by itself describe a potentially multi-level
+underground cave.
+
+Official sources:
+- https://scrapmechanic.com/api/namespace_Terrain_sm_voxelTerrainCell.html
+- https://scrapmechanic.com/api/namespace_Terrain_sm_terrainTile.html
+
 ## Optional six-bit byte-packing experiment
 
 Our initial **16** fixed trilinear test models assume that either 4 or
