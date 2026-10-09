@@ -286,6 +286,43 @@ Even an apparent near-perfect match at these coordinates cannot
 distinguish different unseen packing or demonstrate a walkable route.
 Repeat on distinct tiles/terrain before making any general claims.
 
+## Height vs slope audit: use normals to avoid a false decoder winner
+
+The test-save world 23 (node 322) hit series has real end-to-end
+rises of **0.084282 m, 0.106666 m, 0.154198 m** across three
+1.0-metre lanes (negative world Y direction). The lowest raw-height
+RMSE hypotheses had much larger predicted rises:
+
+| Model by height RMSE | Lane -0.5 m | Lane 0 m | Lane +0.5 m |
+| --- | ---: | ---: | ---: |
+| Engine raycast | 0.0843 m | 0.1067 m | 0.1542 m |
+| 4-bit origin [0, 0.5, 0.5] | 0.9969 m | 0.9943 m | 0.9394 m |
+| 5-bit origin [0, 0.5, 0] | 1.0761 m | 1.0729 m | 1.0604 m |
+
+An independent consistency check: on the centre lane's measured
+quarter-metre segment (samples 6 to 7), observed directional grade
+is +0.106688 m/m. The local hit normal at index 7 has
+`ny=0.105379, nz=0.987928`, implying
+`dz/d(-y) = ny/nz ~= 0.106667`. This is close evidence of a real
+locally shallow patch; normals and height differences on other
+segments may vary as the collision triangles change.
+
+`tile-ground-slope-audit` examines **all 16 candidate models** by
+the absolute error in end-to-end lane rise, not by proximity of raw
+heights. It also calculates the grade from nearby raycast normal
+vectors and adjacent hit heights:
+
+```powershell
+sm-atlas tile-ground-slope-audit .\ground_plan.json .\atlas_ground_hits.log $tile
+sm-atlas tile-ground-slope-audit .\ground_plan.json .\atlas_ground_hits.log $tile --json > .\ground_slope_audit.json
+```
+
+This audit is read-only. Models whose endpoint root is ambiguous or
+missing do not get an invented slope score. Its ranking tests agreement
+**only on these existing 15 observations**. Additional independent
+terrain patches and actual walking/capsule tests will be needed to
+validate a reusable walkability decoder.
+
 ## Diagnosing a hook that shows no HUD
 
 In the October 8 game log, the Game state loaded and the runtime emitted
