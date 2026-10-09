@@ -259,6 +259,10 @@ def build_parser() -> argparse.ArgumentParser:
     ground_hypotheses_parser.add_argument("log", type=Path)
     ground_hypotheses_parser.add_argument("tile", type=Path)
     ground_hypotheses_parser.add_argument("--json", action="store_true")
+    ground_hypotheses_parser.add_argument(
+        "--include-6-bit", action="store_true",
+        help="Opt in to a separate unverified 6-bit voxel-byte hypothesis.",
+    )
 
     slope_audit_parser = subparsers.add_parser(
         "tile-ground-slope-audit",
@@ -268,6 +272,10 @@ def build_parser() -> argparse.ArgumentParser:
     slope_audit_parser.add_argument("log", type=Path)
     slope_audit_parser.add_argument("tile", type=Path)
     slope_audit_parser.add_argument("--json", action="store_true")
+    slope_audit_parser.add_argument(
+        "--include-6-bit", action="store_true",
+        help="Also compare 8 unverified 6-bit density hypotheses (24 total).",
+    )
 
     tile_voxel_space_parser = subparsers.add_parser(
         "tile-voxel-space",
@@ -1786,11 +1794,13 @@ def run_tile_ground_profile(
 
 def run_tile_ground_hypotheses(
     plan: Path, log: Path, tile: Path, as_json: bool,
+    include_six_bit: bool = False,
 ) -> int:
     try:
         result = compare_trilinear_hypotheses(
             json.loads(plan.read_text(encoding="utf-8-sig")),
             log.read_text(encoding="utf-8-sig"), tile,
+            include_six_bit=include_six_bit,
         )
     except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
         print(f"error: {exc}")
@@ -1818,12 +1828,13 @@ def run_tile_ground_hypotheses(
 
 def run_tile_ground_slope_audit(
     plan: Path, log: Path, tile: Path, as_json: bool,
+    include_six_bit: bool = False,
 ) -> int:
     try:
         result = audit_ground_slopes(
             json.loads(plan.read_text(encoding="utf-8-sig")),
             log.read_text(encoding="utf-8-sig"),
-            tile,
+            tile, include_six_bit=include_six_bit,
         )
     except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
         print(f"error: {exc}")
@@ -4688,6 +4699,7 @@ def main() -> None:
         raise SystemExit(
             run_tile_ground_hypotheses(
                 args.plan, args.log, args.tile, args.json,
+                args.include_6_bit,
             )
         )
 
@@ -4695,6 +4707,7 @@ def main() -> None:
         raise SystemExit(
             run_tile_ground_slope_audit(
                 args.plan, args.log, args.tile, args.json,
+                args.include_6_bit,
             )
         )
 
