@@ -202,6 +202,13 @@ def test_adjacent_grade_discriminates_internal_wiggles_with_same_end_rise(
     assert local[0]["mean_absolute_local_grade_error"] == 0
     assert local[1]["mean_absolute_local_grade_error"] == pytest.approx(0.8)
     assert local[1]["max_absolute_local_grade_error"] == pytest.approx(0.8)
+    # The model's up/down zigzags cancel as a signed bias, but do
+    # NOT disappear under the residual after a constant-tilt fit.
+    jagged_diag = local[1]["along_direction_bias"]
+    assert jagged_diag["mean_signed_grade_error"] == pytest.approx(0)
+    assert jagged_diag["mae_after_constant_tilt_diagnostic"] == pytest.approx(
+        0.8
+    )
 
 
 def test_adjacent_grade_never_bridges_missing_hit_or_ambiguous_root(
@@ -333,3 +340,75 @@ def test_patch_does_not_bridge_missing_cross_hit_or_model_root(monkeypatch):
         or 11 in (s["from_index"], s["to_index"])
         for s in model["cross_track_grade_segments"]
     )
+
+
+def test_signed_directional_bias_separates_constant_tilt_from_surface_shape(
+    monkeypatch,
+):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": len(rows),
+            "samples": rows,
+        },
+    )
+    # +0.25 m per consecutive Y sample: exactly +1.0 m/m extra
+    # model grade along the lane, without changing the X grade.
+    model = [
+        {
+            "index": r["index"],
+            "status": "single_candidate",
+            "candidate_world_z": [r["actual_z"] + 0.25 * (i % 5)],
+        }
+        for i, r in enumerate(rows)
+    ]
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": [{
+            "bits": 4, "lattice_origin_shift_xyz": [0, 0, 0],
+            "single_candidates": len(rows), "rmse_m": 0.6,
+            "samples": model,
+        }]},
+    )
+    result = audit_ground_slopes({}, "", "dummy.tile")
+    scored = result["models_ranked_by_patch_grade_error"][0]
+    along = scored["along_direction_bias"]
+    cross = scored["cross_direction_bias"]
+    assert scored["patch_segments_scored"] == 22
+    assert along["mean_signed_grade_error"] == pytest.approx(1.0)
+    assert along["mae_after_constant_tilt_diagnostic"] == pytest.approx(0)
+    assert cross["mean_signed_grade_error"] == pytest.approx(0)
+    assert cross["mae_after_constant_tilt_diagnostic"] == pytest.approx(0)
+    # This metric is diagnostic; our original unfitted error remains large.
+    assert scored["mean_absolute_local_grade_error"] == pytest.approx(1.0)
+
+
+def test_directional_bias_with_no_valid_model_edges_is_unknown(monkeypatch):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": len(rows),
+            "samples": rows,
+        },
+    )
+    invalid = [
+        {"index": r["index"], "status": "no_candidate",
+         "candidate_world_z": []}
+        for r in rows
+    ]
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": [{
+            "bits": 5, "lattice_origin_shift_xyz": [0, 0, 0],
+            "single_candidates": 0, "rmse_m": None, "samples": invalid,
+        }]},
+    )
+    result = audit_ground_slopes({}, "", "dummy.tile")
+    model = result["models_ranked_by_patch_grade_error"][0]
+    for key in ("along_direction_bias", "cross_direction_bias"):
+        assert all(value is None for value in model[key].values())
+    assert model["patch_segments_scored"] == 0
