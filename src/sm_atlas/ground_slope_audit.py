@@ -25,6 +25,91 @@ def _lane_rows(samples: list[dict]) -> list[tuple[float, list[dict]]]:
     ]
 
 
+def _directional_grade_check(a: dict, b: dict) -> dict | None:
+    """Use real consecutive game hits; never bridge a missing measurement."""
+    if (a["status"] != "terrain_surface_hit"
+            or b["status"] != "terrain_surface_hit"):
+        return None
+    dx = b["world_xy"][0] - a["world_xy"][0]
+    dy = b["world_xy"][1] - a["world_xy"][1]
+    span = hypot(dx, dy)
+    if span <= 1e-9:
+        return None
+    ux, uy = dx / span, dy / span
+    actual_grade = (b["actual_z"] - a["actual_z"]) / span
+    estimates = [
+        -(r["normal_world"][0] * ux + r["normal_world"][1] * uy)
+        / r["normal_world"][2]
+        for r in (a, b)
+        if abs(r["normal_world"][2]) > 0.1
+    ]
+    if not estimates:
+        return None
+    normal_grade = mean(estimates)
+    return {
+        "from_index": a["index"],
+        "to_index": b["index"],
+        "horizontal_span_m": round(span, 6),
+        "observed_directional_grade": round(actual_grade, 6),
+        "normal_implied_directional_grade": round(normal_grade, 6),
+        "absolute_disagreement": round(
+            abs(actual_grade - normal_grade), 6
+        ),
+    }
+
+
+def _cross_track_checks(lanes: list[tuple[float, list[dict]]]) -> list[dict]:
+    """Measure cross-track slopes at matching fractions in adjacent lanes.
+
+    A cross-track pair must contain two actual hits. Intermediate lanes
+    are not skipped, even if all their raycasts missed.
+    """
+    checks = []
+    for (left_offset, left), (right_offset, right) in zip(lanes, lanes[1:]):
+        by_fraction = {row["fraction"]: row for row in right}
+        for a in left:
+            b = by_fraction.get(a["fraction"])
+            if b is None:
+                continue
+            check = _directional_grade_check(a, b)
+            if check is not None:
+                checks.append({
+                    **check,
+                    "fraction": a["fraction"],
+                    "from_lateral_offset_m": left_offset,
+                    "to_lateral_offset_m": right_offset,
+                })
+    return checks
+
+
+def _score_model_segment(segment: dict, rows: dict[int, dict]) -> dict | None:
+    """Compare a candidate root pair to the exact observed game-hit pair."""
+    a = rows.get(segment["from_index"])
+    b = rows.get(segment["to_index"])
+    if (a is None or b is None
+            or a["status"] != "single_candidate"
+            or b["status"] != "single_candidate"):
+        return None
+    span = segment["horizontal_span_m"]
+    if span <= 0:
+        return None
+    model_grade = (b["candidate_world_z"][0] - a["candidate_world_z"][0]) / span
+    actual_grade = segment["observed_directional_grade"]
+    normal_grade = segment["normal_implied_directional_grade"]
+    return {
+        "from_index": segment["from_index"],
+        "to_index": segment["to_index"],
+        "horizontal_span_m": span,
+        "observed_directional_grade": actual_grade,
+        "normal_implied_directional_grade": normal_grade,
+        "model_directional_grade": round(model_grade, 6),
+        "absolute_grade_error": round(abs(model_grade - actual_grade), 6),
+        "absolute_normal_grade_error": round(
+            abs(model_grade - normal_grade), 6
+        ),
+    }
+
+
 def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
     """Compare observed grades to normals and modelled end-to-end rises.
 
@@ -35,43 +120,17 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
     observed = compare_ground_observations(plan, log)
     hypotheses = compare_trilinear_hypotheses(plan, log, tile)
 
+    measured_lanes = _lane_rows(observed["samples"])
+    cross_track_checks = _cross_track_checks(measured_lanes)
     lane_summary = []
-    for lateral, lane in _lane_rows(observed["samples"]):
+    for lateral, lane in measured_lanes:
         valid = [r for r in lane if r["status"] == "terrain_surface_hit"]
         # Avoid bridging a missing observation to infer local normals.
         normal_checks = []
         for a, b in zip(lane, lane[1:]):
-            if (a["status"] != "terrain_surface_hit"
-                    or b["status"] != "terrain_surface_hit"):
-                continue
-            dx = b["world_xy"][0] - a["world_xy"][0]
-            dy = b["world_xy"][1] - a["world_xy"][1]
-            span = hypot(dx, dy)
-            if span <= 1e-9:
-                continue
-            actual_grade = (b["actual_z"] - a["actual_z"]) / span
-            ux, uy = dx / span, dy / span
-            # Average endpoint normal-derived directional grades.
-            estimates = [
-                -(r["normal_world"][0] * ux
-                  + r["normal_world"][1] * uy)
-                / r["normal_world"][2]
-                for r in (a, b)
-                if abs(r["normal_world"][2]) > 0.1
-            ]
-            if not estimates:
-                continue
-            estimated_grade = mean(estimates)
-            normal_checks.append({
-                "from_index": a["index"],
-                "to_index": b["index"],
-                "horizontal_span_m": round(span, 6),
-                "observed_directional_grade": round(actual_grade, 6),
-                "normal_implied_directional_grade": round(estimated_grade, 6),
-                "absolute_disagreement": round(
-                    abs(actual_grade - estimated_grade), 6
-                ),
-            })
+            check = _directional_grade_check(a, b)
+            if check is not None:
+                normal_checks.append(check)
         end_rise = None
         end_span = None
         if (len(lane) >= 2
@@ -132,36 +191,23 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
         local_grade_scores = []
         for lane in lane_summary:
             for segment in lane["adjacent_normal_checks"]:
-                first = rows.get(segment["from_index"])
-                last = rows.get(segment["to_index"])
-                if (first is None or last is None
-                        or first["status"] != "single_candidate"
-                        or last["status"] != "single_candidate"):
-                    continue
-                span = segment["horizontal_span_m"]
-                if span <= 0:
-                    continue
-                model_grade = (
-                    last["candidate_world_z"][0]
-                    - first["candidate_world_z"][0]
-                ) / span
-                measured_grade = segment["observed_directional_grade"]
-                normal_grade = segment["normal_implied_directional_grade"]
-                local_grade_scores.append({
-                    "from_index": segment["from_index"],
-                    "to_index": segment["to_index"],
-                    "lateral_offset_m": lane["lateral_offset_m"],
-                    "horizontal_span_m": span,
-                    "observed_directional_grade": measured_grade,
-                    "normal_implied_directional_grade": normal_grade,
-                    "model_directional_grade": round(model_grade, 6),
-                    "absolute_grade_error": round(
-                        abs(model_grade - measured_grade), 6
-                    ),
-                    "absolute_normal_grade_error": round(
-                        abs(model_grade - normal_grade), 6
-                    ),
+                scored = _score_model_segment(segment, rows)
+                if scored is not None:
+                    local_grade_scores.append({
+                        **scored,
+                        "lateral_offset_m": lane["lateral_offset_m"],
+                    })
+        cross_grade_scores = []
+        for segment in cross_track_checks:
+            scored = _score_model_segment(segment, rows)
+            if scored is not None:
+                cross_grade_scores.append({
+                    **scored,
+                    "fraction": segment["fraction"],
+                    "from_lateral_offset_m": segment["from_lateral_offset_m"],
+                    "to_lateral_offset_m": segment["to_lateral_offset_m"],
                 })
+        patch_grade_scores = local_grade_scores + cross_grade_scores
         models.append({
             "bits": candidate["bits"],
             "lattice_origin_shift_xyz": candidate["lattice_origin_shift_xyz"],
@@ -190,6 +236,28 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
                 if local_grade_scores else None
             ),
             "adjacent_grade_segments": local_grade_scores,
+            "measured_cross_track_segments": len(cross_track_checks),
+            "cross_track_segments_scored": len(cross_grade_scores),
+            "mean_absolute_cross_track_grade_error": (
+                round(mean(x["absolute_grade_error"] for x in cross_grade_scores), 6)
+                if cross_grade_scores else None
+            ),
+            "cross_track_grade_segments": cross_grade_scores,
+            "measured_patch_segments": (
+                sum(len(lane["adjacent_normal_checks"]) for lane in lane_summary)
+                + len(cross_track_checks)
+            ),
+            "patch_segments_scored": len(patch_grade_scores),
+            "mean_absolute_patch_grade_error": (
+                round(mean(x["absolute_grade_error"] for x in patch_grade_scores), 6)
+                if patch_grade_scores else None
+            ),
+            "mean_absolute_patch_normal_grade_error": (
+                round(
+                    mean(x["absolute_normal_grade_error"] for x in patch_grade_scores),
+                    6,
+                ) if patch_grade_scores else None
+            ),
         })
     models.sort(key=lambda model: (
         -model["lanes_scored"],
@@ -204,6 +272,8 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
         "measured_hits": observed["terrain_surface_hits"],
         "models_evaluated": len(models),
         "lanes": lane_summary,
+        "measured_cross_track_segments": len(cross_track_checks),
+        "cross_track_normal_checks": cross_track_checks,
         "models_ranked_by_rise_error": models,
         "models_ranked_by_local_grade_error": sorted(models, key=lambda model: (
             -model["segments_scored"],
@@ -213,7 +283,17 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
             model["bits"],
             model["lattice_origin_shift_xyz"],
         )),
+        "models_ranked_by_patch_grade_error": sorted(models, key=lambda model: (
+            -model["patch_segments_scored"],
+            model["mean_absolute_patch_grade_error"]
+            if model["mean_absolute_patch_grade_error"] is not None
+            else float("inf"),
+            model["bits"],
+            model["lattice_origin_shift_xyz"],
+        )),
         "warning": (
+            "This 3x5 raycast patch yields up to 12 along-track plus 10 "
+            "cross-track edges, not 22 independent ground measurements. "
             "Normals and adjacent raycast heights corroborate local terrain "
             "orientation only. Some adjacent pairs may cross triangle edges; "
             "disagreement there is expected. Adjacent-grade scores "
