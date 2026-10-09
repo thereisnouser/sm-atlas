@@ -1844,10 +1844,14 @@ def run_tile_ground_slope_audit(
             f"normal_grade_disagreement="
             f"{lane['mean_normal_grade_disagreement']}"
         )
-    for model in result["models_ranked_by_rise_error"]:
+    print("  Local adjacent-grade models (coverage first; grades are m/m):")
+    for model in result["models_ranked_by_local_grade_error"]:
         print(
             f"  bits={model['bits']} "
             f"origin={model['lattice_origin_shift_xyz']} "
+            f"segments={model['segments_scored']}/{model['measured_segments']} "
+            f"local_grade_mae={model['mean_absolute_local_grade_error']} "
+            f"normal_grade_mae={model['mean_absolute_normal_grade_error']} "
             f"lanes={model['lanes_scored']} "
             f"rise_mae={model['mean_absolute_rise_error_m']}m "
             f"height_rmse={model['rmse_height_m']}m"
