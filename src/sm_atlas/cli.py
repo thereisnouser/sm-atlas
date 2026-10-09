@@ -45,6 +45,7 @@ from .ground_truth import render_ground_probe_lua, compare_ground_observations
 from .ground_hook import survival_hook_operation, load_portal_entrance
 from .ground_density import inspect_ground_density
 from .ground_hypotheses import compare_trilinear_hypotheses
+from .ground_slope_audit import audit_ground_slopes
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -258,6 +259,15 @@ def build_parser() -> argparse.ArgumentParser:
     ground_hypotheses_parser.add_argument("log", type=Path)
     ground_hypotheses_parser.add_argument("tile", type=Path)
     ground_hypotheses_parser.add_argument("--json", action="store_true")
+
+    slope_audit_parser = subparsers.add_parser(
+        "tile-ground-slope-audit",
+        help="Corroborate raycast slopes with normals and rank modelled rises.",
+    )
+    slope_audit_parser.add_argument("plan", type=Path)
+    slope_audit_parser.add_argument("log", type=Path)
+    slope_audit_parser.add_argument("tile", type=Path)
+    slope_audit_parser.add_argument("--json", action="store_true")
 
     tile_voxel_space_parser = subparsers.add_parser(
         "tile-voxel-space",
@@ -1801,6 +1811,46 @@ def run_tile_ground_hypotheses(
             f"ambiguous={model['ambiguous_samples']} "
             f"rmse={model['rmse_m']}m "
             f"rmse_after_bias={model['rmse_after_median_offset_m']}m"
+        )
+    print("WARNING: " + result["warning"])
+    return 0
+
+
+def run_tile_ground_slope_audit(
+    plan: Path, log: Path, tile: Path, as_json: bool,
+) -> int:
+    try:
+        result = audit_ground_slopes(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            log.read_text(encoding="utf-8-sig"),
+            tile,
+        )
+    except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
+        print(f"error: {exc}")
+        return 1
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(
+        f"Ground slope audit world={result['world_id']} "
+        f"measured_hits={result['measured_hits']} "
+        f"models={result['models_evaluated']}"
+    )
+    for lane in result["lanes"]:
+        print(
+            f"  lane={lane['lateral_offset_m']}m "
+            f"rise={lane['observed_end_to_end_rise_m']}m "
+            f"normal_checks={len(lane['adjacent_normal_checks'])} "
+            f"normal_grade_disagreement="
+            f"{lane['mean_normal_grade_disagreement']}"
+        )
+    for model in result["models_ranked_by_rise_error"]:
+        print(
+            f"  bits={model['bits']} "
+            f"origin={model['lattice_origin_shift_xyz']} "
+            f"lanes={model['lanes_scored']} "
+            f"rise_mae={model['mean_absolute_rise_error_m']}m "
+            f"height_rmse={model['rmse_height_m']}m"
         )
     print("WARNING: " + result["warning"])
     return 0
@@ -4611,6 +4661,13 @@ def main() -> None:
     if args.command == "tile-ground-hypotheses":
         raise SystemExit(
             run_tile_ground_hypotheses(
+                args.plan, args.log, args.tile, args.json,
+            )
+        )
+
+    if args.command == "tile-ground-slope-audit":
+        raise SystemExit(
+            run_tile_ground_slope_audit(
                 args.plan, args.log, args.tile, args.json,
             )
         )
