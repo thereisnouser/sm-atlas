@@ -305,8 +305,9 @@ def audit_ground_field_normals(
         "absent_voxels_in_tile": missing,
         "models_ranked_by_normal_angle": models,
         "warning": (
-            "Uses 15 observations in the same tiny game-raycast patch, "
-            "not independent validation. These are gradients of an "
+            f"Uses {len(profile['samples'])} game-raycast ground hits from the "
+            "supplied plan; individual rays are not independent patches. "
+            "These are gradients of an "
             "unverified piecewise-trilinear scalar field at game hit "
             "locations, not the engine's collision triangles. "
             "Changing a scalar cutoff does not change gradient direction "
