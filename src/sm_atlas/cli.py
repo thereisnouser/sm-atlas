@@ -42,6 +42,7 @@ from .tile_objects import (
 from .tile_voxel_walk import probe_tile_voxel_walk
 from .tile_world import probe_tile_world
 from .ground_truth import render_ground_probe_lua, compare_ground_observations
+from .ground_log_extract import extract_ground_probe_run
 from .ground_hook import survival_hook_operation, load_portal_entrance
 from .ground_density import inspect_ground_density
 from .ground_hypotheses import compare_trilinear_hypotheses
@@ -249,6 +250,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--remove", action="store_true",
         help="Back up and remove only the marked SM Atlas block.",
     )
+
+    ground_extract_parser = subparsers.add_parser(
+        "tile-ground-extract",
+        help="Extract the newest complete plan-matching probe from a game log.",
+    )
+    ground_extract_parser.add_argument("plan", type=Path)
+    ground_extract_parser.add_argument("game_log", type=Path)
+    ground_extract_parser.add_argument("--output", type=Path, required=True)
 
     ground_compare_parser = subparsers.add_parser(
         "tile-ground-compare",
@@ -2117,6 +2126,42 @@ def run_tile_ground_slope_audit(
             f"{diagnostic['mae_after_constant_tilt_diagnostic']}"
         )
     print("WARNING: " + result["warning"])
+    return 0
+
+
+def run_tile_ground_extract(
+    plan: Path, game_log: Path, output: Path,
+) -> int:
+    try:
+        if output.resolve() in (plan.resolve(), game_log.resolve()):
+            raise ValueError("refusing to overwrite an input file")
+        extracted, summary = extract_ground_probe_run(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            game_log.read_text(encoding="utf-8-sig"),
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        # Exclusive creation keeps an earlier trusted extraction intact.
+        with output.open("x", encoding="utf-8") as stream:
+            stream.write(extracted)
+    except (OSError, KeyError, TypeError, ValueError,
+            json.JSONDecodeError) as exc:
+        print(f"error: {exc}")
+        return 1
+    print(
+        f"Validated game probe: world={summary['world_id']} "
+        f"records={summary['extracted_records']}/"
+        f"{summary['expected_points']} "
+        f"upward_ground={summary['game_ground_hits']} "
+        f"other_or_miss={summary['other_hits_or_misses']}"
+    )
+    print(
+        f"  selected_run={summary['selected_marker_number']}/"
+        f"{summary['total_probe_markers_found']} "
+        f"marker_line={summary['selected_marker_line']} "
+        f"matching_runs={summary['matching_runs_found']}"
+    )
+    print(f"Saved verified observation records: {output}")
+    print("WARNING: " + summary["warning"])
     return 0
 
 
@@ -4915,6 +4960,13 @@ def main() -> None:
     if args.command == "tile-ground-lua":
         raise SystemExit(
             run_tile_ground_lua(args.plan, args.output)
+        )
+
+    if args.command == "tile-ground-extract":
+        raise SystemExit(
+            run_tile_ground_extract(
+                args.plan, args.game_log, args.output,
+            )
         )
 
     if args.command == "tile-ground-compare":
