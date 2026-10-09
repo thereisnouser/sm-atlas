@@ -165,18 +165,25 @@ walkable character clearance.
 **All 15 hits may fail even with a correct world transform** if the
 cave collision mask, terrain engine, or ray intervals behave differently.
 
-Collect the 15 `ATLAS_GROUND,` lines from the actual game log, optionally
-including normal log prefixes, into `atlas_ground_hits.log`. You can
-filter an existing game log with PowerShell (replace `$gameLog` with the
-actual log file path):
+Collect the complete game log from the correct Scrap Mechanic run.
+Atlas can now isolate the newest complete run whose declared world ID and
+sample count match the saved plan, and then verify each point's index,
+world and coordinates before writing the output. It refuses to merge
+multiple probes or silently fall back if the latest matching run fails.
 
 ```powershell
-Get-Content $gameLog | Select-String "ATLAS_GROUND," |
-    ForEach-Object { $_.Line } | Set-Content .\atlas_ground_hits.log
-
+# Set $gameLog to an actual log from the test game session.
+sm-atlas tile-ground-extract .\ground_plan.json $gameLog --output .\atlas_ground_hits.log
 sm-atlas tile-ground-compare .\ground_plan.json .\atlas_ground_hits.log
 sm-atlas tile-ground-compare .\ground_plan.json .\atlas_ground_hits.log --json > .\ground_comparison.json
 ```
+
+The extraction command never overwrites an existing output, plan or game
+log. Repeated captures require a different output filename or explicit
+manual cleanup after verifying backups. It requires the generated Lua's
+`ATLAS_GROUND_META,world=...,count=...` marker. For legacy logs
+without this marker, use `tile-ground-compare` with a known single
+run; do not splice repeated raw-log records together.
 
 The comparator refuses data for a different world or an outdated plan,
 calculates terrain-height errors and a median vertical offset (which
@@ -461,9 +468,9 @@ If you explicitly choose to repeat the game experiment:
    documented above as `$gameScript`.
 3. Enter the anchored underground world **23** and approach
    the measurement area through ordinary gameplay. Collect
-   **only the new 25 ATLAS_GROUND records** from the latest
-   game log into `atlas_ground_grid_hits.log`; do not append
-   the old 15 lines, as sample indices start at zero again.
+   **new probe's game log**. Use `tile-ground-extract` below to
+   select the newest complete, plan-matching run; do not merge old
+   and new measurements, as sample indices start at zero again.
 4. Exit the game and remove the NEW hook using the exact
    NEW plan/Lua pair, restoring the original script.
 
@@ -478,10 +485,11 @@ sm-atlas tile-ground-survival .\ground_grid_plan.json $gameScript --lua .\atlas_
 sm-atlas tile-ground-survival .\ground_grid_plan.json $gameScript --lua .\atlas_ground_grid.lua --remove
 ```
 
-Once authentic **new** logs have been captured, test normal
-orientation directly on the wider grid:
+Once authentic **new** logs have been captured, isolate the matching
+experiment and test normal orientation directly on the wider grid:
 
 ```powershell
+sm-atlas tile-ground-extract .\ground_grid_plan.json $gameLog --output .\atlas_ground_grid_hits.log
 sm-atlas tile-ground-compare .\ground_grid_plan.json .\atlas_ground_grid_hits.log
 sm-atlas tile-ground-normal-audit .\ground_grid_plan.json .\atlas_ground_grid_hits.log $tile --include-6-bit
 ```
