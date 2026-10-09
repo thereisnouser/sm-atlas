@@ -402,6 +402,57 @@ No game scripts, installed binaries, original saves or ordinary
 navigation are modified. This is an investigation of evidence, not
 a model automatically selected from 24 candidates.
 
+## Surface orientation vs game physics: no threshold fitting
+
+The preceding `tile-ground-isovalue-audit` measured candidate scalar
+values at the same 15 genuine game ground hits. On this Drill2 patch,
+several 4-bit candidates had **15/15 falling densities** but their
+observed normalized values still varied substantially. A single
+adjusted cutoff has **not** been shown to reconstruct the collision
+surface or correct our model slopes.
+
+The next read-only diagnostic tests a stronger property: the
+**direction** of the raw candidate density gradient at each authentic
+game hit, compared with the surface normal returned by
+`sm.physics.raycast`. For a genuine smooth isosurface, the gradient
+should be perpendicular to the surface. A different constant cutoff
+can move an isosurface but **cannot change the field's gradient at a
+fixed test point**. Therefore a large orientation mismatch at the
+actual game heights cannot be explained by changing only the cutoff
+there, under this particular field interpolation.
+
+```powershell
+git pull
+sm-atlas tile-ground-normal-audit .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit
+sm-atlas tile-ground-normal-audit .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit --json > .\ground_normal_audit.json
+```
+
+All variants share the exact existing saved-world tile alignment and
+quarter-turn rotation. Instead of choosing a crossing root, this
+compares a locally calculated 3D gradient with the *game-reported*
+3D normal. It reports:
+
+- `normal_samples=15/15`: model gradients which have all required
+  **recorded** neighbouring bytes, nonzero slope and density
+  falling upward. Unavailable/flat/reversed samples do not get an
+  invented angular score.
+- `mean_angle_error_deg` / `max_angle_error_deg`: how far the
+  candidate surface normal points away from the game normal in
+  degrees. **0° = aligned**; larger is worse. A low angle alone
+  still does not establish a correct mesh or a usable route.
+- `at_grid_plane`: candidate hits on or extremely near voxel
+  sample planes, where a piecewise-linear field can have a sharp
+  derivative change. The diagnostic uses symmetric 1 cm
+  differences and marks these cases as **less reliable**.
+- `non_falling` and `unavailable`: transparent coverage limitations,
+  not evidence for or against an unknown real-game density sign.
+
+This is a **diagnostic**, not a decoder or a threshold optimizer.
+It uses the same small, spatially correlated real game hits.
+The game collision mesh may be triangulated differently from a smooth
+density isosurface, in which case even a correct byte interpretation
+might not reproduce triangle normals at each exact point.
+
 ## Optional six-bit byte-packing experiment
 
 Our initial **16** fixed trilinear test models assume that either 4 or
