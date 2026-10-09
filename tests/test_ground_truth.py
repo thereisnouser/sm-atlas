@@ -256,3 +256,50 @@ def test_no_gap_bridging_when_a_raycast_sample_is_missing() -> None:
     )
     assert result["track_summaries"][0]["adjacent_measured_segments"] == 0
     assert result["track_summaries"][0]["max_observed_absolute_gradient"] is None
+
+
+@pytest.mark.parametrize("points_per_lane", [3, 5, 7])
+def test_ground_comparison_accepts_actual_planned_track_spacing(points_per_lane):
+    plan = _plan()
+    plan["critical_edge"]["world_samples"] = [
+        {
+            "world_xy": [44.5, -107.0 - i],
+            "estimated_surface_world_z": 82.0,
+            "fraction": i / (points_per_lane - 1),
+            "lateral_offset_m": 0.0,
+        }
+        for i in range(points_per_lane)
+    ]
+    log = "\n".join(
+        _record(plan, i, 82.0 + i * 0.2, kind="voxelTerrain")
+        for i in range(points_per_lane)
+    )
+    result = compare_ground_observations(plan, log)
+    track = result["track_summaries"][0]
+    assert track["adjacent_measured_segments"] == points_per_lane - 1
+    assert track["max_observed_absolute_gradient"] == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize("points_per_lane", [3, 5, 7])
+def test_ground_comparison_never_bridges_missing_planned_middle(points_per_lane):
+    plan = _plan()
+    plan["critical_edge"]["world_samples"] = [
+        {
+            "world_xy": [44.5, -107.0 - i],
+            "estimated_surface_world_z": 82.0,
+            "fraction": i / (points_per_lane - 1),
+            "lateral_offset_m": 0.0,
+        }
+        for i in range(points_per_lane)
+    ]
+    missing_index = points_per_lane // 2
+    log = "\n".join(
+        _record(plan, i, 82.0 + i * 0.2, kind="voxelTerrain")
+        for i in range(points_per_lane) if i != missing_index
+    )
+    track = compare_ground_observations(plan, log)["track_summaries"][0]
+    assert track["adjacent_measured_segments"] == max(0, points_per_lane - 3)
+    assert all(
+        missing_index not in (step["from_index"], step["to_index"])
+        for step in track["measured_segments"]
+    )
