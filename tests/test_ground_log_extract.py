@@ -118,9 +118,12 @@ def test_duplicate_or_wrong_point_in_latest_run_is_rejected():
     duplicates = _run(plan, indexes=[0, 0, 1])
     with pytest.raises(ValueError, match="duplicate"):
         extract_ground_probe_run(plan, duplicates)
+    actual_z = plan["critical_edge"]["world_samples"][1][
+        "estimated_surface_world_z"
+    ]
     wrong_position = _run(plan).replace(
-        _record(plan, 1),
-        _record(plan, 1, x_shift=0.5),
+        _record(plan, 1, measured_z=actual_z),
+        _record(plan, 1, measured_z=actual_z, x_shift=0.5),
     )
     with pytest.raises(ValueError, match="plan coordinates"):
         extract_ground_probe_run(plan, wrong_position)
