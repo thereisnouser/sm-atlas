@@ -126,6 +126,7 @@ def compare_trilinear_hypotheses(
             for shift_y in (0.0, 0.5):
                 for shift_z in (0.0, 0.5):
                     matching: list[float] = []
+                    ff_sensitive_samples = 0
                     samples = []
                     for row in rows:
                         index = row["index"]
@@ -146,6 +147,20 @@ def compare_trilinear_hypotheses(
                             sample_shift_z=shift_z,
                             written=written,
                         )
+                        # Compare to the former FF-as-unknown behaviour.
+                        # This never influences model selection or roots.
+                        former_roots = _candidate_floor_crossings(
+                            volume, dims,
+                            local_x=lx, local_y=ly,
+                            z_min=planned_z - 2.0 - min_z,
+                            z_max=planned_z + 1.0 - min_z,
+                            bits=bits,
+                            sample_shift_x=shift_x,
+                            sample_shift_y=shift_y,
+                            sample_shift_z=shift_z,
+                        )
+                        if former_roots != roots_local:
+                            ff_sensitive_samples += 1
                         roots_world = [
                             round(root + min_z, 6) for root in roots_local
                         ]
@@ -178,6 +193,7 @@ def compare_trilinear_hypotheses(
                             shift_x, shift_y, shift_z,
                         ],
                         "single_candidates": len(matching),
+                        "ff_sensitive_samples": ff_sensitive_samples,
                         "no_candidates": sum(
                             x["status"] == "no_candidate" for x in samples
                         ),
@@ -219,8 +235,10 @@ def compare_trilinear_hypotheses(
             "The optional 6-bit model comes from a DIFFERENT, modded runtime "
             "voxel serialization, not confirmed older .tile packing. "
             "Unwritten voxels are now distinguished from literal 0xFF "
-            "bytes within recorded tile blocks. This still does not "
-            "establish the physical meaning of the FF value. "
+            "bytes within recorded tile blocks. ff_sensitive_samples "
+            "counts differences in candidate crossings against the "
+            "former FF-as-unknown behaviour, not verified corrections. "
+            "This does not establish the physical meaning of FF. "
             "All 15 measurements come from a small area; no held-out "
             "terrain has been validated."
         ),
