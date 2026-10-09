@@ -420,8 +420,13 @@ def _surface_sample_height(
     *,
     density_threshold: int,
     density_bits: int,
+    written: bytearray | None = None,
 ) -> float | None:
-    """Estimate a vertical density isocrossing, not game collision."""
+    """Estimate a vertical density isocrossing, not game collision.
+
+    Optional record occupancy is used by byte-forensic research only.
+    Legacy voxel routing deliberately keeps its existing FF behaviour.
+    """
     x, y, z = point
     sx, sy, sz = dims
     if not (0 <= x < sx and 0 <= y < sy and 1 <= z < sz):
@@ -431,8 +436,12 @@ def _surface_sample_height(
     upper = int(volume[offset + z])
     mask = (1 << density_bits) - 1
     d0, d1 = lower & mask, upper & mask
+    missing = (
+        (lower == 255 or upper == 255) if written is None
+        else not (written[offset + z - 1] and written[offset + z])
+    )
     if (
-        lower == 255 or upper == 255
+        missing
         or d0 < density_threshold or d1 >= density_threshold
         or d0 <= d1
     ):

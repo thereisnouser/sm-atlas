@@ -20,6 +20,7 @@ def _interpolated_layer(
     y: float,
     z: int,
     mask: int,
+    written: bytearray | None = None,
 ) -> float | None:
     sx, sy, sz = dims
     if z < 0 or z >= sz or x < 0 or y < 0 or x > sx - 1 or y > sy - 1:
@@ -35,9 +36,14 @@ def _interpolated_layer(
                 continue
             if not 0 <= xx < sx or not 0 <= yy < sy:
                 return None
-            raw = volume[(xx * sy + yy) * sz + z]
-            if raw == 255:
-                return None  # unknown/unpopulated byte, do not fabricate it
+            index = (xx * sy + yy) * sz + z
+            raw = volume[index]
+            if written is None:
+                # Legacy direct callers have no occupancy information.
+                if raw == 255:
+                    return None
+            elif not written[index]:
+                return None  # absent record, regardless of byte value
             density += (raw & mask) * wx * wy
     return density
 
@@ -54,6 +60,7 @@ def _candidate_floor_crossings(
     sample_shift_x: float,
     sample_shift_y: float,
     sample_shift_z: float,
+    written: bytearray | None = None,
 ) -> list[float]:
     """Find upward-facing iso-crossings in the original game's ray window.
 
@@ -74,8 +81,8 @@ def _candidate_floor_crossings(
     z_end = min(dims[2] - 2, ceil(z_max - sample_shift_z))
     hits: list[float] = []
     for z in range(z_start, z_end + 1):
-        below = _interpolated_layer(volume, dims, x, y, z, mask)
-        above = _interpolated_layer(volume, dims, x, y, z + 1, mask)
+        below = _interpolated_layer(volume, dims, x, y, z, mask, written)
+        above = _interpolated_layer(volume, dims, x, y, z + 1, mask, written)
         if (
             below is None or above is None
             or below < threshold or above >= threshold
@@ -102,7 +109,13 @@ def compare_trilinear_hypotheses(
     """
     profile = inspect_ground_density(plan, log, tile)
     dims = _dimensions(Path(profile["tile_path"]))
-    volume, unknown_count = _load_density_bytes(Path(profile["tile_path"]), dims)
+    volume, unknown_count, written = _load_density_bytes(
+        Path(profile["tile_path"]), dims, return_written=True
+    )
+    written_ff_count = sum(
+        1 for raw, occupied in zip(volume, written)
+        if occupied and raw == 255
+    )
     min_z = float(plan["world_bounds"]["min"][2])
     rows = profile["samples"]
     candidates = []
@@ -113,6 +126,7 @@ def compare_trilinear_hypotheses(
             for shift_y in (0.0, 0.5):
                 for shift_z in (0.0, 0.5):
                     matching: list[float] = []
+                    ff_sensitive_samples = 0
                     samples = []
                     for row in rows:
                         index = row["index"]
@@ -131,7 +145,22 @@ def compare_trilinear_hypotheses(
                             sample_shift_x=shift_x,
                             sample_shift_y=shift_y,
                             sample_shift_z=shift_z,
+                            written=written,
                         )
+                        # Compare to the former FF-as-unknown behaviour.
+                        # This never influences model selection or roots.
+                        former_roots = _candidate_floor_crossings(
+                            volume, dims,
+                            local_x=lx, local_y=ly,
+                            z_min=planned_z - 2.0 - min_z,
+                            z_max=planned_z + 1.0 - min_z,
+                            bits=bits,
+                            sample_shift_x=shift_x,
+                            sample_shift_y=shift_y,
+                            sample_shift_z=shift_z,
+                        )
+                        if former_roots != roots_local:
+                            ff_sensitive_samples += 1
                         roots_world = [
                             round(root + min_z, 6) for root in roots_local
                         ]
@@ -164,6 +193,7 @@ def compare_trilinear_hypotheses(
                             shift_x, shift_y, shift_z,
                         ],
                         "single_candidates": len(matching),
+                        "ff_sensitive_samples": ff_sensitive_samples,
                         "no_candidates": sum(
                             x["status"] == "no_candidate" for x in samples
                         ),
@@ -196,6 +226,7 @@ def compare_trilinear_hypotheses(
         "models_evaluated": len(candidates),
         "six_bit_hypothesis_opted_in": include_six_bit,
         "unknown_voxels_in_tile": unknown_count,
+        "written_ff_voxels_in_tile": written_ff_count,
         "models": candidates,
         "warning": (
             "Exploratory trilinear model, NOT the game collision mesher. "
@@ -203,8 +234,11 @@ def compare_trilinear_hypotheses(
             "bit packing, interpolation scheme or player walkability. "
             "The optional 6-bit model comes from a DIFFERENT, modded runtime "
             "voxel serialization, not confirmed older .tile packing. "
-            "Original absent voxel bytes and literal 0xFF are not yet "
-            "distinguished by this experimental interpolator. "
+            "Unwritten voxels are now distinguished from literal 0xFF "
+            "bytes within recorded tile blocks. ff_sensitive_samples "
+            "counts differences in candidate crossings against the "
+            "former FF-as-unknown behaviour, not verified corrections. "
+            "This does not establish the physical meaning of FF. "
             "All 15 measurements come from a small area; no held-out "
             "terrain has been validated."
         ),

@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from sm_atlas.tile_voxel_space import _components, probe_tile_voxel_space
+from sm_atlas.tile_voxel_space import (
+    _components, _load_density_bytes, probe_tile_voxel_space,
+)
 
 
 def _literal_lz4(data: bytes) -> bytes:
@@ -21,7 +23,7 @@ def _literal_lz4(data: bytes) -> bytes:
     return bytes(output)
 
 
-def _write_voxel_test_tile(path: Path) -> None:
+def _write_voxel_test_tile(path: Path, *, written_ff: bool = False) -> None:
     # x < 4 and x >= 12 are separate full-height 3D voids.
     # Raw byte order: z changes fastest, then y, then x.
     payload = bytearray([31]) * 4096
@@ -30,6 +32,8 @@ def _write_voxel_test_tile(path: Path) -> None:
             for z in range(16):
                 payload[x * 256 + y * 16 + z] = 0
 
+    if written_ff:
+        payload[2 * 256 + 3 * 16 + 7] = 255
     decoded = struct.pack("<iii", 0, 0, 0) + payload
     compressed = _literal_lz4(decoded)
 
@@ -102,3 +106,31 @@ def test_voxel_space_rejects_unsupported_density_bits(tmp_path: Path) -> None:
             tmp_path / "room_1x1x1.tile",
             density_bits=6,
         )
+
+
+def test_record_occupancy_is_distinct_from_literal_ff(tmp_path: Path) -> None:
+    tile = tmp_path / "room_1x1x1.tile"
+    _write_voxel_test_tile(tile, written_ff=True)
+    values, absent, written = _load_density_bytes(
+        tile, (16, 16, 16), return_written=True,
+    )
+    offset = (2 * 16 + 3) * 16 + 7
+    assert values[offset] == 255
+    assert written[offset] == 1
+    assert absent == 0
+    assert written.count(0) == 0
+    legacy_values, legacy_absent = _load_density_bytes(tile, (16, 16, 16))
+    assert legacy_values == values
+    assert legacy_absent == absent
+
+    # Reading the same single record into a deliberately larger diagnostic
+    # volume leaves the second half *absent*, not a written FF.
+    volume2, missing2, occupancy2 = _load_density_bytes(
+        tile, (32, 16, 16), return_written=True,
+    )
+    assert missing2 == 16 * 16 * 16
+    assert occupancy2[offset] == 1
+    assert volume2[offset] == 255
+    absent_offset = (20 * 16 + 3) * 16 + 7
+    assert volume2[absent_offset] == 255
+    assert occupancy2[absent_offset] == 0
