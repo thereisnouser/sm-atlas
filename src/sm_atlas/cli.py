@@ -46,6 +46,7 @@ from .ground_hook import survival_hook_operation, load_portal_entrance
 from .ground_density import inspect_ground_density
 from .ground_hypotheses import compare_trilinear_hypotheses
 from .ground_slope_audit import audit_ground_slopes
+from .ground_byte_audit import audit_ground_voxel_bytes
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -263,6 +264,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-6-bit", action="store_true",
         help="Opt in to a separate unverified 6-bit voxel-byte hypothesis.",
     )
+
+    byte_audit_parser = subparsers.add_parser(
+        "tile-ground-byte-audit",
+        help="Inspect raw voxel bytes next to verified in-game ground heights.",
+    )
+    byte_audit_parser.add_argument("plan", type=Path)
+    byte_audit_parser.add_argument("log", type=Path)
+    byte_audit_parser.add_argument("tile", type=Path)
+    byte_audit_parser.add_argument(
+        "--radius", type=int, default=1,
+        help="Extra nearby voxel columns in XY (0..3, default=1).",
+    )
+    byte_audit_parser.add_argument("--json", action="store_true")
 
     slope_audit_parser = subparsers.add_parser(
         "tile-ground-slope-audit",
@@ -1827,6 +1841,59 @@ def run_tile_ground_hypotheses(
             f"rmse={model['rmse_m']}m "
             f"rmse_after_bias={model['rmse_after_median_offset_m']}m"
         )
+    print("WARNING: " + result["warning"])
+    return 0
+
+
+def run_tile_ground_byte_audit(
+    plan: Path, log: Path, tile: Path, radius: int, as_json: bool,
+) -> int:
+    try:
+        result = audit_ground_voxel_bytes(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            log.read_text(encoding="utf-8-sig"),
+            tile,
+            radius_voxels=radius,
+        )
+    except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
+        print(f"error: {exc}")
+        return 1
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(
+        f"Voxel byte forensic audit world={result['world_id']} "
+        f"game_hits={result['game_ray_hits']} "
+        f"unique_columns={result['unique_voxel_columns']} "
+        f"radius={result['radius_voxels']} "
+        f"missing_voxels={result['absent_voxels_in_tile']} "
+        f"recorded_FF={result['written_ff_voxels_in_tile']}"
+    )
+    for shift in result["shifts"]:
+        print(
+            f"  sample_z_shift={shift['sample_origin_shift_z']} "
+            f"recorded_pairs={shift['recorded_pairs']}/"
+            f"{shift['candidate_columns']}"
+        )
+        for mask in shift["masked_midpoint_checks"]:
+            print(
+                f"    bits={mask['bits']} "
+                f"solid_below_air_above={mask['solid_below_air_above']} "
+                f"air_below_solid_above={mask['air_below_solid_above']} "
+                f"both_high={mask['both_above_threshold']} "
+                f"both_low={mask['both_below_threshold']}"
+            )
+        print("    bit transitions, low to high Z (bit: 1->0 / 0->1):")
+        print("      " + " ".join(
+            f"{bit['bit']}:{bit['set_to_clear']}/{bit['clear_to_set']}"
+            for bit in shift["bit_transitions"]
+        ))
+        print("    Most common raw byte pairs (below->above): " + (
+            ", ".join(
+                f"{p['below_hex']}->{p['above_hex']} x{p['count']}"
+                for p in shift["common_raw_pairs"][:8]
+            ) or "none"
+        ))
     print("WARNING: " + result["warning"])
     return 0
 
@@ -4707,6 +4774,13 @@ def main() -> None:
             run_tile_ground_hypotheses(
                 args.plan, args.log, args.tile, args.json,
                 args.include_6_bit,
+            )
+        )
+
+    if args.command == "tile-ground-byte-audit":
+        raise SystemExit(
+            run_tile_ground_byte_audit(
+                args.plan, args.log, args.tile, args.radius, args.json,
             )
         )
 
