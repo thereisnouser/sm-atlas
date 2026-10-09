@@ -83,7 +83,10 @@ def test_model_grid_runs_16_fixed_hypotheses_and_reports_coverage(monkeypatch):
     monkeypatch.setattr(ground_hypotheses, "_dimensions", lambda path: dims)
     monkeypatch.setattr(
         ground_hypotheses, "_load_density_bytes",
-        lambda path, dimensions: (volume, 0),
+        lambda path, dimensions, *, return_written=False: (
+            (volume, 0, bytearray([1]) * len(volume))
+            if return_written else (volume, 0)
+        ),
     )
     plan = {
         "world_bounds": {"min": [0, 0, 0]},
@@ -156,7 +159,10 @@ def test_six_bit_grid_opt_in_preserves_legacy_model_count(monkeypatch):
     monkeypatch.setattr(ground_hypotheses, "_dimensions", lambda path: dims)
     monkeypatch.setattr(
         ground_hypotheses, "_load_density_bytes",
-        lambda path, dims: (volume, 0),
+        lambda path, dims, *, return_written=False: (
+            (volume, 0, bytearray([1]) * len(volume))
+            if return_written else (volume, 0)
+        ),
     )
     plan = {
         "world_bounds": {"min": [0, 0, 0]},
@@ -187,3 +193,50 @@ def test_six_bit_flags_parse_only_for_read_only_ground_commands():
         common = [command, "plan.json", "game.log", "sample.tile"]
         assert parser.parse_args(common).include_6_bit is False
         assert parser.parse_args(common + ["--include-6-bit"]).include_6_bit
+
+
+def test_explicit_written_ff_can_create_six_bit_candidate_crossing():
+    from sm_atlas.ground_hypotheses import _interpolated_layer
+    dims = (2, 2, 3)
+    volume = bytearray([0] * (dims[0] * dims[1] * dims[2]))
+    written = bytearray([1] * len(volume))
+    for x in range(2):
+        for y in range(2):
+            volume[(x * 2 + y) * 3] = 0xFF
+    opts = dict(
+        local_x=0.5, local_y=0.5, z_min=0.0, z_max=2.0,
+        bits=6, sample_shift_x=0.0, sample_shift_y=0.0,
+        sample_shift_z=0.0,
+    )
+    # FF is 63 density under this deliberately unverified six-bit mask.
+    assert _interpolated_layer(
+        volume, dims, 0.5, 0.5, 0, 0x3F, written
+    ) == 63
+    # Legacy unknown/FF conflation finds no crossing.
+    assert _candidate_floor_crossings(volume, dims, **opts) == []
+    assert _candidate_floor_crossings(
+        volume, dims, written=written, **opts
+    ) == [pytest.approx(31 / 63, abs=1e-6)]
+    written[0] = 0
+    # A truly missing interpolation neighbour must fail closed.
+    assert _candidate_floor_crossings(
+        volume, dims, written=written, **opts
+    ) == []
+
+
+def test_ff_does_not_break_written_mask_for_four_or_five_bits():
+    dims = (2, 2, 3)
+    volume = bytearray([0] * 12)
+    written = bytearray([1] * 12)
+    for x in range(2):
+        for y in range(2):
+            volume[(x * 2 + y) * 3] = 255
+    opts = dict(
+        local_x=0.5, local_y=0.5, z_min=0, z_max=2,
+        sample_shift_x=0, sample_shift_y=0, sample_shift_z=0,
+        written=written,
+    )
+    for bits, top in ((4, 15), (5, 31)):
+        # Each hypothesis uses only its own low bits; no FF is dropped.
+        result = _candidate_floor_crossings(volume, dims, bits=bits, **opts)
+        assert result == [pytest.approx((top - (1 << (bits - 1))) / top)]
