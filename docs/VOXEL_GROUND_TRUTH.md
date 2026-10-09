@@ -402,6 +402,94 @@ No game scripts, installed binaries, original saves or ordinary
 navigation are modified. This is an investigation of evidence, not
 a model automatically selected from 24 candidates.
 
+## Wider in-game ground patch: distinct voxel XY cells
+
+The 2026-10-09 Drill2 raycast-normal comparison found that the
+best 15/15 candidate had an angular error of **31.05° overall**
+and **32.75° on the 8 samples off candidate grid planes**. Grouping
+the raycasts by voxel XY cell gave only **4 represented cells**.
+We cannot identify the real geometry algorithm from so few
+spatially distinct locations, regardless of how many variations of
+bit packing or threshold we score.
+
+Use `tile-ground-grid-plan` to prepare a **separate, unmeasured**
+5×5 grid around the centre of the already verified game hits. It
+checks the original plan/log against the matching `.tile` UUID,
+dimensions, world rotation and two saved tunnel anchors. Each
+target uses a different candidate voxel XY column, even with
+0.5-voxel origin shifts; points are positioned at fraction
+0.31 of each XY voxel to avoid sample-grid seams for **both**
+0.0 and 0.5 origins. The grid spacing is one metre in each
+direction, for a roughly 4×4 m patch with 25 new raycasts.
+These are **new planned targets**, not 25 independent verified
+floor hits: some may fall on a wall, miss the terrain or be
+outside loaded collision.
+
+```powershell
+git pull
+sm-atlas tile-ground-grid-plan .\ground_plan.json .\atlas_ground_hits.log $tile --output .\ground_grid_plan.json
+sm-atlas tile-ground-lua .\ground_grid_plan.json --output .\atlas_ground_grid.lua
+```
+
+The resulting plan has the same verified saved tile placement and
+world ID, and is compatible with the existing reversible Survival
+ground hook and `tile-ground-normal-audit`. The `--size 3`
+or `--size 7` option changes grid width if the intended terrain
+corridor is smaller or larger. The command **refuses to overwrite**
+an existing plan, original tile, or source log. It does not write
+to an installed game file, original save, or Lua script.
+
+**Ray window limitation:** the nearest old *actual game hit Z*
+is used as the centre of each new downward ray (+1 m above,
+-2 m below, as implemented by the existing Lua fragment).
+The tool **does not know** the actual ground height at new
+positions. This nearest height is an estimate to aim the
+instrument, not proof of the surface or a fitted decoder.
+Narrow rays can miss a much higher/lower floor, or encounter
+unexpected collision and return a non-floor normal. A missing
+hit must remain unknown, not count as an empty voxel.
+
+If you explicitly choose to repeat the game experiment:
+
+1. Close Scrap Mechanic, back up the Survival save, and use the
+   existing reversible `tile-ground-survival` **preview** on the
+   OLD plan/Lua pair. If the prior hook is still installed,
+   run **`--remove` on that same OLD pair first**, before
+   attempting to install a different hook.
+2. Preview the NEW pair and only then explicitly install the
+   new hook. Keep the exact original installation path already
+   documented above as `$gameScript`.
+3. Enter the anchored underground world **23** and approach
+   the measurement area through ordinary gameplay. Collect
+   **only the new 25 ATLAS_GROUND records** from the latest
+   game log into `atlas_ground_grid_hits.log`; do not append
+   the old 15 lines, as sample indices start at zero again.
+4. Exit the game and remove the NEW hook using the exact
+   NEW plan/Lua pair, restoring the original script.
+
+The steps for the NEW hook, using the same existing
+`$gameScript` installation path, are:
+
+```powershell
+sm-atlas tile-ground-survival .\ground_grid_plan.json $gameScript --lua .\atlas_ground_grid.lua
+# Only after closing game, backing up save and removing any old hook:
+sm-atlas tile-ground-survival .\ground_grid_plan.json $gameScript --lua .\atlas_ground_grid.lua --install
+# After game capture, close game and remove the new hook:
+sm-atlas tile-ground-survival .\ground_grid_plan.json $gameScript --lua .\atlas_ground_grid.lua --remove
+```
+
+Once authentic **new** logs have been captured, test normal
+orientation directly on the wider grid:
+
+```powershell
+sm-atlas tile-ground-compare .\ground_grid_plan.json .\atlas_ground_grid_hits.log
+sm-atlas tile-ground-normal-audit .\ground_grid_plan.json .\atlas_ground_grid_hits.log $tile --include-6-bit
+```
+
+More distinct ground locations will help distinguish true
+decoder/mesher mismatch from artifacts of one tiny patch,
+but cannot by themselves prove a unique algorithm.
+
 ## Surface orientation vs game physics: no threshold fitting
 
 The preceding `tile-ground-isovalue-audit` measured candidate scalar
