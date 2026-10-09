@@ -95,6 +95,14 @@ def test_audit_computes_actual_directional_grade_and_normal_agreement(
     assert result["models_ranked_by_rise_error"][1][
         "mean_absolute_rise_error_m"
     ] == 1.0
+    # All 12 quarter-metre segments are available with unambiguous roots.
+    by_grade = result["models_ranked_by_local_grade_error"]
+    assert by_grade[0]["bits"] == 4
+    assert by_grade[0]["segments_scored"] == 12
+    assert by_grade[0]["measured_segments"] == 12
+    assert by_grade[0]["mean_absolute_local_grade_error"] == 0
+    assert by_grade[1]["mean_absolute_local_grade_error"] == 1.0
+    assert by_grade[0]["mean_absolute_normal_grade_error"] is not None
 
 
 def test_slope_audit_does_not_invent_missing_model_endpoint(monkeypatch):
@@ -141,3 +149,91 @@ def test_slope_audit_cli_parser_is_read_only():
     assert args.log.name == "atlas_ground_hits.log"
     assert args.tile.name == "tunnel_2x3x2.tile"
     assert args.json is True
+
+
+def test_adjacent_grade_discriminates_internal_wiggles_with_same_end_rise(
+    monkeypatch,
+):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": len(rows), "samples": rows,
+        },
+    )
+    # Both hypotheses exactly match each lane's net rise. The jagged
+    # hypothesis only matches the endpoints, not the interior geometry.
+    wiggle = (0.0, 0.2, 0.0, -0.2, 0.0)
+    smooth = [
+        {"index": r["index"], "status": "single_candidate",
+         "candidate_world_z": [r["actual_z"] + 0.5]}
+        for r in rows
+    ]
+    jagged = [
+        {"index": r["index"], "status": "single_candidate",
+         "candidate_world_z": [r["actual_z"] + wiggle[i % 5]]}
+        for i, r in enumerate(rows)
+    ]
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": [
+            {"bits": 4, "lattice_origin_shift_xyz": [0, 0, 0],
+             "single_candidates": 15, "rmse_m": 0.15,
+             "samples": jagged},
+            {"bits": 5, "lattice_origin_shift_xyz": [0, 0, 0],
+             "single_candidates": 15, "rmse_m": 0.5,
+             "samples": smooth},
+        ]},
+    )
+    result = audit_ground_slopes({}, "", "dummy.tile")
+    rises = result["models_ranked_by_rise_error"]
+    assert all(m["mean_absolute_rise_error_m"] == 0 for m in rises)
+    assert rises[0]["bits"] == 4  # Old net-rise ranking cannot distinguish.
+    local = result["models_ranked_by_local_grade_error"]
+    assert local[0]["bits"] == 5
+    assert local[0]["segments_scored"] == 12
+    assert local[0]["mean_absolute_local_grade_error"] == 0
+    assert local[1]["mean_absolute_local_grade_error"] == pytest.approx(0.8)
+    assert local[1]["max_absolute_local_grade_error"] == pytest.approx(0.8)
+
+
+def test_adjacent_grade_never_bridges_missing_hit_or_ambiguous_root(
+    monkeypatch,
+):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    # One raycast misses; segments on either side must disappear.
+    rows[1] = {**rows[1], "status": "not_sampled"}
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": 14, "samples": rows,
+        },
+    )
+    roots = [
+        {"index": r["index"], "status": "single_candidate",
+         "candidate_world_z": [r["actual_z"] + 0.5]}
+        for r in _rows()
+    ]
+    # A second, unrelated segment gap is due to ambiguous model roots.
+    roots[6] = {"index": 6, "status": "ambiguous_multiple_candidates",
+                "candidate_world_z": [81.0, 82.0]}
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": [
+            {"bits": 5, "lattice_origin_shift_xyz": [0, 0, 0],
+             "single_candidates": 14, "rmse_m": 0.5,
+             "samples": roots},
+        ]},
+    )
+    result = audit_ground_slopes({}, "", "dummy.tile")
+    model = result["models_ranked_by_local_grade_error"][0]
+    assert model["measured_segments"] == 10  # No cross-gap interpolation.
+    assert model["segments_scored"] == 8  # Model root gap removes two more.
+    assert not any(
+        1 in (s["from_index"], s["to_index"])
+        or 6 in (s["from_index"], s["to_index"])
+        for s in model["adjacent_grade_segments"]
+    )
+    assert model["mean_absolute_local_grade_error"] == 0
