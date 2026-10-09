@@ -1813,9 +1813,14 @@ def run_tile_ground_hypotheses(
         f"measured_hits={result['hits_from_game']} "
         f"fixed_models={result['models_evaluated']}"
     )
+    print(
+        f"  recorded_FF_voxels={result['written_ff_voxels_in_tile']} "
+        f"missing_voxels={result['unknown_voxels_in_tile']}"
+    )
     for model in result["models"]:
         print(
             f"  bits={model['bits']} origin={model['lattice_origin_shift_xyz']} "
+            f"FF_sensitive={model['ff_sensitive_samples']} "
             f"single={model['single_candidates']} "
             f"missing={model['no_candidates']} "
             f"ambiguous={model['ambiguous_samples']} "
@@ -1847,6 +1852,7 @@ def run_tile_ground_slope_audit(
         f"measured_hits={result['measured_hits']} "
         f"models={result['models_evaluated']}"
     )
+    print(f"  recorded_FF_voxels={result['written_ff_voxels_in_tile']}")
     for lane in result["lanes"]:
         print(
             f"  lane={lane['lateral_offset_m']}m "
@@ -1862,6 +1868,7 @@ def run_tile_ground_slope_audit(
         print(
             f"  bits={model['bits']} "
             f"origin={model['lattice_origin_shift_xyz']} "
+            f"FF_sensitive={model['ff_sensitive_samples']} "
             f"patch={model['patch_segments_scored']}/"
             f"{model['measured_patch_segments']} "
             f"patch_mae={model['mean_absolute_patch_grade_error']} "
