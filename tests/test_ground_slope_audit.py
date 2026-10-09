@@ -103,6 +103,12 @@ def test_audit_computes_actual_directional_grade_and_normal_agreement(
     assert by_grade[0]["mean_absolute_local_grade_error"] == 0
     assert by_grade[1]["mean_absolute_local_grade_error"] == 1.0
     assert by_grade[0]["mean_absolute_normal_grade_error"] is not None
+    # Three transverse tracks form a 3x5 grid, not just 12 Y edges.
+    assert result["measured_cross_track_segments"] == 10
+    by_patch = result["models_ranked_by_patch_grade_error"]
+    assert by_patch[0]["patch_segments_scored"] == 22
+    assert by_patch[0]["measured_patch_segments"] == 22
+    assert by_patch[0]["mean_absolute_patch_grade_error"] == 0
 
 
 def test_slope_audit_does_not_invent_missing_model_endpoint(monkeypatch):
@@ -237,3 +243,93 @@ def test_adjacent_grade_never_bridges_missing_hit_or_ambiguous_root(
         for s in model["adjacent_grade_segments"]
     )
     assert model["mean_absolute_local_grade_error"] == 0
+
+
+def test_patch_gradient_detects_lateral_tilt_hidden_from_longitudinal_audit(
+    monkeypatch,
+):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": 15, "samples": rows,
+        },
+    )
+    def candidate(offset):
+        return [
+            {"index": r["index"], "status": "single_candidate",
+             "candidate_world_z": [r["actual_z"] + offset(i)]}
+            for i, r in enumerate(rows)
+        ]
+    # A +0.2 m error per adjacent lane produces 0.4 m/m wrong X
+    # gradient, but changes none of the twelve Y-gradient segments.
+    shifted_lanes = candidate(lambda i: 0.2 * (i // 5))
+    correct_shape = candidate(lambda i: 0.5)
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": [
+            {"bits": 4, "lattice_origin_shift_xyz": [0, 0, 0],
+             "single_candidates": 15, "rmse_m": 0.2,
+             "samples": shifted_lanes},
+            {"bits": 5, "lattice_origin_shift_xyz": [0, 0, 0],
+             "single_candidates": 15, "rmse_m": 0.5,
+             "samples": correct_shape},
+        ]},
+    )
+    result = audit_ground_slopes({}, "", "dummy.tile")
+    along = result["models_ranked_by_local_grade_error"]
+    assert [v["bits"] for v in along] == [4, 5]
+    assert all(v["mean_absolute_local_grade_error"] == 0 for v in along)
+    assert all(v["mean_absolute_rise_error_m"] == 0 for v in along)
+    patch = result["models_ranked_by_patch_grade_error"]
+    assert [v["bits"] for v in patch] == [5, 4]
+    assert patch[0]["patch_segments_scored"] == 22
+    assert patch[0]["mean_absolute_patch_grade_error"] == 0
+    assert patch[1]["cross_track_segments_scored"] == 10
+    assert patch[1]["mean_absolute_cross_track_grade_error"] == pytest.approx(0.4)
+    assert patch[1]["mean_absolute_patch_grade_error"] == pytest.approx(
+        4 / 22, abs=1e-6
+    )
+
+
+def test_patch_does_not_bridge_missing_cross_hit_or_model_root(monkeypatch):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    rows[5] = {**rows[5], "status": "not_sampled"}
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": 14, "samples": rows,
+        },
+    )
+    roots = [
+        {"index": r["index"], "status": "single_candidate",
+         "candidate_world_z": [r["actual_z"] + 0.5]}
+        for r in _rows()
+    ]
+    roots[11] = {
+        "index": 11, "status": "ambiguous_multiple_candidates",
+        "candidate_world_z": [81.0, 82.0],
+    }
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": [
+            {"bits": 5, "lattice_origin_shift_xyz": [0, 0, 0],
+             "single_candidates": 14, "rmse_m": 0.5,
+             "samples": roots},
+        ]},
+    )
+    result = audit_ground_slopes({}, "", "dummy.tile")
+    model = result["models_ranked_by_patch_grade_error"][0]
+    assert result["measured_cross_track_segments"] == 8
+    assert model["cross_track_segments_scored"] == 7
+    assert model["measured_segments"] == 11
+    assert model["segments_scored"] == 9
+    assert model["measured_patch_segments"] == 19
+    assert model["patch_segments_scored"] == 16
+    assert not any(
+        5 in (s["from_index"], s["to_index"])
+        or 11 in (s["from_index"], s["to_index"])
+        for s in model["cross_track_grade_segments"]
+    )
