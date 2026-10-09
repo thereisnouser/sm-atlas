@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import Counter
 from math import floor
+from pathlib import Path
 
 from .ground_density import inspect_ground_density
 from .tile_voxel_space import _dimensions, _load_density_bytes
@@ -125,9 +126,10 @@ def audit_ground_voxel_bytes(
     if type(radius_voxels) is not int or not 0 <= radius_voxels <= 3:
         raise ValueError("radius_voxels must be an integer from 0 to 3")
     profile = inspect_ground_density(plan, log, tile)
-    dims = _dimensions(profile["tile_path"])
+    tile_path = Path(profile["tile_path"])
+    dims = _dimensions(tile_path)
     volume, absent, written = _load_density_bytes(
-        profile["tile_path"], dims, return_written=True,
+        tile_path, dims, return_written=True,
     )
     columns = _nearby_columns(profile["samples"], dims, radius_voxels)
     sz = dims[2]
