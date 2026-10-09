@@ -32,7 +32,15 @@ def _dimensions(path: Path) -> tuple[int, int, int]:
 def _load_density_bytes(
     path: Path,
     dims: tuple[int, int, int],
-) -> tuple[bytearray, int]:
+    *,
+    return_written: bool = False,
+) -> tuple[bytearray, int] | tuple[bytearray, int, bytearray]:
+    """Read byte volume, optionally returning *record occupancy* per voxel.
+
+    A literal 0xFF in a written record is different from an absent record.
+    Keep the two-result legacy contract for existing candidate navigation;
+    research callers can request the actual occupancy mask.
+    """
     sx, sy, sz = dims
     data = path.read_bytes()
     meta = probe_tile(path)
@@ -90,7 +98,10 @@ def _load_density_bytes(
                     volume[start:end] = payload[source:source + zhi - zlo]
                     written[start:end] = b"\x01" * (zhi - zlo)
 
-    return volume, written.count(0)
+    missing_count = written.count(0)
+    if return_written:
+        return volume, missing_count, written
+    return volume, missing_count
 
 
 def _components(
