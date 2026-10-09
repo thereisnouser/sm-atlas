@@ -49,6 +49,7 @@ from .ground_slope_audit import audit_ground_slopes
 from .ground_byte_audit import audit_ground_voxel_bytes
 from .ground_isovalue_audit import audit_observed_isovalues
 from .ground_normal_field_audit import audit_ground_field_normals
+from .ground_expanded_grid import prepare_expanded_ground_plan
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -199,6 +200,19 @@ def build_parser() -> argparse.ArgumentParser:
     tile_world_parser.add_argument(
         "--output", type=Path,
         help="Write JSON plan as UTF-8 instead of shell redirection (requires --json).",
+    )
+
+    grid_parser = subparsers.add_parser(
+        "tile-ground-grid-plan",
+        help="Prepare NEW off-grid raycast positions using verified prior game hits.",
+    )
+    grid_parser.add_argument("plan", type=Path)
+    grid_parser.add_argument("log", type=Path)
+    grid_parser.add_argument("tile", type=Path)
+    grid_parser.add_argument("--output", type=Path, required=True)
+    grid_parser.add_argument(
+        "--size", type=int, choices=(3, 5, 7), default=5,
+        help="Number of points per axis, 1m apart (default 5).",
     )
 
     ground_lua_parser = subparsers.add_parser(
@@ -1763,6 +1777,42 @@ def run_tile_ground_survival(
             "40m of the target voxel area; the hook will probe once. "
             "After capturing logs, run again with --remove."
         )
+    return 0
+
+
+def run_tile_ground_grid_plan(
+    plan: Path, log: Path, tile: Path, output: Path, size: int,
+) -> int:
+    try:
+        original = json.loads(plan.read_text(encoding="utf-8-sig"))
+        expanded, summary = prepare_expanded_ground_plan(
+            original, log.read_text(encoding="utf-8-sig"), tile,
+            grid_size=size,
+        )
+        if output.resolve() in (plan.resolve(), log.resolve(), tile.resolve()):
+            raise ValueError("refusing to overwrite input files")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        # Exclusive creation: an existing research plan is NEVER replaced.
+        with output.open("x", encoding="utf-8") as stream:
+            json.dump(expanded, stream, ensure_ascii=False, indent=2)
+            stream.write("\\n")
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError,
+            InvalidTileFile) as exc:
+        print(f"error: {exc}")
+        return 1
+    print(f"New ground raycast plan: {output}")
+    print(
+        f"  planned_new_rays={summary['new_planned_rays']} "
+        f"new_integer_xy_columns={summary['distinct_integer_xy_columns']} "
+        f"new_half_shift_xy_columns={summary['distinct_half_shift_xy_columns']} "
+        f"maximum_reference_distance_m="
+        f"{summary['largest_distance_from_old_verified_hit_m']}"
+    )
+    print(
+        "These are NEW raycast targets, NOT verified ground measurements. "
+        "Generate matching Lua with tile-ground-lua and capture a NEW log. "
+        "Do not combine old and new ATLAS_GROUND records."
+    )
     return 0
 
 
@@ -4852,6 +4902,13 @@ def main() -> None:
             run_tile_ground_survival(
                 args.plan, args.lua, args.game_script,
                 args.install, args.remove, args.navigation_save, args.portal_id,
+            )
+        )
+
+    if args.command == "tile-ground-grid-plan":
+        raise SystemExit(
+            run_tile_ground_grid_plan(
+                args.plan, args.log, args.tile, args.output, args.size,
             )
         )
 
