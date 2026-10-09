@@ -240,3 +240,49 @@ def test_ff_does_not_break_written_mask_for_four_or_five_bits():
         # Each hypothesis uses only its own low bits; no FF is dropped.
         result = _candidate_floor_crossings(volume, dims, bits=bits, **opts)
         assert result == [pytest.approx((top - (1 << (bits - 1))) / top)]
+
+
+def test_ff_sensitivity_reports_changed_ground_candidates(monkeypatch):
+    from sm_atlas import ground_hypotheses
+    volume, dims = _volume()
+    for x in range(dims[0]):
+        for y in range(dims[1]):
+            for z in range(dims[2]):
+                volume[(x * dims[1] + y) * dims[2] + z] = (
+                    255 if z <= 2 else 0
+                )
+    hit_z = round(2 + 31 / 63, 6)
+    monkeypatch.setattr(
+        ground_hypotheses, "inspect_ground_density",
+        lambda plan, log, tile: {
+            "world_id": 23, "hits": 1, "tile_path": str(tile),
+            "samples": [{
+                "index": 0, "world_hit_z": hit_z,
+                "local_xyz": [1.5, 1.5, hit_z],
+            }],
+        },
+    )
+    monkeypatch.setattr(ground_hypotheses, "_dimensions", lambda path: dims)
+    monkeypatch.setattr(
+        ground_hypotheses, "_load_density_bytes",
+        lambda path, dims, *, return_written=False: (
+            (volume, 0, bytearray([1]) * len(volume))
+            if return_written else (volume, 0)
+        ),
+    )
+    plan = {
+        "world_bounds": {"min": [0, 0, 0]},
+        "critical_edge": {"world_samples": [
+            {"estimated_surface_world_z": hit_z},
+        ]},
+    }
+    report = compare_trilinear_hypotheses(
+        plan, "log", "tile.tile", include_six_bit=True,
+    )
+    assert report["written_ff_voxels_in_tile"] == 4 * 4 * 3
+    model = next(m for m in report["models"] if (
+        m["bits"] == 6 and m["lattice_origin_shift_xyz"] == [0, 0, 0]
+    ))
+    assert model["single_candidates"] == 1
+    assert model["ff_sensitive_samples"] == 1
+    assert model["samples"][0]["candidate_world_z"] == [hit_z]
