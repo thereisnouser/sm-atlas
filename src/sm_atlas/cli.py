@@ -47,6 +47,7 @@ from .ground_density import inspect_ground_density
 from .ground_hypotheses import compare_trilinear_hypotheses
 from .ground_slope_audit import audit_ground_slopes
 from .ground_byte_audit import audit_ground_voxel_bytes
+from .ground_isovalue_audit import audit_observed_isovalues
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -277,6 +278,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Extra nearby voxel columns in XY (0..3, default=1).",
     )
     byte_audit_parser.add_argument("--json", action="store_true")
+
+    isovalue_parser = subparsers.add_parser(
+        "tile-ground-isovalue-audit",
+        help="Check interpolated byte densities at real game-hit positions.",
+    )
+    isovalue_parser.add_argument("plan", type=Path)
+    isovalue_parser.add_argument("log", type=Path)
+    isovalue_parser.add_argument("tile", type=Path)
+    isovalue_parser.add_argument("--include-6-bit", action="store_true")
+    isovalue_parser.add_argument("--json", action="store_true")
 
     slope_audit_parser = subparsers.add_parser(
         "tile-ground-slope-audit",
@@ -1894,6 +1905,44 @@ def run_tile_ground_byte_audit(
                 for p in shift["common_raw_pairs"][:8]
             ) or "none"
         ))
+    print("WARNING: " + result["warning"])
+    return 0
+
+
+def run_tile_ground_isovalue_audit(
+    plan: Path, log: Path, tile: Path, as_json: bool,
+    include_six_bit: bool = False,
+) -> int:
+    try:
+        result = audit_observed_isovalues(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            log.read_text(encoding="utf-8-sig"), tile,
+            include_six_bit=include_six_bit,
+        )
+    except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
+        print(f"error: {exc}")
+        return 1
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(
+        f"Measured-ground isovalue audit world={result['world_id']} "
+        f"game_hits={result['game_ray_hits']} "
+        f"models={result['models_evaluated']}"
+    )
+    for model in result["models"]:
+        print(
+            f"  bits={model['bits']} "
+            f"origin={model['lattice_origin_shift_xyz']} "
+            f"sampled={model['samples_scored']}/{model['samples_expected']} "
+            f"falling={model['falling_density_samples']} "
+            f"rising={model['rising_density_samples']} "
+            f"flat={model['flat_density_samples']} "
+            f"midpoint={model['fixed_midpoint_normalized']} "
+            f"observed_median={model['median_observed_normalized_density']} "
+            f"fixed_error={model['mean_abs_distance_from_fixed_midpoint']} "
+            f"fitted_spread={model['mean_abs_spread_around_sample_median']}"
+        )
     print("WARNING: " + result["warning"])
     return 0
 
@@ -4781,6 +4830,14 @@ def main() -> None:
         raise SystemExit(
             run_tile_ground_byte_audit(
                 args.plan, args.log, args.tile, args.radius, args.json,
+            )
+        )
+
+    if args.command == "tile-ground-isovalue-audit":
+        raise SystemExit(
+            run_tile_ground_isovalue_audit(
+                args.plan, args.log, args.tile,
+                args.json, args.include_6_bit,
             )
         )
 
