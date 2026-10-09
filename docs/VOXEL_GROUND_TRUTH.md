@@ -352,6 +352,44 @@ walkability constraint. These measurements are from the *same* small
 Drill2 patch used to investigate the hypotheses; no hold-out
 validation has yet been performed.
 
+### Two-axis audit from the existing 3×5 game-raycast patch
+
+The same 15 real in-game hits occupy three parallel tracks at five
+fractions each. In addition to the 12 consecutive **along-track** edges,
+the audit now evaluates up to **10 cross-track edges** between adjacent
+tracks at matching fractions. The cross-track measurements are horizontal
+0.5 m spans in world X for this particular saved tile placement.
+The rank `models_ranked_by_patch_grade_error` covers both X and Y
+directional slopes, reporting along-track, cross-track and pooled errors.
+
+Run the existing command again after updating the checkout:
+
+```powershell
+git pull
+sm-atlas tile-ground-slope-audit .\ground_plan.json .\atlas_ground_hits.log $tile
+sm-atlas tile-ground-slope-audit .\ground_plan.json .\atlas_ground_hits.log $tile --json > .\ground_slope_2d.json
+```
+
+This makes a **transverse-tilt failure detectable** even when the model
+matches every along-track rise: a candidate may add a different
+constant height to each of the three lanes, preserving all 12
+longitudinal grades while getting all 10 transverse slopes wrong.
+
+The output reports the count of **valid measured adjacent edges** and
+the count of unambiguous candidate roots at both ends. A model cannot
+silently bridge missing hits, skip an intervening lane, or select a
+convenient root from multiple candidates. Ranking gives coverage first,
+then the mean absolute 2D slope error, and still does **not** accept a
+model as a verified decoder. These **22 edges are derived from the same
+15 sample positions**; they are not 22 independent game measurements.
+Normal vectors come from the same raycasts and can disagree with
+finite differences across collision-triangle boundaries.
+
+Equality of longitudinal and end-to-end mean errors can result from
+same-signed residual grades over uniformly spaced edges. It is **not**
+evidence of twelve independent confirmations of a candidate. The
+expanded transverse check directly measures a second spatial direction.
+
 ## Diagnosing a hook that shows no HUD
 
 In the October 8 game log, the Game state loaded and the runtime emitted

@@ -1844,15 +1844,19 @@ def run_tile_ground_slope_audit(
             f"normal_grade_disagreement="
             f"{lane['mean_normal_grade_disagreement']}"
         )
-    print("  Local adjacent-grade models (coverage first; grades are m/m):")
-    for model in result["models_ranked_by_local_grade_error"]:
+    print(
+        "  2D patch-grade models (coverage first; directional grades are m/m):"
+    )
+    for model in result["models_ranked_by_patch_grade_error"]:
         print(
             f"  bits={model['bits']} "
             f"origin={model['lattice_origin_shift_xyz']} "
-            f"segments={model['segments_scored']}/{model['measured_segments']} "
-            f"local_grade_mae={model['mean_absolute_local_grade_error']} "
-            f"normal_grade_mae={model['mean_absolute_normal_grade_error']} "
-            f"lanes={model['lanes_scored']} "
+            f"patch={model['patch_segments_scored']}/"
+            f"{model['measured_patch_segments']} "
+            f"patch_mae={model['mean_absolute_patch_grade_error']} "
+            f"along_mae={model['mean_absolute_local_grade_error']} "
+            f"cross_mae={model['mean_absolute_cross_track_grade_error']} "
+            f"normal_mae={model['mean_absolute_patch_normal_grade_error']} "
             f"rise_mae={model['mean_absolute_rise_error_m']}m "
             f"height_rmse={model['rmse_height_m']}m"
         )
