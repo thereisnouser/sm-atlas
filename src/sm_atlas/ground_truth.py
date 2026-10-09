@@ -177,6 +177,7 @@ def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
     lines: list[dict[str, object]] = []
     errors: list[float] = []
     tracks = defaultdict(list)
+    planned_tracks = defaultdict(list)
     for index, sample in enumerate(samples):
         planned_xy = tuple(float(v) for v in sample["world_xy"])
         predicted_z = float(sample["estimated_surface_world_z"])
@@ -236,6 +237,7 @@ def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
                     "actual_z": record["hit_z"],
                 })
         lines.append(row)
+        planned_tracks[row["lateral_offset_m"]].append(row)
 
     if any(i >= len(samples) for i in observations):
         raise ValueError("log includes sample indexes absent from the plan")
@@ -250,12 +252,14 @@ def compare_ground_observations(plan: dict, log: str) -> dict[str, object]:
 
     track_summaries = []
     for lateral, points in sorted(tracks.items()):
-        points.sort(key=lambda p: p["fraction"])
+        # Adjacency belongs to the COMPLETE planned track, not a fixed
+        # fraction interval (3/5/7-point experiments use different steps).
+        # Iterating just successful hits would incorrectly bridge misses.
+        planned = sorted(planned_tracks[lateral], key=lambda p: p["fraction"])
         steps = []
-        for a, b in zip(points, points[1:]):
-            # Missing intermediate hits must not be treated as adjacent
-            # quarter-metre measurements.
-            if b["fraction"] - a["fraction"] > 0.250001:
+        for a, b in zip(planned, planned[1:]):
+            if (a["status"] != "terrain_surface_hit"
+                    or b["status"] != "terrain_surface_hit"):
                 continue
             span = hypot(
                 b["world_xy"][0] - a["world_xy"][0],
