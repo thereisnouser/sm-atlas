@@ -1795,7 +1795,7 @@ def run_tile_ground_grid_plan(
         # Exclusive creation: an existing research plan is NEVER replaced.
         with output.open("x", encoding="utf-8") as stream:
             json.dump(expanded, stream, ensure_ascii=False, indent=2)
-            stream.write("\\n")
+            stream.write("\n")
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError,
             InvalidTileFile) as exc:
         print(f"error: {exc}")
