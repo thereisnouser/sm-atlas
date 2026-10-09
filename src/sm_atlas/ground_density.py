@@ -63,7 +63,9 @@ def inspect_ground_density(
     if any(abs((upper[i] - lower[i]) - expected_bounds[i]) > 1e-4 for i in range(3)):
         raise ValueError("saved placement bounds do not match rotated tile dimensions")
 
-    volume, unknown_count = _load_density_bytes(tile_path, dims)
+    volume, unknown_count, written = _load_density_bytes(
+        tile_path, dims, return_written=True
+    )
     actual = [r for r in comparison["samples"] if r["status"] == "terrain_surface_hit"]
     if not actual:
         raise ValueError("no upward terrain raycast hits in supplied log")
@@ -95,14 +97,20 @@ def inspect_ground_density(
     for (vx, vy), indices in sorted(column_samples.items()):
         values = []
         for z in range(z_lo, z_hi + 1):
-            raw = volume[(vx * dims[1] + vy) * dims[2] + z]
+            index = (vx * dims[1] + vy) * dims[2] + z
+            raw = volume[index]
+            occupied = bool(written[index])
             values.append({
                 "z": z,
                 "raw_hex": f"{raw:02X}",
                 "raw": raw,
+                "record_present": occupied,
+                "missing_record": not occupied,
+                "literal_ff": occupied and raw == 255,
+                # Kept for compatibility; ambiguous legacy field.
                 "unknown_or_ff": raw == 255,
-                "low4": None if raw == 255 else raw & 0x0F,
-                "low5": None if raw == 255 else raw & 0x1F,
+                "low4": (raw & 0x0F) if occupied else None,
+                "low5": (raw & 0x1F) if occupied else None,
             })
         candidates = {}
         for bits in (4, 5):
@@ -111,6 +119,7 @@ def inspect_ground_density(
                 value = _surface_sample_height(
                     (vx, vy, z), volume, dims,
                     density_bits=bits, density_threshold=1 << (bits - 1),
+                    written=written,
                 )
                 if value is not None:
                     crossings.append(round(float(value) + lower[2], 6))
@@ -136,12 +145,18 @@ def inspect_ground_density(
         ],
         "column_z_window": [z_lo, z_hi],
         "unknown_voxels_in_tile": unknown_count,
+        "written_ff_voxels_in_tile": sum(
+            1 for raw, present in zip(volume, written)
+            if present and raw == 255
+        ),
         "samples": samples,
         "columns": columns,
         "warning": (
             "Nearest integer XY column is diagnostic only: the engine may "
             "interpolate multiple voxel neighbours and use different "
-            "bit packing/isosurface coordinates. A crossing is NOT a "
+            "bit packing/isosurface coordinates. Record occupancy is "
+            "separate from literal FF byte values, whose physical meaning "
+            "remains unverified. A crossing is NOT a "
             "validated collision mesh or character-walkability test."
         ),
     }
