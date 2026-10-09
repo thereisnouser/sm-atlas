@@ -110,6 +110,42 @@ def _score_model_segment(segment: dict, rows: dict[int, dict]) -> dict | None:
     }
 
 
+def _direction_bias_diagnostic(scored_segments: list[dict]) -> dict:
+    """Describe signed slope mismatch; NEVER correct a model using this fit.
+
+    A constant plane tilt gives almost identical signed errors on every
+    adjacent segment. A wavy model can have zero mean bias but large
+    residual errors. These are in-sample descriptions, not validation.
+    """
+    if not scored_segments:
+        return {
+            "observed_mean_grade": None,
+            "model_mean_grade": None,
+            "mean_signed_grade_error": None,
+            "mae_after_constant_tilt_diagnostic": None,
+        }
+    errors = [
+        segment["model_directional_grade"]
+        - segment["observed_directional_grade"]
+        for segment in scored_segments
+    ]
+    average_error = mean(errors)
+    return {
+        "observed_mean_grade": round(
+            mean(segment["observed_directional_grade"]
+                 for segment in scored_segments), 6
+        ),
+        "model_mean_grade": round(
+            mean(segment["model_directional_grade"]
+                 for segment in scored_segments), 6
+        ),
+        "mean_signed_grade_error": round(average_error, 6),
+        "mae_after_constant_tilt_diagnostic": round(
+            mean(abs(error - average_error) for error in errors), 6
+        ),
+    }
+
+
 def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
     """Compare observed grades to normals and modelled end-to-end rises.
 
@@ -243,6 +279,12 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
                 if cross_grade_scores else None
             ),
             "cross_track_grade_segments": cross_grade_scores,
+            "along_direction_bias": _direction_bias_diagnostic(
+                local_grade_scores
+            ),
+            "cross_direction_bias": _direction_bias_diagnostic(
+                cross_grade_scores
+            ),
             "measured_patch_segments": (
                 sum(len(lane["adjacent_normal_checks"]) for lane in lane_summary)
                 + len(cross_track_checks)
@@ -298,7 +340,9 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
             "orientation only. Some adjacent pairs may cross triangle edges; "
             "disagreement there is expected. Adjacent-grade scores "
             "exclude segments with missing or ambiguous model roots; "
-            "coverage must be considered alongside errors. These scores "
+            "coverage must be considered alongside errors. Directional "
+            "mean bias is fitted to these same observations for diagnosis "
+            "only; it is NOT a validated tilt correction. These scores "
             "use only the same small region and do not establish "
             "correct voxel packing or actual character walkability."
         ),
