@@ -256,6 +256,7 @@ def audit_ground_slopes(
             "bits": candidate["bits"],
             "lattice_origin_shift_xyz": candidate["lattice_origin_shift_xyz"],
             "single_candidates": candidate["single_candidates"],
+            "ff_sensitive_samples": candidate.get("ff_sensitive_samples"),
             "rmse_height_m": candidate["rmse_m"],
             "lanes_scored": len(lane_scores),
             "mean_absolute_rise_error_m": (
@@ -322,6 +323,7 @@ def audit_ground_slopes(
         "measured_hits": observed["terrain_surface_hits"],
         "models_evaluated": len(models),
         "six_bit_hypothesis_opted_in": include_six_bit,
+        "written_ff_voxels_in_tile": hypotheses.get("written_ff_voxels_in_tile"),
         "lanes": lane_summary,
         "measured_cross_track_segments": len(cross_track_checks),
         "cross_track_normal_checks": cross_track_checks,
