@@ -218,14 +218,24 @@ irreplaceable save.** Consult the [ground-truth protocol](docs/VOXEL_GROUND_TRUT
 for step-by-step safeguards, log collection and rollback.
 The comparison detects missed rays and terrain assets separately, records
 actual hit heights and surface normals, and estimates observed gradients.
-**No game-physics measurements have yet been taken for this tile.**
-See [ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md) for callback
-integration and interpreting the results.
+**Real game-physics measurements are now available for this Drill2 tile.**
+On 2026-10-08, 15/15 probe rays in saved world 23 hit `voxelTerrain`.
+Three observed one-metre lane rises were approximately 0.084, 0.107,
+and 0.154 m. The closest-by-height 4-bit and 5-bit trilinear candidate
+models predicted rises around 0.94–1.08 m, a clear shape disagreement;
+a fitted vertical bias cannot resolve it. Surface normals independently
+support the shallow measured centre-lane grade. Run
+`sm-atlas tile-ground-slope-audit ground_plan.json atlas_ground_hits.log $tile`
+to compare all 16 fixed model hypotheses without ranking solely by
+absolute height. See [ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md)
+for measured results, limitations and reproducible commands.
 
 For validating these candidate surfaces against the actual in-game physics
 terrain, see [Voxel ground-truth protocol](docs/VOXEL_GROUND_TRUTH.md).
-The protocol uses the official game raycast API and explicitly requires a
-verified tile-local to underground-world transform; it has not yet been run.
+The protocol uses the official game raycast API and requires an anchored
+tile-local to underground-world transform. The Drill2 raycast experiment
+has been run, but a general terrain decoder and player-capsule
+walkability have **not** been verified.
 
 **Neither command establishes actual player walkability.** Both depend on an unverified density interpretation; the walk command does not yet account for game collision of placed assets, ramps, ladders, actual slope, or attachment distances between sockets and the nearest standing voxel. Results are diagnostics only and are not injected into normal Underground navigation.
 
