@@ -63,7 +63,12 @@ def _fixture(monkeypatch, tile_path: Path):
             volume[(x * DIMS[1] + 35) * DIMS[2] + z] = raw
     monkeypatch.setattr(
         ground_density, "_load_density_bytes",
-        lambda path, dims: (volume, volume.count(255)),
+        lambda path, dims, *, return_written=False: (
+            (volume, volume.count(255), bytearray(
+                0 if raw == 255 else 1 for raw in volume
+            ))
+            if return_written else (volume, volume.count(255))
+        ),
     )
 
 
@@ -91,6 +96,11 @@ def test_profile_uses_observed_world_to_tile_xy_and_reads_raw_bytes(
     assert vals[18]["raw"] == 1
     assert vals[17]["unknown_or_ff"] is False
     assert vals[15]["unknown_or_ff"] is True
+    assert vals[15]["missing_record"] is True
+    assert vals[15]["record_present"] is False
+    assert vals[15]["literal_ff"] is False
+    assert vals[17]["record_present"] is True
+    assert vals[17]["literal_ff"] is False
     assert vals[15]["low4"] is None
     assert 81.5 in column["candidate_vertical_crossings_world_z"]["4"]
     assert 81.5 in column["candidate_vertical_crossings_world_z"]["5"]
@@ -144,3 +154,39 @@ def test_profile_cli_arguments_are_read_only():
     assert args.tile.name == "passage_2x3x2.tile"
     assert args.z_margin == 4
     assert args.json is True
+
+
+def test_profile_preserves_written_ff_and_marks_missing_slots(
+    monkeypatch, tmp_path,
+):
+    from sm_atlas import ground_density
+    tile = tmp_path / "passage_2x3x2.tile"
+    _fixture(monkeypatch, tile)
+    # Use the same synthetic tile shape, but distinguish an FF explicitly
+    # present in a record from a missing byte at the adjacent Z index.
+    volume = bytearray([255]) * (DIMS[0] * DIMS[1] * DIMS[2])
+    written = bytearray([0]) * len(volume)
+    x, y = 4, 35
+    for z, raw in ((16, 255), (17, 0), (18, 255), (19, 0)):
+        i = (x * DIMS[1] + y) * DIMS[2] + z
+        volume[i] = raw
+        written[i] = 1
+    monkeypatch.setattr(
+        ground_density, "_load_density_bytes",
+        lambda path, dims, *, return_written=False: (
+            (volume, written.count(0), written)
+            if return_written else (volume, written.count(0))
+        ),
+    )
+    report = inspect_ground_density(_plan(), _log(), tile, z_margin=2)
+    col = next(item for item in report["columns"] if item["local_xy"] == [4, 35])
+    vals = {entry["z"]: entry for entry in col["raw_vertical_bytes"]}
+    assert vals[16]["raw"] == 255
+    assert vals[16]["record_present"] is True
+    assert vals[16]["literal_ff"] is True
+    assert vals[16]["low4"] == 15
+    assert vals[16]["low5"] == 31
+    assert vals[18]["literal_ff"] is True
+    assert vals[15]["missing_record"] is True
+    assert vals[15]["low4"] is None
+    assert report["written_ff_voxels_in_tile"] == 2
