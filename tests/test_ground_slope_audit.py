@@ -412,3 +412,40 @@ def test_directional_bias_with_no_valid_model_edges_is_unknown(monkeypatch):
     for key in ("along_direction_bias", "cross_direction_bias"):
         assert all(value is None for value in model[key].values())
     assert model["patch_segments_scored"] == 0
+
+
+def test_six_bit_opt_in_passes_through_slope_audit_without_changing_default(
+    monkeypatch,
+):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": 15, "samples": rows,
+        },
+    )
+    calls = []
+    def models(plan, log, tile, *, include_six_bit=False):
+        calls.append(include_six_bit)
+        return {
+            "models": [{
+                "bits": 6 if include_six_bit else 4,
+                "lattice_origin_shift_xyz": [0, 0, 0],
+                "single_candidates": 15, "rmse_m": 0.5,
+                "samples": [{
+                    "index": row["index"], "status": "single_candidate",
+                    "candidate_world_z": [row["actual_z"] + 0.5],
+                } for row in rows],
+            }],
+        }
+    monkeypatch.setattr(module, "compare_trilinear_hypotheses", models)
+    legacy = audit_ground_slopes({}, "", "dummy.tile")
+    extended = audit_ground_slopes(
+        {}, "", "dummy.tile", include_six_bit=True,
+    )
+    assert calls == [False, True]
+    assert legacy["six_bit_hypothesis_opted_in"] is False
+    assert extended["six_bit_hypothesis_opted_in"] is True
+    assert legacy["models_ranked_by_patch_grade_error"][0]["bits"] == 4
+    assert extended["models_ranked_by_patch_grade_error"][0]["bits"] == 6
