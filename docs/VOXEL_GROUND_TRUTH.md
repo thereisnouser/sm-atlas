@@ -348,6 +348,60 @@ Official sources:
 - https://scrapmechanic.com/api/namespace_Terrain_sm_voxelTerrainCell.html
 - https://scrapmechanic.com/api/namespace_Terrain_sm_terrainTile.html
 
+## Inverse test: what is the density at the real game floor?
+
+The preceding raw-byte audit for Drill2 recorded only **4 unique**
+integer XY columns from **15** game-raycast hits (radius 0).
+Two columns showed `7F -> 73`, two showed `7F -> 7F`.
+On these four columns, two pairs crossed the hypothesized **4-bit**
+density midpoint and none crossed the 5- or 6-bit midpoints.
+This is a useful clue, **not** proof: the real collision surface may
+be interpolated from neighbouring columns, and 15 measured surface
+positions are only one small patch.
+
+Instead of finding a candidate surface height and comparing it to
+the game, the new **read-only inverse test** samples each hypothesized
+3D density field **at the 15 real game hit coordinates themselves**:
+
+```powershell
+git pull
+sm-atlas tile-ground-isovalue-audit .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit
+sm-atlas tile-ground-isovalue-audit .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit --json > .\ground_isovalue_audit.json
+```
+
+Each of the 24 opt-in combinations computes trilinear density at
+the actual height of each hit, and also the upward density change
+between the bracketing Z layers. It reports:
+
+- `sampled/15`: coverage, excluding missing/unknown neighbouring
+  voxel records. Fewer samples must never masquerade as better fit.
+- `falling/rising/flat`: number of observed positions where the
+  candidate raw density decreases/increases/does not change upward.
+  Falling is only a **hypothesis-compatible** direction for a ground
+  boundary; it is not proof of the engine's sign convention.
+- `midpoint`: the fixed, *assumed* normalized cutoff
+  (`8/15`, `16/31`, or `32/63`).
+- `observed_median`: the median sampled scalar value at the
+  actual game hits; a candidate fixed surface would require its
+  density to be near one common cutoff.
+- `fixed_error`: mean absolute difference between observed density
+  and the *unfitted* half-range cutoff (normalized 0–1).
+- `fitted_spread`: mean absolute deviation around the sample median,
+  **fitted on the same data** only to diagnose consistency. This is
+  never a valid decoder threshold or independent evidence.
+
+If `observed_median` is far from `midpoint` but `fitted_spread`
+is small **and** densities fall upward, that motivates investigating
+the threshold/coordinate convention. High spread suggests that merely
+changing one cutoff cannot explain the 15 hits. A constant solid
+region can have zero spread with `flat=15`; that is NOT a surface
+model. Even a perfect apparent fit on this patch cannot establish
+the actual game's interpolation, triangulation or character clearance.
+
+No game scripts, installed binaries, original saves or ordinary
+navigation are modified. This is an investigation of evidence, not
+a model automatically selected from 24 candidates.
+
 ## Optional six-bit byte-packing experiment
 
 Our initial **16** fixed trilinear test models assume that either 4 or
