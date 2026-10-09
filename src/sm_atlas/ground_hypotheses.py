@@ -62,8 +62,8 @@ def _candidate_floor_crossings(
     interpolation. Return *all* candidate crossings; do not choose the
     one closest to the actual hit.
     """
-    if bits not in (4, 5):
-        raise ValueError("density bits must be 4 or 5")
+    if bits not in (4, 5, 6):
+        raise ValueError("density bits must be 4, 5 or 6")
     if not (isfinite(z_min) and isfinite(z_max) and z_min < z_max):
         raise ValueError("invalid z-ray interval")
     x = local_x - sample_shift_x
@@ -91,9 +91,10 @@ def _candidate_floor_crossings(
 
 
 def compare_trilinear_hypotheses(
-    plan: dict, log: str, tile: str | Path,
+    plan: dict, log: str, tile: str | Path, *,
+    include_six_bit: bool = False,
 ) -> dict[str, object]:
-    """Compare 16 fixed hypotheses: 4/5-bit × 2^3 lattice shifts.
+    """Compare 16 legacy or 24 opt-in fixed bit-packing hypotheses.
 
     Entries with zero/multiple crossings are marked unscored, rather than
     selecting a raycast match after seeing the game's measured height.
@@ -105,7 +106,9 @@ def compare_trilinear_hypotheses(
     min_z = float(plan["world_bounds"]["min"][2])
     rows = profile["samples"]
     candidates = []
-    for bits in (4, 5):
+    # Six-bit packing is an external, NOT established hypothesis for
+    # these older 4096-byte .tile records. Never enable it implicitly.
+    for bits in ((4, 5, 6) if include_six_bit else (4, 5)):
         for shift_x in (0.0, 0.5):
             for shift_y in (0.0, 0.5):
                 for shift_z in (0.0, 0.5):
@@ -191,12 +194,17 @@ def compare_trilinear_hypotheses(
         "world_id": profile["world_id"],
         "hits_from_game": profile["hits"],
         "models_evaluated": len(candidates),
+        "six_bit_hypothesis_opted_in": include_six_bit,
         "unknown_voxels_in_tile": unknown_count,
         "models": candidates,
         "warning": (
             "Exploratory trilinear model, NOT the game collision mesher. "
             "A high match count or small RMSE does not verify the density "
             "bit packing, interpolation scheme or player walkability. "
+            "The optional 6-bit model comes from a DIFFERENT, modded runtime "
+            "voxel serialization, not confirmed older .tile packing. "
+            "Original absent voxel bytes and literal 0xFF are not yet "
+            "distinguished by this experimental interpolator. "
             "All 15 measurements come from a small area; no held-out "
             "terrain has been validated."
         ),
