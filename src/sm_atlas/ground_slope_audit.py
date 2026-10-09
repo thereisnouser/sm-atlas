@@ -146,7 +146,9 @@ def _direction_bias_diagnostic(scored_segments: list[dict]) -> dict:
     }
 
 
-def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
+def audit_ground_slopes(
+    plan: dict, log: str, tile, *, include_six_bit: bool = False,
+) -> dict:
     """Compare observed grades to normals and modelled end-to-end rises.
 
     Scores only end-to-end lane rises with two actual upward hits and
@@ -154,7 +156,13 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
     a model based on artificially small height residuals.
     """
     observed = compare_ground_observations(plan, log)
-    hypotheses = compare_trilinear_hypotheses(plan, log, tile)
+    # Preserve existing 16-hypothesis behaviour unless explicitly opted in.
+    if include_six_bit:
+        hypotheses = compare_trilinear_hypotheses(
+            plan, log, tile, include_six_bit=True
+        )
+    else:
+        hypotheses = compare_trilinear_hypotheses(plan, log, tile)
 
     measured_lanes = _lane_rows(observed["samples"])
     cross_track_checks = _cross_track_checks(measured_lanes)
@@ -313,6 +321,7 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
         "world_id": observed["world_id"],
         "measured_hits": observed["terrain_surface_hits"],
         "models_evaluated": len(models),
+        "six_bit_hypothesis_opted_in": include_six_bit,
         "lanes": lane_summary,
         "measured_cross_track_segments": len(cross_track_checks),
         "cross_track_normal_checks": cross_track_checks,

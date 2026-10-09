@@ -113,3 +113,77 @@ def test_hypothesis_cli_parser_is_explicitly_read_only():
     assert args.log.name == "atlas_ground_hits.log"
     assert args.tile.name == "passage_2x3x2.tile"
     assert args.json is True
+
+
+def test_six_bit_candidate_crossing_is_opt_in_only():
+    volume, dims = _volume()
+    for x in range(dims[0]):
+        for y in range(dims[1]):
+            for z in range(dims[2]):
+                volume[(x * dims[1] + y) * dims[2] + z] = (
+                    0x3F if z <= 2 else 0x00
+                )
+    opts = dict(
+        local_x=1.5, local_y=1.5, z_min=1.5, z_max=3.5,
+        sample_shift_x=0, sample_shift_y=0, sample_shift_z=0,
+    )
+    roots = _candidate_floor_crossings(volume, dims, bits=6, **opts)
+    assert roots == [pytest.approx(2 + 31 / 63, abs=1e-6)]
+    with pytest.raises(ValueError, match="4, 5 or 6"):
+        _candidate_floor_crossings(volume, dims, bits=7, **opts)
+
+
+def test_six_bit_grid_opt_in_preserves_legacy_model_count(monkeypatch):
+    from sm_atlas import ground_hypotheses
+    volume, dims = _volume()
+    for x in range(dims[0]):
+        for y in range(dims[1]):
+            for z in range(dims[2]):
+                volume[(x * dims[1] + y) * dims[2] + z] = (
+                    0x3F if z <= 2 else 0
+                )
+    hit_z = round(2 + 31 / 63, 6)
+    monkeypatch.setattr(
+        ground_hypotheses, "inspect_ground_density",
+        lambda plan, log, tile: {
+            "world_id": 23, "hits": 1, "tile_path": str(tile),
+            "samples": [{
+                "index": 0, "world_hit_z": hit_z,
+                "local_xyz": [1.5, 1.5, hit_z],
+            }],
+        },
+    )
+    monkeypatch.setattr(ground_hypotheses, "_dimensions", lambda path: dims)
+    monkeypatch.setattr(
+        ground_hypotheses, "_load_density_bytes",
+        lambda path, dims: (volume, 0),
+    )
+    plan = {
+        "world_bounds": {"min": [0, 0, 0]},
+        "critical_edge": {"world_samples": [
+            {"estimated_surface_world_z": hit_z},
+        ]},
+    }
+    legacy = compare_trilinear_hypotheses(plan, "log", "dummy.tile")
+    extended = compare_trilinear_hypotheses(
+        plan, "log", "dummy.tile", include_six_bit=True,
+    )
+    assert legacy["models_evaluated"] == 16
+    assert all(model["bits"] in (4, 5) for model in legacy["models"])
+    assert legacy["six_bit_hypothesis_opted_in"] is False
+    assert extended["models_evaluated"] == 24
+    assert len([m for m in extended["models"] if m["bits"] == 6]) == 8
+    assert extended["six_bit_hypothesis_opted_in"] is True
+    assert any(
+        m["bits"] == 6 and m["single_candidates"] == 1
+        for m in extended["models"]
+    )
+
+
+def test_six_bit_flags_parse_only_for_read_only_ground_commands():
+    from sm_atlas.cli import build_parser
+    parser = build_parser()
+    for command in ("tile-ground-hypotheses", "tile-ground-slope-audit"):
+        common = [command, "plan.json", "game.log", "sample.tile"]
+        assert parser.parse_args(common).include_6_bit is False
+        assert parser.parse_args(common + ["--include-6-bit"]).include_6_bit
