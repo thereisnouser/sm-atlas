@@ -1988,7 +1988,14 @@ def run_tile_ground_normal_audit(
             f"non_falling={model['density_not_falling_upward']} "
             f"unavailable={model['flat_or_unavailable_samples']} "
             f"mean_angle_error_deg={model['mean_normal_angle_error_degrees']} "
-            f"max_angle_error_deg={model['max_normal_angle_error_degrees']}"
+            f"max_angle_error_deg={model['max_normal_angle_error_degrees']} "
+            f"off_grid={model['off_grid_samples_scored']}/{model['samples_expected']} "
+            f"off_grid_mean_deg={model['mean_off_grid_normal_angle_error_degrees']} "
+            f"cells={model['scored_candidate_xy_cells']} "
+            f"off_grid_cells={model['off_grid_candidate_xy_cells']} "
+            f"cell_balanced_deg={model['mean_cell_balanced_angle_error_degrees']} "
+            f"off_grid_cell_deg="
+            f"{model['mean_off_grid_cell_balanced_angle_error_degrees']}"
         )
     print("WARNING: " + result["warning"])
     return 0

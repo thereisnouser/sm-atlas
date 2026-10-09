@@ -6,7 +6,8 @@ the wrong height, but does not identify the engine's true collision mesher.
 """
 from __future__ import annotations
 
-from math import acos, degrees, floor, hypot, sqrt
+from collections import defaultdict
+from math import acos, degrees, floor, sqrt
 from pathlib import Path
 from statistics import mean
 
@@ -140,6 +141,75 @@ def _normal_at_observed_hit(
     return result
 
 
+def _spatial_reliability_summary(samples: list[dict]) -> dict:
+    """Summarize independent spatial cells separately from repeated rays.
+
+    Group by *candidate lattice* XY cell, not just by hit index. Model
+    origins can shift where the cell boundaries lie, so counts should be
+    read as diagnostic coverage rather than a fixed independent sample N.
+    """
+    valid = [r for r in samples if r["status"] == "sampled"]
+    off_grid = [r for r in valid if not r["on_voxel_grid_plane"]]
+    groups: dict[tuple[int, int], list[dict]] = defaultdict(list)
+    for sample in valid:
+        groups[tuple(sample["candidate_xy_cell"])].append(sample)
+    by_cell = []
+    for cell, cell_samples in sorted(groups.items()):
+        strict = [
+            r for r in cell_samples if not r["on_voxel_grid_plane"]
+        ]
+        by_cell.append({
+            "candidate_xy_cell": list(cell),
+            "ray_hits": len(cell_samples),
+            "off_grid_hits": len(strict),
+            "mean_angle_error_degrees": round(mean(
+                r["normal_angle_error_degrees"] for r in cell_samples
+            ), 6),
+            "mean_off_grid_angle_error_degrees": (
+                round(mean(r["normal_angle_error_degrees"] for r in strict), 6)
+                if strict else None
+            ),
+        })
+    off_grid_cells = [
+        cell for cell in by_cell
+        if cell["mean_off_grid_angle_error_degrees"] is not None
+    ]
+    return {
+        "off_grid_samples_scored": len(off_grid),
+        "mean_off_grid_normal_angle_error_degrees": (
+            round(mean(r["normal_angle_error_degrees"] for r in off_grid), 6)
+            if off_grid else None
+        ),
+        "max_off_grid_normal_angle_error_degrees": (
+            round(max(r["normal_angle_error_degrees"] for r in off_grid), 6)
+            if off_grid else None
+        ),
+        "scored_candidate_xy_cells": len(by_cell),
+        "off_grid_candidate_xy_cells": len(off_grid_cells),
+        "mean_cell_balanced_angle_error_degrees": (
+            round(mean(cell["mean_angle_error_degrees"] for cell in by_cell), 6)
+            if by_cell else None
+        ),
+        "mean_off_grid_cell_balanced_angle_error_degrees": (
+            round(mean(
+                cell["mean_off_grid_angle_error_degrees"]
+                for cell in off_grid_cells
+            ), 6) if off_grid_cells else None
+        ),
+        "mean_off_grid_abs_world_grade_error_xy": (
+            [
+                round(mean(
+                    abs(r["model_world_grade_xy"][axis] -
+                        r["game_world_grade_xy"][axis])
+                    for r in off_grid
+                ), 6)
+                for axis in (0, 1)
+            ] if off_grid else None
+        ),
+        "candidate_xy_cells": by_cell,
+    }
+
+
 def audit_ground_field_normals(
     plan: dict, log: str, tile: str | Path, *,
     include_six_bit: bool = False,
@@ -179,8 +249,12 @@ def audit_ground_field_normals(
                             game["normal_world"], mask=mask, shift=shift,
                             rotation=rotation,
                         )
+                        lx, ly, _ = row["local_xyz"]
                         samples.append({
                             "index": row["index"],
+                            "candidate_xy_cell": [
+                                floor(lx - sx), floor(ly - sy)
+                            ],
                             "lateral_offset_m": game.get("lateral_offset_m"),
                             "fraction": game.get("fraction"),
                             **diagnostic,
@@ -213,6 +287,7 @@ def audit_ground_field_normals(
                             round(max(errs), 6) if errs else None
                         ),
                         "samples": samples,
+                        **_spatial_reliability_summary(samples),
                     })
     models.sort(key=lambda m: (
         -m["samples_scored"],
@@ -237,6 +312,12 @@ def audit_ground_field_normals(
             "Changing a scalar cutoff does not change gradient direction "
             "at the same point. Finite differences across voxel-grid "
             "planes average non-smooth derivatives and may be unreliable. "
+            "Off-grid comparisons exclude test points close to "
+            "candidate voxel planes but are still not guaranteed reliable "
+            "game-triangle normals. Candidate XY cell grouping reduces "
+            "pseudo-replication and varies with lattice origin; cell "
+            "counts are NOT independent terrain patches. Both overall "
+            "and off-grid coverage must be shown, not only lowest error. "
             "High angular error suggests a mismatch in encoding, "
             "interpolation or coordinate convention, not proof of which. "
             "Missing voxel records and non-falling fields are unscored."

@@ -453,6 +453,52 @@ The game collision mesh may be triangulated differently from a smooth
 density isosurface, in which case even a correct byte interpretation
 might not reproduce triangle normals at each exact point.
 
+### Check whether the normal mismatch is a grid-seam artifact
+
+The 2026-10-09 Drill2 run compared all 24 candidate fields with
+15 real collision normals. The strongest full-coverage (15/15) candidate
+had **31.05°** mean angular error and **7/15** hits on or near
+candidate voxel grid planes. A 28.64° candidate checked only 12/15
+hits and must not be claimed superior without accounting for coverage.
+
+Grid planes are troublesome because the assumed trilinear field is
+only piecewise smooth: its gradient can change abruptly across a plane.
+The 1 cm symmetric-difference gradient averages the two sides, which
+need not match any physical triangle normal. To avoid mistaking such
+an artifact for a decoder failure (or success), the normal audit now
+also reports:
+
+- `off_grid=N/15` and `off_grid_mean_deg`: angular errors excluding
+  points at or within ~1 cm of **any candidate X, Y, or Z lattice
+  plane**. More selective means fewer measurements; never compare
+  just the error without its coverage.
+- `cells` and `off_grid_cells`: number of **candidate XY voxel
+  columns** represented by evaluated hits, and number with at least
+  one evaluated off-grid hit. Different lattice origins can change
+  which points share a cell.
+- `cell_balanced_deg`: mean angle after averaging repeated rays in
+  each candidate XY cell, then giving each represented cell equal
+  weight. This guards against a dense cluster of near-identical ray
+  positions dominating the score, but is **not independent terrain
+  validation**.
+- `off_grid_cell_deg`: same per-cell balancing using only off-grid
+  hits. `None` means no such samples exist, **not** a zero error.
+- In JSON, `mean_off_grid_abs_world_grade_error_xy` and the detailed
+  `candidate_xy_cells` help distinguish X vs Y slope disagreement.
+
+Use the unchanged command:
+
+```powershell
+git pull
+sm-atlas tile-ground-normal-audit .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit
+```
+
+The existing `normal_samples`, unfiltered mean angle, and model
+ordering remain unchanged for backwards comparison. All these
+figures come from the **same 15 game observations**. Excluding
+voxel seams cannot prove that the chosen interpolation or
+voxel-byte packing matches Scrap Mechanic's physics mesher.
+
 ## Optional six-bit byte-packing experiment
 
 Our initial **16** fixed trilinear test models assume that either 4 or

@@ -6,6 +6,7 @@ import pytest
 
 from sm_atlas.ground_normal_field_audit import (
     _gradient_local_to_world,
+    _spatial_reliability_summary,
     _normal_at_observed_hit,
     audit_ground_field_normals,
 )
@@ -195,3 +196,124 @@ def test_normal_audit_command_remains_explicitly_read_only():
     assert parser.parse_args([
         "tile-ground-normal-audit", "plan.json", "hits.log", "cave.tile",
     ]).include_6_bit is False
+
+
+def test_off_grid_reliability_excludes_voxel_seams_and_balances_xy_cells():
+    def sample(index, cell, error, seam, grade_error):
+        return {
+            "index": index, "status": "sampled",
+            "candidate_xy_cell": list(cell), "on_voxel_grid_plane": seam,
+            "normal_angle_error_degrees": error,
+            "model_world_grade_xy": [grade_error, 0],
+            "game_world_grade_xy": [0, 0],
+        }
+
+    samples = [
+        sample(0, (1, 1), 12.0, False, 0.1),
+        sample(1, (1, 1), 18.0, False, 0.2),
+        sample(2, (1, 1), 60.0, True, 8.0),
+        sample(3, (2, 1), 30.0, False, 0.3),
+    ]
+    result = _spatial_reliability_summary(samples)
+    assert result["off_grid_samples_scored"] == 3
+    assert result["mean_off_grid_normal_angle_error_degrees"] == 20
+    assert result["max_off_grid_normal_angle_error_degrees"] == 30
+    assert result["scored_candidate_xy_cells"] == 2
+    assert result["off_grid_candidate_xy_cells"] == 2
+    # Ordinary mean over four rays is 30 degrees; one vote per cell
+    # gives (30 from cell 1, 30 from cell 2) => 30.
+    assert result["mean_cell_balanced_angle_error_degrees"] == 30
+    assert result["mean_off_grid_cell_balanced_angle_error_degrees"] == 22.5
+    assert result["mean_off_grid_abs_world_grade_error_xy"] == pytest.approx(
+        [0.2, 0.0]
+    )
+    assert [c["ray_hits"] for c in result["candidate_xy_cells"]] == [3, 1]
+    assert [c["off_grid_hits"] for c in result["candidate_xy_cells"]] == [2, 1]
+
+
+def test_spatial_reliability_handles_only_voxel_seams_or_no_valid_samples():
+    samples = [
+        {
+            "index": 0, "status": "sampled",
+            "candidate_xy_cell": [1, 1],
+            "on_voxel_grid_plane": True,
+            "normal_angle_error_degrees": 50.0,
+            "model_world_grade_xy": [5, 2],
+            "game_world_grade_xy": [0, 0],
+        },
+        {
+            "index": 1, "status": "missing_neighbour_or_boundary",
+            "candidate_xy_cell": [1, 1],
+            "on_voxel_grid_plane": False,
+            "normal_angle_error_degrees": None,
+            "model_world_grade_xy": None,
+            "game_world_grade_xy": None,
+        },
+    ]
+    result = _spatial_reliability_summary(samples)
+    assert result["scored_candidate_xy_cells"] == 1
+    assert result["off_grid_samples_scored"] == 0
+    assert result["off_grid_candidate_xy_cells"] == 0
+    assert result["mean_off_grid_normal_angle_error_degrees"] is None
+    assert result["mean_off_grid_cell_balanced_angle_error_degrees"] is None
+    assert result["mean_off_grid_abs_world_grade_error_xy"] is None
+    empty = _spatial_reliability_summary(samples[1:])
+    assert empty["scored_candidate_xy_cells"] == 0
+    assert empty["mean_cell_balanced_angle_error_degrees"] is None
+    assert empty["candidate_xy_cells"] == []
+
+
+def test_integration_reports_grouping_without_changing_full_ray_score(
+    monkeypatch,
+):
+    from sm_atlas import ground_normal_field_audit as module
+    volume, dims, written = _field()
+    normal = _observed_normal()
+    spots = [[1.2, 1.3, 1.25], [1.4, 1.5, 1.25],
+             [1.0, 1.7, 1.25]]
+    monkeypatch.setattr(
+        module, "inspect_ground_density",
+        lambda plan, log, tile: {
+            "world_id": 23, "tile_path": "dummy.tile",
+            "samples": [
+                {"index": i, "local_xyz": p} for i, p in enumerate(spots)
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "samples": [
+                {"index": i, "status": "terrain_surface_hit",
+                 "normal_world": normal}
+                for i in range(3)
+            ],
+        },
+    )
+    monkeypatch.setattr(module, "_dimensions", lambda p: dims)
+    monkeypatch.setattr(
+        module, "_load_density_bytes",
+        lambda p, d, *, return_written=False: (
+            (volume, 0, written) if return_written else (volume, 0)
+        ),
+    )
+    result = audit_ground_field_normals(
+        {"layout_rotation_quarter_turns": 1}, "", "dummy.tile"
+    )
+    model = next(m for m in result["models_ranked_by_normal_angle"]
+                 if m["bits"] == 4 and
+                 m["lattice_origin_shift_xyz"] == [0, 0, 0])
+    assert model["samples_scored"] == 3
+    assert model["grid_plane_samples_scored"] == 1
+    assert model["off_grid_samples_scored"] == 2
+    assert model["scored_candidate_xy_cells"] == 1
+    assert model["off_grid_candidate_xy_cells"] == 1
+    assert model["mean_normal_angle_error_degrees"] == pytest.approx(
+        0, abs=1e-5
+    )
+    assert model["mean_off_grid_normal_angle_error_degrees"] == pytest.approx(
+        0, abs=1e-5
+    )
+    assert model["mean_off_grid_abs_world_grade_error_xy"] == pytest.approx(
+        [0, 0], abs=1e-5
+    )
