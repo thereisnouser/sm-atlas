@@ -310,14 +310,34 @@ A candidate that better explains one small patch still needs physical
 measurements elsewhere, and even such agreement is not player
 walkability proof.
 
-**Known byte-reading caveat:** the existing experimental 4/5/6-bit
-interpolator treats a raw `0xFF` value as absent/unpopulated. The
-underlying tile loader currently uses that same marker for unwritten
-slots, so the interpolator cannot tell an actual stored 0xFF from
-an unwritten one. Its classifications near those bytes can be
-incomplete; fixing this safely requires tracking block occupancy
-separately. Do not interpret zero crossings across these unknown
-regions as evidence that the game's terrain lacks a surface.
+**Byte-reading safeguard:** the experimental reader now tracks
+whether every voxel byte actually belongs to a recorded tile block.
+A recorded literal `0xFF` is retained as data, whereas an unwritten
+volume position remains unavailable for interpolation. This
+fixes an internal ambiguity in our *experimental reader*, **not** the
+unknown physical meaning of `0xFF` or the game's density packing.
+
+The read-only `tile-ground-hypotheses` and `tile-ground-slope-audit`
+commands now report:
+- `recorded_FF_voxels`: how many literal `0xFF` bytes are actually
+  present in recorded tile blocks, regardless of relevance to the patch;
+- `FF_sensitive` per hypothesis: how many *of the observed sample
+  positions* produce different candidate crossing heights or counts
+  compared with the former FF-as-absent interpretation.
+
+An `FF_sensitive=0` across all candidates means this ambiguity
+did **not** cause our earlier predictions for the sampled area;
+it does not establish the correct terrain mesh. Different results
+require further testing and are not automatic evidence that a new
+hypothesis is physically correct.
+
+```powershell
+git pull
+sm-atlas tile-ground-slope-audit .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit
+```
+
+The existing navigation candidate-void reader retains its legacy
+behavior intentionally; it is not changed by this research-only fix.
 
 Reference: https://scrapmechanictools.com/CustomAPIs/VoxelTerrain/LuaAPI/VoxelDataFormat/
 
