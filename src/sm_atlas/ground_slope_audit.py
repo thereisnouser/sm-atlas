@@ -65,6 +65,7 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
             normal_checks.append({
                 "from_index": a["index"],
                 "to_index": b["index"],
+                "horizontal_span_m": round(span, 6),
                 "observed_directional_grade": round(actual_grade, 6),
                 "normal_implied_directional_grade": round(estimated_grade, 6),
                 "absolute_disagreement": round(
@@ -124,6 +125,43 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
                 "model_rise_m": round(model_rise, 6),
                 "rise_error_m": round(model_rise - rise, 6),
             })
+        # Adjacent-segment grades expose local shape mismatch that a
+        # matching end-to-end lane rise would conceal. Do not bridge
+        # gaps: the validated raycast comparison supplies normal checks
+        # only for consecutive pairs of actual upward ground hits.
+        local_grade_scores = []
+        for lane in lane_summary:
+            for segment in lane["adjacent_normal_checks"]:
+                first = rows.get(segment["from_index"])
+                last = rows.get(segment["to_index"])
+                if (first is None or last is None
+                        or first["status"] != "single_candidate"
+                        or last["status"] != "single_candidate"):
+                    continue
+                span = segment["horizontal_span_m"]
+                if span <= 0:
+                    continue
+                model_grade = (
+                    last["candidate_world_z"][0]
+                    - first["candidate_world_z"][0]
+                ) / span
+                measured_grade = segment["observed_directional_grade"]
+                normal_grade = segment["normal_implied_directional_grade"]
+                local_grade_scores.append({
+                    "from_index": segment["from_index"],
+                    "to_index": segment["to_index"],
+                    "lateral_offset_m": lane["lateral_offset_m"],
+                    "horizontal_span_m": span,
+                    "observed_directional_grade": measured_grade,
+                    "normal_implied_directional_grade": normal_grade,
+                    "model_directional_grade": round(model_grade, 6),
+                    "absolute_grade_error": round(
+                        abs(model_grade - measured_grade), 6
+                    ),
+                    "absolute_normal_grade_error": round(
+                        abs(model_grade - normal_grade), 6
+                    ),
+                })
         models.append({
             "bits": candidate["bits"],
             "lattice_origin_shift_xyz": candidate["lattice_origin_shift_xyz"],
@@ -135,6 +173,23 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
                 if lane_scores else None
             ),
             "lane_rises": lane_scores,
+            "measured_segments": sum(
+                len(lane["adjacent_normal_checks"]) for lane in lane_summary
+            ),
+            "segments_scored": len(local_grade_scores),
+            "mean_absolute_local_grade_error": (
+                round(mean(v["absolute_grade_error"] for v in local_grade_scores), 6)
+                if local_grade_scores else None
+            ),
+            "max_absolute_local_grade_error": (
+                max(v["absolute_grade_error"] for v in local_grade_scores)
+                if local_grade_scores else None
+            ),
+            "mean_absolute_normal_grade_error": (
+                round(mean(v["absolute_normal_grade_error"] for v in local_grade_scores), 6)
+                if local_grade_scores else None
+            ),
+            "adjacent_grade_segments": local_grade_scores,
         })
     models.sort(key=lambda model: (
         -model["lanes_scored"],
@@ -150,11 +205,21 @@ def audit_ground_slopes(plan: dict, log: str, tile) -> dict:
         "models_evaluated": len(models),
         "lanes": lane_summary,
         "models_ranked_by_rise_error": models,
+        "models_ranked_by_local_grade_error": sorted(models, key=lambda model: (
+            -model["segments_scored"],
+            model["mean_absolute_local_grade_error"]
+            if model["mean_absolute_local_grade_error"] is not None
+            else float("inf"),
+            model["bits"],
+            model["lattice_origin_shift_xyz"],
+        )),
         "warning": (
             "Normals and adjacent raycast heights corroborate local terrain "
             "orientation only. Some adjacent pairs may cross triangle edges; "
-            "disagreement there is expected. Model rise scores use only "
-            "the same small region, are exploratory, and do not establish "
+            "disagreement there is expected. Adjacent-grade scores "
+            "exclude segments with missing or ambiguous model roots; "
+            "coverage must be considered alongside errors. These scores "
+            "use only the same small region and do not establish "
             "correct voxel packing or actual character walkability."
         ),
     }
