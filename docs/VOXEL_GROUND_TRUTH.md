@@ -323,6 +323,35 @@ missing do not get an invented slope score. Its ranking tests agreement
 terrain patches and actual walking/capsule tests will be needed to
 validate a reusable walkability decoder.
 
+### Why matching total rise is not enough
+
+A one-metre track with equal start/end heights can still contain steep
+interior bumps. The legacy `models_ranked_by_rise_error` output therefore
+remains available for comparison, but is **not** sufficient to validate
+surface shape. The new `models_ranked_by_local_grade_error` output
+compares each consecutive pair of game-hit heights with the candidate
+pair at the same XY locations. Segments also report disagreement
+against directional slopes inferred from game surface normals.
+
+- `segments_scored / measured_segments` shows valid coverage; a model
+  with missing or multiple candidate crossings must **not** receive
+  invented interpolated grades across those gaps.
+- `mean_absolute_local_grade_error` is the signed directional grade
+  mismatch in metres of vertical rise per horizontal metre, averaged
+  as an absolute difference (dimensionless m/m). A constant Z bias
+  cancels, while a wrong interior shape is exposed.
+- `mean_absolute_normal_grade_error` compares the same candidate
+  slopes with normals derived from real physics hits; this is a
+  separate consistency check, not a second independent terrain dataset.
+- Results are listed with segment coverage first and local-grade
+  error second. A low error on a small subset **must not** outrank
+  physical evidence from more extensive, independent measurement.
+
+Neither the normal-based nor point-height-based grade is an engine
+walkability constraint. These measurements are from the *same* small
+Drill2 patch used to investigate the hypotheses; no hold-out
+validation has yet been performed.
+
 ## Diagnosing a hook that shows no HUD
 
 In the October 8 game log, the Game state loaded and the runtime emitted
