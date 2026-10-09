@@ -286,6 +286,41 @@ Even an apparent near-perfect match at these coordinates cannot
 distinguish different unseen packing or demonstrate a walkable route.
 Repeat on distinct tiles/terrain before making any general claims.
 
+## Optional six-bit byte-packing experiment
+
+Our initial **16** fixed trilinear test models assume that either 4 or
+5 low bits in each old underground `.tile` voxel byte encode density.
+The unrelated third-party VoxelTerrain DLL documents a *different*
+17×17×17 **runtime serialized voxel format** with 6 density bits and
+2 material bits. This is a reason to **test** a 6-bit hypothesis, not
+proof that our 16×16×16 old tile records use that format.
+
+We can now run eight additional combinations of half-voxel sample
+origins, strictly opt-in. Neither this switch nor these diagnostics
+change saves, game files, normal voxel routing, or the legacy defaults:
+
+```powershell
+sm-atlas tile-ground-hypotheses .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit
+sm-atlas tile-ground-slope-audit .\ground_plan.json .\atlas_ground_hits.log $tile --include-6-bit
+```
+
+The opt-in comparisons report **24** candidates; without the switch
+they continue to report the original **16**. This is not model training.
+A candidate that better explains one small patch still needs physical
+measurements elsewhere, and even such agreement is not player
+walkability proof.
+
+**Known byte-reading caveat:** the existing experimental 4/5/6-bit
+interpolator treats a raw `0xFF` value as absent/unpopulated. The
+underlying tile loader currently uses that same marker for unwritten
+slots, so the interpolator cannot tell an actual stored 0xFF from
+an unwritten one. Its classifications near those bytes can be
+incomplete; fixing this safely requires tracking block occupancy
+separately. Do not interpret zero crossings across these unknown
+regions as evidence that the game's terrain lacks a surface.
+
+Reference: https://scrapmechanictools.com/CustomAPIs/VoxelTerrain/LuaAPI/VoxelDataFormat/
+
 ## Height vs slope audit: use normals to avoid a false decoder winner
 
 The test-save world 23 (node 322) hit series has real end-to-end
