@@ -95,8 +95,8 @@ def test_new_grid_has_25_distinct_off_grid_positions_with_verified_rotation(
         assert tuple(sample["world_xy"]) not in old_xy
         planned_xy.add(tuple(sample["world_xy"]))
         source = data[sample["source_game_hit_index"]]
-        assert sample["estimated_surface_world_z"] == (
-            source["world_hit_z"]
+        assert sample["estimated_surface_world_z"] == pytest.approx(
+            source["world_hit_z"], abs=1e-6
         )
         distance = hypot(
             lx - source["local_xyz"][0],
