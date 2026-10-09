@@ -345,8 +345,11 @@ def audit_ground_slopes(
             model["lattice_origin_shift_xyz"],
         )),
         "warning": (
-            "This 3x5 raycast patch yields up to 12 along-track plus 10 "
-            "cross-track edges, not 22 independent ground measurements. "
+            f"This plan has {len(observed['samples'])} raycast targets and "
+            f"{sum(len(lane['adjacent_normal_checks']) for lane in lane_summary)} "
+            f"measured along-track segments plus {len(cross_track_checks)} "
+            "measured cross-track segments; overlapping segment endpoints "
+            "are not independent ground measurements. "
             "Normals and adjacent raycast heights corroborate local terrain "
             "orientation only. Some adjacent pairs may cross triangle edges; "
             "disagreement there is expected. Adjacent-grade scores "
