@@ -48,6 +48,7 @@ from .ground_hypotheses import compare_trilinear_hypotheses
 from .ground_slope_audit import audit_ground_slopes
 from .ground_byte_audit import audit_ground_voxel_bytes
 from .ground_isovalue_audit import audit_observed_isovalues
+from .ground_normal_field_audit import audit_ground_field_normals
 from .underground_graph import build_underground_graph
 from .underground_layout import summarize_underground_layout
 from .underground_map import (
@@ -288,6 +289,16 @@ def build_parser() -> argparse.ArgumentParser:
     isovalue_parser.add_argument("tile", type=Path)
     isovalue_parser.add_argument("--include-6-bit", action="store_true")
     isovalue_parser.add_argument("--json", action="store_true")
+
+    normals_parser = subparsers.add_parser(
+        "tile-ground-normal-audit",
+        help="Compare modeled raw-density gradients against in-game surface normals.",
+    )
+    normals_parser.add_argument("plan", type=Path)
+    normals_parser.add_argument("log", type=Path)
+    normals_parser.add_argument("tile", type=Path)
+    normals_parser.add_argument("--include-6-bit", action="store_true")
+    normals_parser.add_argument("--json", action="store_true")
 
     slope_audit_parser = subparsers.add_parser(
         "tile-ground-slope-audit",
@@ -1942,6 +1953,42 @@ def run_tile_ground_isovalue_audit(
             f"observed_median={model['median_observed_normalized_density']} "
             f"fixed_error={model['mean_abs_distance_from_fixed_midpoint']} "
             f"fitted_spread={model['mean_abs_spread_around_sample_median']}"
+        )
+    print("WARNING: " + result["warning"])
+    return 0
+
+
+def run_tile_ground_normal_audit(
+    plan: Path, log: Path, tile: Path, as_json: bool,
+    include_six_bit: bool = False,
+) -> int:
+    try:
+        result = audit_ground_field_normals(
+            json.loads(plan.read_text(encoding="utf-8-sig")),
+            log.read_text(encoding="utf-8-sig"), tile,
+            include_six_bit=include_six_bit,
+        )
+    except (OSError, KeyError, ValueError, json.JSONDecodeError, InvalidTileFile) as exc:
+        print(f"error: {exc}")
+        return 1
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    print(
+        f"Ground normal audit world={result['world_id']} "
+        f"game_hits={result['measured_hits']} "
+        f"models={result['models_evaluated']}"
+    )
+    for model in result["models_ranked_by_normal_angle"]:
+        print(
+            f"  bits={model['bits']} "
+            f"origin={model['lattice_origin_shift_xyz']} "
+            f"normal_samples={model['samples_scored']}/{model['samples_expected']} "
+            f"at_grid_plane={model['grid_plane_samples_scored']} "
+            f"non_falling={model['density_not_falling_upward']} "
+            f"unavailable={model['flat_or_unavailable_samples']} "
+            f"mean_angle_error_deg={model['mean_normal_angle_error_degrees']} "
+            f"max_angle_error_deg={model['max_normal_angle_error_degrees']}"
         )
     print("WARNING: " + result["warning"])
     return 0
@@ -4838,6 +4885,14 @@ def main() -> None:
             run_tile_ground_isovalue_audit(
                 args.plan, args.log, args.tile,
                 args.json, args.include_6_bit,
+            )
+        )
+
+    if args.command == "tile-ground-normal-audit":
+        raise SystemExit(
+            run_tile_ground_normal_audit(
+                args.plan, args.log, args.tile, args.json,
+                args.include_6_bit,
             )
         )
 
