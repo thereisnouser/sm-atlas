@@ -10,7 +10,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, "dist");
 const vendor = join(root, "node_modules", "sql.js");
 const browserFiles = ["index.html", "styles.css", "app.mjs",
-  "save-reader.mjs", "tunnel-reader.mjs", "save-worker.js"];
+  "save-reader.mjs", "tunnel-reader.mjs", "tile-catalog.mjs", "save-worker.js"];
 const vendorFiles = ["sql-wasm.js", "sql-wasm.wasm"];
 
 const pkg = JSON.parse(await readFile(join(vendor, "package.json"), "utf8"));
@@ -33,6 +33,8 @@ for (const filename of browserFiles) {
 for (const filename of vendorFiles) {
   await copyFile(join(vendor, "dist", filename), join(dist, "vendor", filename));
 }
+await copyFile(join(root, "..", "THIRD_PARTY_NOTICES.md"),
+  join(dist, "THIRD_PARTY_NOTICES.md"));
 for (const name of ["LICENSE", "LICENSE.md", "LICENSE.txt"]) {
   try {
     await copyFile(join(vendor, name), join(dist, "vendor", "LICENSE.sql.js.txt"));

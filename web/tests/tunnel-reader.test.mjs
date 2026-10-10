@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import initSqlJs from "sql.js";
+import { identifyTile, tileCatalogSize } from "../tile-catalog.mjs";
 import {
   decodeLuaValue, decodeScriptDataRecord,
   extractSavedTunnels, extractSavedFootprints, reconstructCaveGroups, extractTerrainTunnels,
@@ -122,11 +123,11 @@ test("Lua binary maps preserve numeric tunnel IDs and bit-packed Vec3 coordinate
   const footprints = extractSavedFootprints(value);
   assert.equal(footprints.length, 2);
   assert.deepEqual(footprints[0], {
-    kind: "cave", cellX: 4, cellY: -2, tileIndex: 7, tileUuid: null, rotation: 1,
+    kind: "cave", cellX: 4, cellY: -2, tileIndex: 7, tileUuid: null, asset: null, rotation: 1,
     x: 256, y: -128, z: 32, width: 64, depth: 64, height: 48,
   });
   assert.deepEqual(footprints[1], {
-    kind: "pocket", cellX: -1, cellY: 3, tileIndex: 9, tileUuid: null, rotation: 1,
+    kind: "pocket", cellX: -1, cellY: 3, tileIndex: 9, tileUuid: null, asset: null, rotation: 1,
     x: -32, y: 208, z: 80, width: 48, depth: 32, height: 64,
   });
 });
@@ -229,4 +230,60 @@ test("saved tileList UUIDs are byte-reversed and keep equal indexes distinguisha
   assert.equal(footprints[0].tileUuid,"0f0e0d0c-0b0a-0908-0706-050403020100");
   const other={...footprints[0],cellX:3,x:192,tileUuid:null};
   assert.equal(reconstructCaveGroups([...footprints,other]).length,2);
+});
+
+
+test("known metadata comes from exact asset UUID, not guessed tile index", () => {
+  assert.equal(tileCatalogSize, 193);
+  const elevator = identifyTile("52b1c24b-befd-41a6-95c4-54d697737fa6");
+  assert.equal(elevator.name, "drill2_elevator_12x8x8.tile");
+  assert.equal(elevator.family, "elevator");
+  assert.deepEqual(elevator.dimensions, [12,8,8]);
+  assert.deepEqual(elevator.tags, ["elevator"]);
+  const passage = identifyTile("034b98c5-c3ce-4fbc-b055-cd052d9864ca");
+  assert.equal(passage.family, "tunnel_pocket");
+  assert.equal(passage.tags.includes("passage"), true);
+  assert.equal(identifyTile("ffffffff-ffff-ffff-ffff-ffffffffffff"), null);
+  assert.equal(identifyTile(null), null);
+});
+
+test("catalog checks expected fragment count and rotated dimensions independently", () => {
+  const uuid = "52b1c24b-befd-41a6-95c4-54d697737fa6";
+  const make = (x,y,rotation=0) => ({
+    kind:"cave",cellX:x,cellY:y,x:x*64,y:y*64,z:0,
+    height:128,width:64,depth:64,rotation,tileIndex:1,tileUuid:uuid,
+  });
+  const six = Array.from({length:2},(_,y)=>
+    Array.from({length:3},(_,x)=>make(10+x,5+y))).flat();
+  const [complete] = reconstructCaveGroups(six);
+  assert.equal(complete.asset.name, "drill2_elevator_12x8x8.tile");
+  assert.equal(complete.asset.family, "elevator");
+  assert.equal(complete.expectedFragments,6);
+  assert.equal(complete.countMatches,true);
+  assert.equal(complete.sizeMatches,true);
+  const [missing] = reconstructCaveGroups(six.slice(0,3));
+  assert.equal(missing.fragmentCount,3);
+  assert.equal(missing.countMatches,false);
+  assert.equal(missing.sizeMatches,false);
+  // A 90-degree rotation swaps the expected XY dimensions.
+  const rotated = Array.from({length:3},(_,y)=>
+    Array.from({length:2},(_,x)=>make(10+x,5+y,1))).flat();
+  const [other] = reconstructCaveGroups(rotated);
+  assert.equal(other.countMatches,true);
+  assert.equal(other.sizeMatches,true);
+});
+
+test("known saved tile UUID references resolve from reversed Lua UUID bytes", () => {
+  const uuid="034b98c5-c3ce-4fbc-b055-cd052d9864ca";
+  const hex=uuid.replaceAll("-","");
+  const diskBytes=Uint8Array.from(hex.match(/../g).map(x=>parseInt(x,16)).reverse());
+  const value=new Map([
+    ["tileList",new Map([[12,{type:"uuid",bytes:diskBytes}]])],
+    ["pockets",new Map([[0,new Map([[0,new Map([[1,12]])]])]])],
+  ]);
+  const [piece]=extractSavedFootprints(value);
+  assert.equal(piece.tileUuid,uuid);
+  assert.equal(piece.asset.name,"drill2_tunnelpocket_small_passage_15_2x2x2.tile");
+  assert.equal(piece.asset.tags.includes("passage"),true);
+  assert.equal(piece.kind,"pocket");
 });

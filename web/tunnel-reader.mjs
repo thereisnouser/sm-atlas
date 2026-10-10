@@ -5,6 +5,7 @@
  * Lines are saved tunnel centerlines, NOT verified walkable cave geometry.
  */
 import { decodeLz4Block } from "./save-reader.mjs";
+import { identifyTile } from "./tile-catalog.mjs";
 
 const TERRAIN_KEYS = new Set([
   "bounds", "caves", "pockets", "rotation", "spawners",
@@ -224,6 +225,8 @@ export function extractSavedFootprints(value) {
           if (!Number.isInteger(raw) || typeof raw === "boolean") continue;
           const n = raw >>> 0;
           const tileIndex = n & 0xff;
+          const tileUuid = lookup.get(tileIndex) || null;
+          const asset = identifyTile(tileUuid);
           const rotation = kind === "cave" ? (n >>> 20) & 3 : (n >>> 28) & 3;
           let x = cellX * 64, y = cellY * 64, z, width, depth, height;
           if (kind === "cave") {
@@ -243,7 +246,7 @@ export function extractSavedFootprints(value) {
           }
           if (![x, y, z, width, depth, height].every(Number.isFinite)) continue;
           output.push({
-            kind, cellX, cellY, tileIndex, tileUuid: lookup.get(tileIndex) || null,
+            kind, cellX, cellY, tileIndex, tileUuid, asset,
             rotation, x, y, z, width, depth, height,
           });
         }
@@ -308,9 +311,23 @@ export function reconstructCaveGroups(footprints) {
     const maxY = Math.max(...parts.map((p) => p.y+p.depth));
     const minZ = Math.min(...parts.map((p) => p.z));
     const maxZ = Math.max(...parts.map((p) => p.z+p.height));
+    const asset = identifyTile(first.tileUuid);
+    // The catalog's filename encodes full tile dimensions in 16-m chunks.
+    // Count and bounding-box agreement is a consistency check, NOT evidence
+    // that all interior volume is empty or traversable.
+    let sizeMatches = null, countMatches = null, expectedFragments = null;
+    if (asset?.dimensions) {
+      const [tileW, tileD, tileH] = asset.dimensions;
+      expectedFragments = Math.ceil(tileW / 4) * Math.ceil(tileD / 4);
+      countMatches = indices.length === expectedFragments;
+      const [worldW, worldD] = first.rotation & 1 ? [tileD,tileW] : [tileW,tileD];
+      sizeMatches = maxX-minX === worldW*16
+        && maxY-minY === worldD*16 && maxZ-minZ === tileH*16;
+    }
     return {
-      tileIndex: first.tileIndex, tileUuid: first.tileUuid,
+      tileIndex: first.tileIndex, tileUuid: first.tileUuid, asset,
       identityVerified: Boolean(first.tileUuid),
+      sizeMatches, countMatches, expectedFragments,
       rotation: first.rotation, fragments: indices,
       fragmentCount: indices.length,
       x: minX, y: minY, z: minZ,
