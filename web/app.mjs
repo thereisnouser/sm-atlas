@@ -1,6 +1,4 @@
-import {
-  assertSqliteHeader, extractSaveData, buildWorldGraph,
-} from "./save-reader.mjs";
+import { buildWorldGraph } from "./save-reader.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -9,7 +7,6 @@ let save = null;
 let graph = null;
 let selected = null;
 let busy = false;
-let sqlitePromise = null;
 
 function svg(tag, attributes = {}, content) {
   const element = document.createElementNS(ns, tag);
@@ -209,38 +206,51 @@ function showSave(data, fileName) {
   $("warnings").textContent = warnings.join(" · ");
 }
 
+function inspectLocalSave(buffer) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      worker = new Worker(new URL("./save-worker.js", import.meta.url));
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const finish = (error, result) => {
+      worker.terminate();
+      if (error) reject(error);
+      else resolve(result);
+    };
+    worker.onmessage = ({ data }) => {
+      if (data?.type === "result") finish(null, data.result);
+      else finish(new Error(data?.message || "Local save reader failed"));
+    };
+    worker.onerror = (event) => {
+      event.preventDefault();
+      finish(new Error("Local save worker failed to load or execute"));
+    };
+    worker.onmessageerror = () => {
+      finish(new Error("Local save worker returned invalid data"));
+    };
+    // Transfer the file buffer rather than copying the whole database twice.
+    worker.postMessage({ type: "read", buffer }, [buffer]);
+  });
+}
+
 async function loadSave(file) {
   if (!file || busy) return;
   busy = true;
-  // Hide stale results if a different save cannot be opened.
+  // Never leave an older save on screen when a new file fails validation.
   save = null;
   graph = null;
   selected = null;
   $("explorer").classList.add("is-hidden");
-  setMessage("Reading and validating " + file.name + " locally…");
+  setMessage("Reading " + file.name + " privately in a background worker…");
   try {
-    // This request loads ONLY public SQLite WASM runtime assets.
-    // The selected save file never leaves the current browser session.
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    assertSqliteHeader(bytes);
-    sqlitePromise ??= window.initSqlJs({
-      locateFile: (name) =>
-        "https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/" + name,
-    });
-    const SQL = await sqlitePromise;
-    const db = new SQL.Database(bytes);
-    let data;
-    try {
-      data = extractSaveData(db);
-    } finally {
-      db.close();
-    }
+    const data = await inspectLocalSave(await file.arrayBuffer());
     showSave(data, file.name);
     setMessage("Loaded " + file.name + " · " + data.worlds.length
       + " world definitions · file processed locally, not uploaded.");
   } catch (error) {
-    // A failed WASM request should be retryable after connectivity returns.
-    sqlitePromise = null;
     setMessage(error instanceof Error ? error.message : String(error), true);
   } finally {
     busy = false;
