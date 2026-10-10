@@ -88,6 +88,7 @@
           <label><input type="checkbox" id="show-caves" checked> <span class="layer-key cave"></span> Cave cells</label>
           <label><input type="checkbox" id="show-pockets" checked> <span class="layer-key pocket"></span> Pocket placements</label>
           <label><input type="checkbox" id="show-tunnels" checked> <span class="layer-key tunnel"></span> Tunnel lines</label>
+          <label><input type="checkbox" id="show-groups" checked> <span class="layer-key group"></span> Group boundaries</label>
         </div>
         <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
           Select an underground world to inspect its saved tunnel lines.
@@ -96,9 +97,12 @@
           <svg id="tunnel-map" role="img" aria-label="Top-down saved underground tunnel line map"
             viewBox="0 0 1000 620"></svg>
         </div>
+        <div id="cave-group-info" class="cave-group-info" role="status" aria-live="polite">
+          Select a dashed group outline to inspect its saved fragments and extent.
+        </div>
         <div class="graph-caption">
-          <span>◉</span> Rectangles indicate <strong>stored tile placement bounds</strong>; lines indicate stored tunnel coordinates.
-          Neither proves actual cave interior space, connected entrances or a safe walking route.
+          <span>◉</span> Solid rectangles are stored tile placements; dashed outlines group adjacent matching cave cells.
+          Group boundaries are <strong>bounding extents, not room walls</strong>, and no walking route is verified.
         </div>
       </section>
 
