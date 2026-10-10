@@ -67,7 +67,7 @@ def generate() -> str:
         size = metadata["size"]
         if not isinstance(size, int) or size <= 0:
             raise ValueError(f"invalid tile size for {uuid}")
-        rows.append(f"  {json.dumps(uuid)}: {json.dumps([relative, size])},")
+        rows.append(f"  {json.dumps(uuid)}: {json.dumps([relative, size], separators=(",", ":"))},")
     return HEADER + "\n".join(rows) + "\n" + FOOTER
 
 
