@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import initSqlJs from "sql.js";
 import {
   decodeLuaValue, decodeScriptDataRecord,
-  extractSavedTunnels, extractTerrainTunnels,
+  extractSavedTunnels, extractSavedFootprints, extractTerrainTunnels,
 } from "../tunnel-reader.mjs";
 
 class Writer {
@@ -66,6 +66,24 @@ function makeTerrainLua() {
       ])],
     ])],
     ["bounds", (t) => t.table([])],
+    ["caves", (t) => t.table([
+      [-2, (row) => row.table([
+        [4, (cell) => cell.table([
+          [1, (v) => v.integer(
+            7 | (2 << 8) | (2 << 12) | (1 << 16) | (2 << 18) | (1 << 20)
+          )],
+        ])],
+      ])],
+    ])],
+    ["pockets", (t) => t.table([
+      [3, (row) => row.table([
+        [-1, (cell) => cell.table([
+          [1, (v) => v.integer(
+            9 | (0x56 << 8) | (0x39 << 16) | (1 << 28)
+          )],
+        ])],
+      ])],
+    ])],
   ]);
   return w.finish();
 }
@@ -101,6 +119,16 @@ test("Lua binary maps preserve numeric tunnel IDs and bit-packed Vec3 coordinate
   assert.equal(tunnels[0].type,"TtVeinT4");
   assert.deepEqual(tunnels[0].points,[[0,0,0],[3,4,0],[3,4,12]]);
   assert.equal(tunnels[0].length,17);
+  const footprints = extractSavedFootprints(value);
+  assert.equal(footprints.length, 2);
+  assert.deepEqual(footprints[0], {
+    kind: "cave", cellX: 4, cellY: -2, tileIndex: 7, rotation: 1,
+    x: 256, y: -128, z: 32, width: 64, depth: 64, height: 48,
+  });
+  assert.deepEqual(footprints[1], {
+    kind: "pocket", cellX: -1, cellY: 3, tileIndex: 9, rotation: 1,
+    x: -32, y: 208, z: 80, width: 48, depth: 32, height: 64,
+  });
 });
 test("ScriptData envelope validates embedded world ID and compressed byte length",()=>{
   const blob=envelope(makeTerrainLua());
@@ -121,6 +149,9 @@ test("browser SQLite extracts a genuine saved-terrain record without external fi
     assert.equal(res.status,"available");
     assert.equal(res.tunnels.length,1);
     assert.equal(res.tunnels[0].length,17);
+    assert.equal(res.footprints.length, 2);
+    assert.equal(res.footprints[0].kind, "cave");
+    assert.equal(res.footprints[1].kind, "pocket");
     assert.equal(res.failed,1);
     assert.equal(res.scanned,2);
     assert.equal(extractTerrainTunnels(db,12).status,"unavailable");
@@ -133,4 +164,15 @@ test("missing terrain and missing tunnel coordinates are clearly unavailable",as
     assert.equal(extractTerrainTunnels(db,23).status,"no-script-data");
     assert.deepEqual(extractSavedTunnels(new Map([["tunnels",new Map()]])),[]);
   }finally{db.close();}
+});
+
+test("malformed placement grids cannot create fictitious cave footprints", () => {
+  const value = new Map([
+    ["caves", new Map([[0, new Map([
+      [1, new Map([[0, true], [1, "not a packed cell"]])],
+      [2, null],
+    ])]])],
+    ["pockets", new Map([["not an integer row", new Map()]])],
+  ]);
+  assert.deepEqual(extractSavedFootprints(value), []);
 });
