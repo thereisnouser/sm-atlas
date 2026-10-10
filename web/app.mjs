@@ -1,4 +1,5 @@
 import { buildWorldGraph } from "./save-reader.mjs";
+import { preferredUndergroundWorld } from "./tunnel-reader.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -13,6 +14,9 @@ let tunnelSelectionEpoch = 0;
 let activeGeometry = null;
 let selectedCaveGroupId = null;
 let selectedPocketIndex = null;
+let coverageEpoch = 0;
+let manuallySelectedWorld = false;
+let undergroundCoverage = new Map();
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -65,6 +69,18 @@ function displayWorldList() {
     const subtitle = element("div", "world-entry-sub");
     subtitle.append(element("span", "", "#" + world.id));
     subtitle.append(element("span", "", formatKind(world.kind)));
+    if (world.kind === "underground") {
+      const info = undergroundCoverage.get(world.id);
+      const labels = {
+        tunnels: "Saved tunnel map",
+        placements: "Saved placements only",
+        "no-layout": "No saved layout data",
+        unavailable: "Layout data unavailable",
+        unsupported: "Layout exceeds limit",
+      };
+      subtitle.append(element("span", "coverage-label " + (info?.status || "pending"),
+        info ? labels[info.status] || "Not mapped" : "Checking layout…"));
+    }
     button.append(title, subtitle);
     button.addEventListener("click", () => selectWorld(world.id));
     list.append(button);
@@ -420,7 +436,9 @@ async function loadSelectedTunnels() {
   }
 }
 
-function selectWorld(id) {
+function selectWorld(id, automatic = false) {
+  if (!automatic) manuallySelectedWorld = true;
+  if (selected === id && activeGeometry) return;
   selected = id;
   displayWorldList();
   displayGraph();
@@ -428,10 +446,48 @@ function selectWorld(id) {
   void loadSelectedTunnels();
 }
 
+async function inspectUndergroundCoverage() {
+  const epoch = ++coverageEpoch;
+  const underground = sortedWorlds().filter((w) => w.kind === "underground");
+  const sampled = underground.slice(0, 32);
+  const summary = $("world-coverage-summary");
+  if (!underground.length) {
+    summary.textContent = "No underground world definitions found in this save.";
+    return;
+  }
+  summary.textContent = "Checking saved underground layout data…";
+  try {
+    const scanned = await askWorker({
+      type: "coverage", worldIds: sampled.map((w) => w.id),
+    });
+    if (epoch !== coverageEpoch) return;
+    undergroundCoverage = new Map(scanned.map((c) => [c.worldId, c]));
+    const mapped = scanned.filter((c) =>
+      c.status === "tunnels" || c.status === "placements").length;
+    const withTunnels = scanned.filter((c) => c.status === "tunnels").length;
+    summary.textContent = mapped + " of " + sampled.length
+      + " checked underground worlds have saved layout data"
+      + " (" + withTunnels + " with tunnel lines)"
+      + (underground.length > sampled.length ? "; remaining worlds not scanned" : "")
+      + ". Unmapped does not mean the cave is physically empty.";
+    displayWorldList();
+    if (!manuallySelectedWorld) {
+      const preferred = preferredUndergroundWorld(save.worlds, scanned);
+      if (preferred !== null && selected !== preferred) selectWorld(preferred, true);
+    }
+  } catch (error) {
+    if (epoch !== coverageEpoch) return;
+    summary.textContent = "Could not inspect underground layout coverage: "
+      + (error instanceof Error ? error.message : String(error));
+  }
+}
+
 function showSave(data, fileName) {
+  manuallySelectedWorld = false;
+  undergroundCoverage = new Map();
   save = data;
   graph = buildWorldGraph(data.worlds, data.portals);
-  selected = sortedWorlds()[0]?.id ?? null;
+  selected = preferredUndergroundWorld(data.worlds, []);
   $("save-name").textContent = fileName;
   $("stat-worlds").textContent = data.worlds.length;
   $("stat-underground").textContent =
@@ -444,6 +500,7 @@ function showSave(data, fileName) {
   displayGraph();
   displayDetails();
   void loadSelectedTunnels();
+  void inspectUndergroundCoverage();
   const warnings = [...data.warnings];
   if (graph.missingWorldReferences) {
     warnings.push(graph.missingWorldReferences
@@ -501,6 +558,7 @@ async function loadSave(file) {
   if (!file || busy) return;
   busy = true;
   // Close old saved data when the user selects another save.
+  ++coverageEpoch;
   disposeWorker();
   ++tunnelSelectionEpoch;
   save = null;
