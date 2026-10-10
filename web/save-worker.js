@@ -5,6 +5,20 @@ let runtimePromise = null;
 let readerPromise = null;
 let tunnelsPromise = null;
 let database = null;
+const layoutCache = new Map();
+const MAX_CACHED_WORLDS = 12;
+
+async function getSavedLayout(worldId) {
+  if (layoutCache.has(worldId)) return layoutCache.get(worldId);
+  const { extractTerrainTunnels } = await openTunnels();
+  const result = extractTerrainTunnels(database, worldId);
+  if (layoutCache.size >= MAX_CACHED_WORLDS) {
+    layoutCache.delete(layoutCache.keys().next().value);
+  }
+  layoutCache.set(worldId, result);
+  return result;
+}
+
 
 function openRuntime() {
   if (!runtimePromise) {
@@ -31,7 +45,7 @@ function openTunnels() {
 }
 
 self.addEventListener("message", async ({ data }) => {
-  if (!data || !["read", "tunnels"].includes(data.type)) {
+  if (!data || !["read", "tunnels", "coverage"].includes(data.type)) {
     self.postMessage({ type: "error", requestId: data?.requestId,
       message: "Invalid worker request" });
     return;
@@ -42,6 +56,7 @@ self.addEventListener("message", async ({ data }) => {
         throw new Error("Invalid save file buffer");
       }
       if (database) { database.close(); database = null; }
+      layoutCache.clear();
       const { assertSqliteHeader, extractSaveData } = await openReader();
       const bytes = new Uint8Array(data.buffer);
       assertSqliteHeader(bytes);
@@ -56,11 +71,23 @@ self.addEventListener("message", async ({ data }) => {
       }
       database = opened;
       self.postMessage({ type: "result", requestId: data.requestId, result });
-    } else {
+    } else if (data.type === "tunnels") {
       if (!database) throw new Error("Select a save before exploring tunnels");
-      const { extractTerrainTunnels } = await openTunnels();
-      const result = extractTerrainTunnels(database, data.worldId);
+      const result = await getSavedLayout(data.worldId);
       self.postMessage({ type: "tunnels", requestId: data.requestId, result });
+    } else {
+      if (!database) throw new Error("Select a save before examining world coverage");
+      if (!Array.isArray(data.worldIds) || data.worldIds.length > 32
+        || data.worldIds.some((id) => !Number.isSafeInteger(id) || id < 1)) {
+        throw new Error("Invalid underground coverage request (maximum 32 worlds)");
+      }
+      const { summarizeSavedLayout } = await openTunnels();
+      const summary = [];
+      for (const worldId of [...new Set(data.worldIds)]) {
+        summary.push(summarizeSavedLayout(await getSavedLayout(worldId)));
+      }
+      self.postMessage({ type: "coverage", requestId: data.requestId,
+        result: summary });
     }
   } catch (error) {
     self.postMessage({ type: "error", requestId: data.requestId,
