@@ -78,6 +78,25 @@
         </section>
       </div>
 
+      <section class="tunnel-section" aria-label="Saved underground tunnel map">
+        <div class="canvas-heading">
+          <div><h3>Underground tunnel centerlines</h3>
+            <p>Coordinates decoded from saved ScriptData · Schematic top-down plan, not a collision or walking map</p></div>
+          <span class="graph-legend">SAVED GEOMETRY · UNVERIFIED CLEARANCE</span>
+        </div>
+        <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
+          Select an underground world to inspect its saved tunnel lines.
+        </div>
+        <div class="tunnel-viewport" id="tunnel-viewport">
+          <svg id="tunnel-map" role="img" aria-label="Top-down saved underground tunnel line map"
+            viewBox="0 0 1000 620"></svg>
+        </div>
+        <div class="graph-caption">
+          <span>◉</span> Lines represent <strong>saved tunnel centerline coordinates</strong>.
+          They do not verify a continuous floor, cave walls, connected entrances or a safe walking route.
+        </div>
+      </section>
+
       <section class="details" aria-label="Selected world details">
         <div class="panel-heading">WORLD DETAILS <span class="panel-aside">SAVED DATA</span></div>
         <div id="world-details"></div>
