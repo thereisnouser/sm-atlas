@@ -12,6 +12,12 @@ This repository currently contains a **Python research and inspection CLI**, not
 
 Real game raycasts have verified a small cave-ground patch, but **the exact voxel collision decoder, player walkability and reliable cave-floor routing are not established**. Experimental voxel outputs must not be presented as confirmed routes.
 
+## Browser prototype
+
+An early [browser world viewer](web/) now reads local `save.db` files with SQLite WASM and displays discovered worlds and saved portal relationships. It is a **research preview**, not a complete cave map or a hosted public release.
+
+To preview locally, run `python -m http.server 8000 --directory web` and open `http://localhost:8000`. The current prototype downloads its version-pinned SQLite WASM runtime from a third-party CDN, but does not upload the selected save; bundling the runtime locally is a planned next step.
+
 ## Research CLI
 
 Requires Python 3.12+.
