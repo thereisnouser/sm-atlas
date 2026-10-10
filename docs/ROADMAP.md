@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Saved tunnel centerlines plus independently selectable cave-cell and pocket-placement footprint layers are decoded locally from ScriptData; authentic-save/browser integration still pending |
+| User-facing browser explorer | Saved tunnel lines, cave/pocket placement layers and inspectable groups of adjoining cave cells are decoded locally from ScriptData; real-game browser integration remains unverified |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -54,7 +54,7 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 
 ### P2 — Reliable underground mapping
 
-- [ ] Reconstruct enough underground geometry for useful mine-level maps, with provenance and uncertainty. The browser now displays **raw placement rectangles** (cave cells and pockets), but logical room grouping, entrance geometry and clearance remain to be verified.
+- [ ] Reconstruct enough underground geometry for useful mine-level maps, with provenance and uncertainty. The browser now groups face-adjacent cave cells by saved tile identity, rotation and Z into inspectable **logical placement groups**. Actual room names, interior shapes, entrances and player clearance remain unverified.
 - [ ] Identify entrances, elevators, level transitions, underground structures and POIs where evidence permits.
 - [ ] Enable search and cross-world navigation.
 - [ ] Add actual traversable routing only after physics/clearance validation.
@@ -88,9 +88,10 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-10 | Self-host the SQLite runtime and move parsing off the UI thread | Avoid runtime CDN dependency and keep the interactive explorer responsive on demanding saves |
 | 2026-10-10 | Render saved ScriptData tunnel centerlines before attempting voxel collision geometry | Deliver an honest spatial underground overview based on actual stored coordinates, not fabricated walkable paths |
 | 2026-10-10 | Overlay cave and pocket allocation footprints as separate layers | Reveal authentic saved tile placements without pretending bounding boxes equal accessible interior space |
+| 2026-10-10 | Group cave cells by matching saved tile identity, rotation, depth and shared face | Replace a wall of rectangles with inspectable logical placement groups without inventing room interiors or labels |
 
 ## Next action
 
-**Developer:** validate the browser's tunnel and placement layers against a genuine Scrap Mechanic 1.0 save and independent Python results; then add logical room grouping and evidence-backed entrance anchors. Keep collision/walkability unverified until in-game observations support them. Add offline/PWA only after hosted preview validation. Continue geometry validation in parallel when test-game observations become available.
+**Developer:** validate the browser's tunnel, placement and grouping layers against a genuine Scrap Mechanic 1.0 save and independent Python results. Investigate metadata-backed names and entry anchors next, with no claim of traversability before in-game clearance evidence. Keep original README concise; offline/PWA work follows hosted-preview validation. Continue geometry validation in parallel when test-game observations become available.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.
