@@ -7,6 +7,7 @@ silently fall back to an earlier run after the newest matching run fails.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from .ground_truth import (
     LOG_PREFIX,
@@ -17,6 +18,10 @@ from .ground_truth import (
 
 META_PREFIX = "ATLAS_GROUND_META,"
 _META_PATTERN = re.compile(r"ATLAS_GROUND_META,world=([0-9]+),count=([0-9]+)")
+
+
+class ProbeRunNotFoundError(ValueError):
+    """No run marker for the supplied plan; another log may contain it."""
 
 
 def extract_ground_probe_run(plan: dict, game_log: str) -> tuple[str, dict]:
@@ -62,13 +67,13 @@ def extract_ground_probe_run(plan: dict, game_log: str) -> tuple[str, dict]:
             active["lines"].append(line[record_pos:].strip())
 
     if not markers_seen:
-        raise ValueError(
+        raise ProbeRunNotFoundError(
             "no ATLAS_GROUND_META markers found in game log; "
             "automatic extraction requires a generated Lua probe with "
             "run metadata (legacy single-run logs can use tile-ground-compare)"
         )
     if not matching_runs:
-        raise ValueError(
+        raise ProbeRunNotFoundError(
             f"no probe marker matches world={world_id},"
             f"count={expected_count}; check the plan and game log"
         )
@@ -104,3 +109,46 @@ def extract_ground_probe_run(plan: dict, game_log: str) -> tuple[str, dict]:
             "walkability. Source log and original plan remain unchanged."
         ),
     }
+
+
+def extract_latest_ground_probe_from_directory(
+    plan: dict, logs_dir: str | Path,
+) -> tuple[str, dict, Path]:
+    """Find the latest matching game-log probe within one explicit directory.
+
+    Logs are searched newest-first by filesystem modification time and
+    filename. Unrelated logs can be skipped, but a newer *matching* broken
+    run is authoritative: never fall back to an older, valid recording.
+    No recursive traversal or modification of game files occurs.
+    """
+    _validated_ground_plan(plan)
+    directory = Path(logs_dir).expanduser().resolve()
+    if not directory.is_dir():
+        raise ValueError(f"game log directory does not exist: {directory}")
+    files = [
+        p for p in directory.glob("game*.log")
+        if p.is_file() and not p.is_symlink()
+    ]
+    files.sort(key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
+    if not files:
+        raise ValueError(
+            f"no game*.log files found in game log directory: {directory}"
+        )
+
+    for path in files:
+        # Non-probe lines can contain non-UTF8 user or mod messages.
+        # ASCII ATLAS_GROUND records remain fully recoverable.
+        raw = path.read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            extracted, summary = extract_ground_probe_run(plan, raw)
+        except ProbeRunNotFoundError:
+            continue
+        summary["source_game_log"] = str(path)
+        summary["game_log_files_examined"] = files.index(path) + 1
+        return extracted, summary, path
+
+    world_id, samples = _validated_ground_plan(plan)
+    raise ProbeRunNotFoundError(
+        f"no matching probe for world={world_id},count={len(samples)} "
+        f"found in {len(files)} game logs at {directory}"
+    )
