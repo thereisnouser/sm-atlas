@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install pinned SQLite WASM dependency
-        run: npm --prefix web install --ignore-scripts --no-audit --no-fund
+        run: npm --prefix web ci --ignore-scripts --no-audit --no-fund
       - name: Check browser source syntax
         run: npm --prefix web run check
       - name: Test binary decoding with real SQLite WASM
@@ -49,11 +49,6 @@ jobs:
             echo 'Unexpected external runtime URL in distribution'
             exit 1
           fi
-      - name: Inspect generated lockfile
-        run: |
-          echo '--- BEGIN LOCKFILE ---'
-          cat web/package-lock.json
-          echo '--- END LOCKFILE ---'
       - uses: actions/upload-artifact@v4
         with:
           name: sm-atlas-browser-preview
