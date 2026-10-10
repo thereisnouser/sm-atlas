@@ -12,6 +12,7 @@ let requestNumber = 0;
 let tunnelSelectionEpoch = 0;
 let activeGeometry = null;
 let selectedCaveGroupId = null;
+let selectedPocketIndex = null;
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -205,21 +206,42 @@ function drawTunnelMap(result) {
   const groups = result.caveGroups || [];
   const groupInfo = $("cave-group-info");
   const selectedGroup = groups.find((g) => g.id === selectedCaveGroupId);
+  const selectedPocket = footprints[selectedPocketIndex];
+  const groupAsset = selectedGroup?.asset;
   if (selectedGroup) {
     groupInfo.textContent = "Placement group #" + selectedGroup.id
+      + " · " + (groupAsset
+        ? groupAsset.name + " [catalog asset: " + groupAsset.family + "]"
+        : "Unknown game tile (not in catalog)")
       + " · " + selectedGroup.fragmentCount + " adjacent cave cells"
       + " · tile index " + selectedGroup.tileIndex
-      + (selectedGroup.tileUuid ? " · UUID " + selectedGroup.tileUuid
-        : " · tile UUID unavailable")
       + " · bounds " + selectedGroup.width + " × " + selectedGroup.depth
       + " × " + selectedGroup.height + " saved units"
       + " · rotation " + selectedGroup.rotation
-      + ". Exact room shape and walkability are unknown.";
+      + (selectedGroup.expectedFragments !== null
+        ? " · expected " + selectedGroup.expectedFragments + " fragments"
+          + " · fragment count " + (selectedGroup.countMatches ? "matches" : "DIFFERS")
+          + " · catalog size " + (selectedGroup.sizeMatches ? "matches" : "DIFFERS")
+        : " · no known catalog dimensions")
+      + ". Catalog names describe saved assets; room interior and walkability are unknown.";
+  } else if (selectedPocket?.kind === "pocket") {
+    const asset = selectedPocket.asset;
+    groupInfo.textContent = "Pocket placement · "
+      + (asset ? asset.name + " [catalog asset: " + asset.family + "]"
+        : "Unknown game tile (not in catalog)")
+      + " · tile index " + selectedPocket.tileIndex
+      + " · XY " + selectedPocket.x + ", " + selectedPocket.y
+      + " · size " + selectedPocket.width + " × " + selectedPocket.depth
+      + " × " + selectedPocket.height
+      + (asset?.tags.length ? " · filename hints: " + asset.tags.join(", ") : "")
+      + ". Asset naming does not prove entrances or accessible routes.";
   } else {
-    groupInfo.textContent = groups.length + " logical cave placement group"
-      + (groups.length === 1 ? "" : "s")
-      + " · Select a cave cell or a dashed group boundary to inspect it."
-      + " Group names are not inferred without a verified tile catalog.";
+    const named = groups.filter((g) => g.asset).length;
+    const namedPockets = footprints.filter((p) => p.kind === "pocket" && p.asset).length;
+    groupInfo.textContent = named + "/" + groups.length
+      + " named cave groups · " + namedPockets + " recognized pocket fragments"
+      + " · Select a cave group or pocket tile to inspect source-backed names."
+      + " Catalog identity is not proof of a walkable passage.";
   }
   const fragmentToGroup = new Map();
   for (const g of groups) {
@@ -280,9 +302,13 @@ function drawTunnelMap(result) {
       width: Math.max(0.5, item.width * scale).toFixed(2),
       height: Math.max(0.5, item.depth * scale).toFixed(2),
       class: "saved-footprint " + item.kind
-        + (group && group.id === selectedCaveGroupId ? " group-selected" : ""),
-      ...(group ? { tabindex: "0", role: "button",
-        "aria-label": "Inspect cave placement group " + group.id } : {}),
+        + (group && group.id === selectedCaveGroupId ? " group-selected" : "")
+        + (item.kind === "pocket" && selectedPocketIndex === index
+          ? " placement-selected" : ""),
+      tabindex: "0", role: "button",
+      "aria-label": item.kind === "pocket"
+        ? "Inspect pocket asset " + (item.asset?.name || "unknown")
+        : "Inspect cave placement group " + (group?.id || "unknown"),
     });
     box.append(svg("title", {},
       (item.kind === "cave" ? "Cave cell" : "Pocket placement")
@@ -291,20 +317,22 @@ function drawTunnelMap(result) {
       + " · " + item.width + " × " + item.depth
       + " · Z " + item.z + "… " + (item.z + item.height)
       + " · rotation " + item.rotation
+      + (item.asset ? " · asset " + item.asset.name
+        + " · catalog tags " + (item.asset.tags.join(", ") || "none")
+        : " · catalog asset unknown")
       + (group ? " · logical group #" + group.id : "")));
-    if (group) {
-      const choose = () => {
-        selectedCaveGroupId = group.id;
-        drawTunnelMap(result);
-      };
-      box.addEventListener("click", choose);
-      box.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          choose();
-        }
-      });
-    }
+    const choose = () => {
+      selectedCaveGroupId = group?.id || null;
+      selectedPocketIndex = item.kind === "pocket" ? index : null;
+      drawTunnelMap(result);
+    };
+    box.addEventListener("click", choose);
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        choose();
+      }
+    });
     root.append(box);
   }
 
@@ -322,12 +350,13 @@ function drawTunnelMap(result) {
         "aria-label": "Inspect logical placement group " + group.id,
       });
       outline.append(svg("title", {},
-        "Logical cave placement group #" + group.id + " · "
-        + group.fragmentCount + " adjacent cells, tile index "
-        + group.tileIndex + (group.tileUuid ? " (UUID available)" : " (UUID unavailable)")
-        + " · rectangular extents only; actual room outline unverified"));
+        "Logical placement group #" + group.id + " · "
+        + (group.asset ? "catalog asset " + group.asset.name : "unknown game tile")
+        + " · " + group.fragmentCount + " adjacent cells, tile index "
+        + group.tileIndex + " · rectangular extents only; room interior unverified"));
       const choose = () => {
         selectedCaveGroupId = group.id;
+        selectedPocketIndex = null;
         drawTunnelMap(result);
       };
       outline.addEventListener("click", choose);
@@ -342,7 +371,8 @@ function drawTunnelMap(result) {
         x: (px(group.x) + 4).toFixed(1),
         y: (py(group.y + group.depth) - 7).toFixed(1),
         class: "cave-group-label",
-      }, "G" + group.id));
+      }, group.asset?.family === "elevator" ? "ELEVATOR · G" + group.id
+        : "G" + group.id));
     }
   }
 
@@ -366,6 +396,7 @@ async function loadSelectedTunnels() {
   const epoch = ++tunnelSelectionEpoch;
   activeGeometry = null;
   selectedCaveGroupId = null;
+  selectedPocketIndex = null;
   $("cave-group-info").textContent = "Select a cave placement group to inspect it.";
   const world = save?.worlds.find((item) => item.id === selected);
   const root = $("tunnel-map");
