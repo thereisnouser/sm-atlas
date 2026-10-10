@@ -7,6 +7,10 @@ let save = null;
 let graph = null;
 let selected = null;
 let busy = false;
+let saveWorker = null;
+let requestNumber = 0;
+let tunnelSelectionEpoch = 0;
+const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
   const element = document.createElementNS(ns, tag);
@@ -176,11 +180,88 @@ function displayDetails() {
   container.append(section);
 }
 
+function drawTunnelMap(result) {
+  const root = $("tunnel-map");
+  root.replaceChildren();
+  root.setAttribute("viewBox", "0 0 1000 620");
+  const status = $("tunnel-status");
+  status.classList.toggle("warning", result.status !== "available");
+  if (result.status !== "available") {
+    const explanations = {
+      "no-script-data": "This save contains no ScriptData table; tunnel lines are unavailable.",
+      "unavailable": "No compatible underground terrain record was decoded for this world.",
+      "no-tunnels": "The decoded terrain record contains no saved tunnel centerlines.",
+      "too-large": "This world's saved centerline data exceeds the current display limit.",
+    };
+    status.textContent = explanations[result.status] || "Tunnel lines are unavailable for this world.";
+    return;
+  }
+
+  const tunnels = result.tunnels;
+  const all = tunnels.flatMap((tunnel) => tunnel.points);
+  const xs = all.map((point) => point[0]), ys = all.map((point) => point[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const minZ = Math.min(...all.map((point) => point[2]));
+  const maxZ = Math.max(...all.map((point) => point[2]));
+  const width = 880, height = 490, padX = 60, padY = 57;
+  const scale = Math.min(width / Math.max(1, maxX - minX),
+    height / Math.max(1, maxY - minY));
+  const dx = (width - (maxX - minX) * scale) / 2;
+  const dy = (height - (maxY - minY) * scale) / 2;
+  const px = (x) => padX + dx + (x - minX) * scale;
+  const py = (y) => padY + dy + (maxY - y) * scale;
+  status.textContent = tunnels.length + " saved tunnels · " + all.length
+    + " path points · Z " + minZ.toFixed(1) + " to " + maxZ.toFixed(1)
+    + " · decoded record #" + result.rowId
+    + (result.failed ? " · " + result.failed + " unsupported records skipped" : "");
+
+  root.append(svg("text", { x: 45, y: 27, class: "tunnel-extents" },
+    "TOP-DOWN VIEW · +X RIGHT / +Y UP"));
+  root.append(svg("text", { x: 45, y: 603, class: "tunnel-extents" },
+    "X " + minX.toFixed(1) + "… " + maxX.toFixed(1)
+    + "  ·  Y " + minY.toFixed(1) + "… " + maxY.toFixed(1)));
+  for (const tunnel of tunnels) {
+    const points = tunnel.points.map(([x,y]) => px(x).toFixed(1)
+      + "," + py(y).toFixed(1)).join(" ");
+    const path = svg("polyline", { points, class: "tunnel-line",
+      tabindex: "0", "aria-label": "Tunnel " + tunnel.id + ", " + tunnel.type });
+    path.append(svg("title", {},
+      "Tunnel #" + tunnel.id + " · " + tunnel.type + " · "
+      + tunnel.length.toFixed(1) + " saved-coordinate units"));
+    root.append(path);
+  }
+}
+
+async function loadSelectedTunnels() {
+  const epoch = ++tunnelSelectionEpoch;
+  const world = save?.worlds.find((item) => item.id === selected);
+  const root = $("tunnel-map");
+  root.replaceChildren();
+  $("tunnel-status").classList.remove("warning");
+  if (!world || world.kind !== "underground") {
+    $("tunnel-status").textContent = "Select an underground world to inspect its saved tunnel lines.";
+    return;
+  }
+  $("tunnel-status").textContent = "Reading saved underground tunnel coordinates for " + world.label + "…";
+  try {
+    const result = await askWorker({ type: "tunnels", worldId: world.id });
+    if (epoch !== tunnelSelectionEpoch || selected !== world.id) return;
+    drawTunnelMap(result);
+  } catch (error) {
+    if (epoch !== tunnelSelectionEpoch) return;
+    $("tunnel-status").classList.add("warning");
+    $("tunnel-status").textContent = "Cannot inspect this world: "
+      + (error instanceof Error ? error.message : String(error));
+  }
+}
+
 function selectWorld(id) {
   selected = id;
   displayWorldList();
   displayGraph();
   displayDetails();
+  void loadSelectedTunnels();
 }
 
 function showSave(data, fileName) {
@@ -198,6 +279,7 @@ function showSave(data, fileName) {
   displayWorldList();
   displayGraph();
   displayDetails();
+  void loadSelectedTunnels();
   const warnings = [...data.warnings];
   if (graph.missingWorldReferences) {
     warnings.push(graph.missingWorldReferences
@@ -206,40 +288,57 @@ function showSave(data, fileName) {
   $("warnings").textContent = warnings.join(" · ");
 }
 
-function inspectLocalSave(buffer) {
+function disposeWorker(reason = "Previous save closed") {
+  if (saveWorker) {
+    saveWorker.terminate();
+    saveWorker = null;
+  }
+  for (const pending of requests.values()) pending.reject(new Error(reason));
+  requests.clear();
+}
+
+function askWorker(payload, transfer = []) {
+  if (!saveWorker) {
+    return Promise.reject(new Error("Local save reader is not available"));
+  }
   return new Promise((resolve, reject) => {
-    let worker;
+    const requestId = ++requestNumber;
+    requests.set(requestId, { resolve, reject });
     try {
-      worker = new Worker(new URL("./save-worker.js", import.meta.url));
+      saveWorker.postMessage({ ...payload, requestId }, transfer);
     } catch (error) {
+      requests.delete(requestId);
       reject(error);
-      return;
     }
-    const finish = (error, result) => {
-      worker.terminate();
-      if (error) reject(error);
-      else resolve(result);
-    };
-    worker.onmessage = ({ data }) => {
-      if (data?.type === "result") finish(null, data.result);
-      else finish(new Error(data?.message || "Local save reader failed"));
-    };
-    worker.onerror = (event) => {
-      event.preventDefault();
-      finish(new Error("Local save worker failed to load or execute"));
-    };
-    worker.onmessageerror = () => {
-      finish(new Error("Local save worker returned invalid data"));
-    };
-    // Transfer the file buffer rather than copying the whole database twice.
-    worker.postMessage({ type: "read", buffer }, [buffer]);
   });
+}
+
+function inspectLocalSave(buffer) {
+  disposeWorker();
+  saveWorker = new Worker(new URL("./save-worker.js", import.meta.url));
+  saveWorker.onmessage = ({ data }) => {
+    const pending = requests.get(data?.requestId);
+    if (!pending) return;
+    requests.delete(data.requestId);
+    if (data.type === "error") pending.reject(new Error(data.message));
+    else pending.resolve(data.result);
+  };
+  saveWorker.onerror = (event) => {
+    event.preventDefault();
+    disposeWorker("Local save reader failed to load or execute");
+  };
+  saveWorker.onmessageerror = () => {
+    disposeWorker("Local save reader returned invalid data");
+  };
+  return askWorker({ type: "read", buffer }, [buffer]);
 }
 
 async function loadSave(file) {
   if (!file || busy) return;
   busy = true;
-  // Never leave an older save on screen when a new file fails validation.
+  // Close old saved data when the user selects another save.
+  disposeWorker();
+  ++tunnelSelectionEpoch;
   save = null;
   graph = null;
   selected = null;
@@ -251,6 +350,7 @@ async function loadSave(file) {
     setMessage("Loaded " + file.name + " · " + data.worlds.length
       + " world definitions · file processed locally, not uploaded.");
   } catch (error) {
+    disposeWorker("Failed save was discarded");
     setMessage(error instanceof Error ? error.message : String(error), true);
   } finally {
     busy = false;
