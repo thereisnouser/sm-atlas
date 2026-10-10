@@ -192,6 +192,54 @@ export function extractSavedTunnels(value) {
   return output;
 }
 
+/**
+ * Decode the saved placement rectangles from caves/pockets grids.
+ * These are tile allocation footprints, NOT empty space or collision bounds.
+ * Mirrors Python underground_features._decode_cave/_decode_pocket.
+ */
+export function extractSavedFootprints(value) {
+  const output = [];
+  if (!(value instanceof Map)) return output;
+  for (const kind of ["cave", "pocket"]) {
+    const grid = value.get(kind === "cave" ? "caves" : "pockets");
+    if (!(grid instanceof Map)) continue;
+    for (const [cellY, row] of grid) {
+      if (!Number.isInteger(cellY) || !(row instanceof Map)) continue;
+      for (const [cellX, entries] of row) {
+        if (!Number.isInteger(cellX) || !(entries instanceof Map)) continue;
+        for (const raw of entries.values()) {
+          if (!Number.isInteger(raw) || typeof raw === "boolean") continue;
+          const n = raw >>> 0;
+          const tileIndex = n & 0xff;
+          const rotation = kind === "cave" ? (n >>> 20) & 3 : (n >>> 28) & 3;
+          let x = cellX * 64, y = cellY * 64, z, width, depth, height;
+          if (kind === "cave") {
+            z = ((n >>> 8) & 15) * 16;
+            height = (((n >>> 12) & 15) + 1) * 16;
+            width = depth = 64;
+          } else {
+            const placement = (n >>> 8) & 255;
+            x += (placement & 3) * 16;
+            y += ((placement >>> 2) & 3) * 16;
+            z = ((placement >>> 4) & 15) * 16;
+            const size = (n >>> 16) & 255;
+            const w = ((size & 3) + 1) * 16;
+            const d = (((size >>> 2) & 3) + 1) * 16;
+            [width, depth] = rotation & 1 ? [d, w] : [w, d];
+            height = (((size >>> 4) & 15) + 1) * 16;
+          }
+          if (![x, y, z, width, depth, height].every(Number.isFinite)) continue;
+          output.push({
+            kind, cellX, cellY, tileIndex, rotation,
+            x, y, z, width, depth, height,
+          });
+        }
+      }
+    }
+  }
+  return output;
+}
+
 export function extractTerrainTunnels(database, worldId, limit = 5000) {
   if (!Number.isSafeInteger(worldId) || worldId < 0) {
     throw new Error("Invalid selected world ID");
@@ -235,10 +283,12 @@ export function extractTerrainTunnels(database, worldId, limit = 5000) {
   }
   if (!best) return { worldId, status: "unavailable", tunnels: [], scanned, failed };
   const tunnels = extractSavedTunnels(best.value);
+  const footprints = extractSavedFootprints(best.value);
   const points = tunnels.reduce((total, tunnel) => total + tunnel.points.length, 0);
-  if (points > 50000) {
-    return { worldId, status: "too-large", tunnels: [], scanned, failed, points };
+  if (points > 50000 || footprints.length > 20000) {
+    return { worldId, status: "too-large", tunnels: [], footprints: [],
+      scanned, failed, points, footprintsCount: footprints.length };
   }
-  return { worldId, status: tunnels.length ? "available" : "no-tunnels",
-    tunnels, scanned, failed, rowId: best.rowId, points };
+  return { worldId, status: tunnels.length || footprints.length ? "available" : "no-tunnels",
+    tunnels, footprints, scanned, failed, rowId: best.rowId, points };
 }

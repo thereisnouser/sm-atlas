@@ -80,9 +80,14 @@
 
       <section class="tunnel-section" aria-label="Saved underground tunnel map">
         <div class="canvas-heading">
-          <div><h3>Underground tunnel centerlines</h3>
-            <p>Coordinates decoded from saved ScriptData · Schematic top-down plan, not a collision or walking map</p></div>
+          <div><h3>Underground layout · saved placements</h3>
+            <p>Positioned cave cells, pocket placements and tunnel centerlines from ScriptData · not a walkability map</p></div>
           <span class="graph-legend">SAVED GEOMETRY · UNVERIFIED CLEARANCE</span>
+        </div>
+        <div class="layout-controls" aria-label="Map layers">
+          <label><input type="checkbox" id="show-caves" checked> <span class="layer-key cave"></span> Cave cells</label>
+          <label><input type="checkbox" id="show-pockets" checked> <span class="layer-key pocket"></span> Pocket placements</label>
+          <label><input type="checkbox" id="show-tunnels" checked> <span class="layer-key tunnel"></span> Tunnel lines</label>
         </div>
         <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
           Select an underground world to inspect its saved tunnel lines.
@@ -92,8 +97,8 @@
             viewBox="0 0 1000 620"></svg>
         </div>
         <div class="graph-caption">
-          <span>◉</span> Lines represent <strong>saved tunnel centerline coordinates</strong>.
-          They do not verify a continuous floor, cave walls, connected entrances or a safe walking route.
+          <span>◉</span> Rectangles indicate <strong>stored tile placement bounds</strong>; lines indicate stored tunnel coordinates.
+          Neither proves actual cave interior space, connected entrances or a safe walking route.
         </div>
       </section>
 

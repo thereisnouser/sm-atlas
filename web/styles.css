@@ -124,3 +124,19 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
   stroke-linecap: round; stroke-linejoin: round; opacity: .84; }
 .tunnel-line:hover, .tunnel-line:focus { stroke: #79dbc2; stroke-width: 4; opacity: 1; }
 .tunnel-extents { fill: #a6bfcd; font-size: 12px; }
+
+.layout-controls { display: flex; flex-wrap: wrap; gap: 12px 22px;
+  align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border);
+  color: #cedce6; background: #17212d; font-size: 12px; }
+.layout-controls label { display: inline-flex; align-items: center; gap: 8px;
+  cursor: pointer; white-space: nowrap; }
+.layout-controls input { accent-color: var(--accent); }
+.layer-key { display: inline-block; width: 13px; height: 10px;
+  border: 1px solid #d19a60; background: #d19a6044; }
+.layer-key.pocket { border-color: #76b9b0; background: #76b9b055; }
+.layer-key.tunnel { border: 0; border-top: 3px solid #e9a55b; background: none; }
+.saved-footprint { stroke-width: 1.5; stroke-dasharray: 4 2;
+  vector-effect: non-scaling-stroke; pointer-events: visiblePainted; }
+.saved-footprint.cave { fill: #d19a6030; stroke: #c08f5c; }
+.saved-footprint.pocket { fill: #76b9b049; stroke: #76b9b0; }
+.saved-footprint:hover { fill-opacity: .65; stroke-width: 2.7; }

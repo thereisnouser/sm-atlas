@@ -10,6 +10,7 @@ let busy = false;
 let saveWorker = null;
 let requestNumber = 0;
 let tunnelSelectionEpoch = 0;
+let activeGeometry = null;
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -188,22 +189,39 @@ function drawTunnelMap(result) {
   status.classList.toggle("warning", result.status !== "available");
   if (result.status !== "available") {
     const explanations = {
-      "no-script-data": "This save contains no ScriptData table; tunnel lines are unavailable.",
-      "unavailable": "No compatible underground terrain record was decoded for this world.",
-      "no-tunnels": "The decoded terrain record contains no saved tunnel centerlines.",
-      "too-large": "This world's saved centerline data exceeds the current display limit.",
+      "no-script-data": "This save has no ScriptData table; underground placements are unavailable.",
+      "unavailable": "No compatible terrain record could be decoded for this world.",
+      "no-tunnels": "The decoded record has no tunnel lines or cave placements.",
+      "too-large": "Saved underground geometry exceeds the current display limit.",
     };
-    status.textContent = explanations[result.status] || "Tunnel lines are unavailable for this world.";
+    status.textContent = explanations[result.status] || "Saved underground geometry is unavailable.";
     return;
   }
 
-  const tunnels = result.tunnels;
-  const all = tunnels.flatMap((tunnel) => tunnel.points);
-  const xs = all.map((point) => point[0]), ys = all.map((point) => point[1]);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const minZ = Math.min(...all.map((point) => point[2]));
-  const maxZ = Math.max(...all.map((point) => point[2]));
+  const tunnels = result.tunnels || [];
+  const footprints = result.footprints || [];
+  // Extents include both recorded tunnel points and placement boundaries,
+  // even if their display layer is switched off, to preserve the map scale.
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity, pathPoints = 0;
+  for (const tunnel of tunnels) {
+    for (const [x, y, z] of tunnel.points) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+      pathPoints++;
+    }
+  }
+  for (const item of footprints) {
+    minX = Math.min(minX, item.x); maxX = Math.max(maxX, item.x + item.width);
+    minY = Math.min(minY, item.y); maxY = Math.max(maxY, item.y + item.depth);
+    minZ = Math.min(minZ, item.z); maxZ = Math.max(maxZ, item.z + item.height);
+  }
+  if (![minX, maxX, minY, maxY].every(Number.isFinite)) {
+    status.textContent = "No valid saved coordinates were found.";
+    return;
+  }
+
   const width = 880, height = 490, padX = 60, padY = 57;
   const scale = Math.min(width / Math.max(1, maxX - minX),
     height / Math.max(1, maxY - minY));
@@ -211,30 +229,60 @@ function drawTunnelMap(result) {
   const dy = (height - (maxY - minY) * scale) / 2;
   const px = (x) => padX + dx + (x - minX) * scale;
   const py = (y) => padY + dy + (maxY - y) * scale;
-  status.textContent = tunnels.length + " saved tunnels · " + all.length
-    + " path points · Z " + minZ.toFixed(1) + " to " + maxZ.toFixed(1)
-    + " · decoded record #" + result.rowId
+  const caves = footprints.filter((item) => item.kind === "cave");
+  const pockets = footprints.filter((item) => item.kind === "pocket");
+  status.textContent = tunnels.length + " tunnel lines · " + caves.length
+    + " cave cells · " + pockets.length + " pocket placements · "
+    + pathPoints + " tunnel points · Z " + minZ.toFixed(1)
+    + " to " + maxZ.toFixed(1)
+    + " · source record #" + result.rowId
     + (result.failed ? " · " + result.failed + " unsupported records skipped" : "");
 
   root.append(svg("text", { x: 45, y: 27, class: "tunnel-extents" },
-    "TOP-DOWN VIEW · +X RIGHT / +Y UP"));
+    "SAVED PLAN VIEW · +X RIGHT / +Y UP"));
   root.append(svg("text", { x: 45, y: 603, class: "tunnel-extents" },
     "X " + minX.toFixed(1) + "… " + maxX.toFixed(1)
     + "  ·  Y " + minY.toFixed(1) + "… " + maxY.toFixed(1)));
-  for (const tunnel of tunnels) {
-    const points = tunnel.points.map(([x,y]) => px(x).toFixed(1)
-      + "," + py(y).toFixed(1)).join(" ");
-    const path = svg("polyline", { points, class: "tunnel-line",
-      tabindex: "0", "aria-label": "Tunnel " + tunnel.id + ", " + tunnel.type });
-    path.append(svg("title", {},
-      "Tunnel #" + tunnel.id + " · " + tunnel.type + " · "
-      + tunnel.length.toFixed(1) + " saved-coordinate units"));
-    root.append(path);
+
+  for (const item of footprints) {
+    const enabled = $(item.kind === "cave" ? "show-caves" : "show-pockets").checked;
+    if (!enabled) continue;
+    const box = svg("rect", {
+      x: px(item.x).toFixed(2),
+      y: py(item.y + item.depth).toFixed(2),
+      width: Math.max(0.5, item.width * scale).toFixed(2),
+      height: Math.max(0.5, item.depth * scale).toFixed(2),
+      class: "saved-footprint " + item.kind,
+    });
+    box.append(svg("title", {},
+      (item.kind === "cave" ? "Cave cell" : "Pocket placement")
+      + " · tile index " + item.tileIndex
+      + " · XY " + item.x + ", " + item.y
+      + " · " + item.width + " × " + item.depth
+      + " · Z " + item.z + "… " + (item.z + item.height)
+      + " · rotation " + item.rotation));
+    root.append(box);
+  }
+
+  if ($("show-tunnels").checked) {
+    for (const tunnel of tunnels) {
+      const points = tunnel.points.map(([x, y]) => px(x).toFixed(1)
+        + "," + py(y).toFixed(1)).join(" ");
+      const path = svg("polyline", {
+        points, class: "tunnel-line",
+        tabindex: "0", "aria-label": "Tunnel " + tunnel.id + ", " + tunnel.type,
+      });
+      path.append(svg("title", {},
+        "Tunnel #" + tunnel.id + " · " + tunnel.type + " · "
+        + tunnel.length.toFixed(1) + " saved-coordinate units"));
+      root.append(path);
+    }
   }
 }
 
 async function loadSelectedTunnels() {
   const epoch = ++tunnelSelectionEpoch;
+  activeGeometry = null;
   const world = save?.worlds.find((item) => item.id === selected);
   const root = $("tunnel-map");
   root.replaceChildren();
@@ -247,6 +295,7 @@ async function loadSelectedTunnels() {
   try {
     const result = await askWorker({ type: "tunnels", worldId: world.id });
     if (epoch !== tunnelSelectionEpoch || selected !== world.id) return;
+    activeGeometry = result;
     drawTunnelMap(result);
   } catch (error) {
     if (epoch !== tunnelSelectionEpoch) return;
@@ -361,6 +410,11 @@ async function loadSave(file) {
 $("save-input").addEventListener("change", (event) =>
   loadSave(event.target.files?.[0]));
 $("world-filter").addEventListener("change", displayWorldList);
+for (const checkboxId of ["show-caves", "show-pockets", "show-tunnels"]) {
+  $(checkboxId).addEventListener("change", () => {
+    if (activeGeometry) drawTunnelMap(activeGeometry);
+  });
+}
 const dropZone = $("drop-zone");
 for (const type of ["dragenter", "dragover"]) {
   dropZone.addEventListener(type, (event) => {
