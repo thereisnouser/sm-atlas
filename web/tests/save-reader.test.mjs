@@ -101,11 +101,11 @@ test("decode world envelope exactly as existing Python research", () => {
 });
 
 test("classification never confuses unresolved depth with guessed mine level", () => {
-  assert.equal(decodeWorldRecord(worldEnvelope(1, "Overworld")).kind, "overworld");
+  assert.equal(decodeWorldRecord(worldEnvelope(1, "Overworld"), 1).kind, "overworld");
   assert.equal(decodeWorldRecord(worldEnvelope(5, "WarehouseWorld", {
     terrain: '{"warehouseIndex":2,"level":1,"maxLevels":4}',
-  })).label, "Warehouse 2 L1/4");
-  const other = decodeWorldRecord(worldEnvelope(7, "UndergroundWorldExtra"));
+  }), 5).label, "Warehouse 2 L1/4");
+  const other = decodeWorldRecord(worldEnvelope(7, "UndergroundWorldExtra"), 7);
   assert.equal(other.kind, "underground");
   assert.equal(other.depth, null);
 });
