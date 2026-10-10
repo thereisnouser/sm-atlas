@@ -1,4 +1,4 @@
-name: Python tests
+name: SM Atlas checks
 
 on:
   push:
@@ -26,15 +26,31 @@ jobs:
 
   browser-reader:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate browser module syntax
+      - name: Install pinned SQLite WASM dependency
+        run: npm --prefix web ci --ignore-scripts --no-audit --no-fund
+      - name: Check browser source syntax
+        run: npm --prefix web run check
+      - name: Test binary decoding with real SQLite WASM
+        run: npm --prefix web test
+      - name: Build self-hosted browser preview
+        run: npm --prefix web run build
+      - name: Verify static distribution
         run: |
-          node --check web/save-reader.mjs
-          node --check web/app.mjs
-      - name: Test browser save parsing and portal graph
-        run: node --test web/tests/*.test.mjs
+          test -s web/dist/vendor/sql-wasm.js
+          test -s web/dist/vendor/sql-wasm.wasm
+          test -s web/dist/save-worker.js
+          if grep -R 'cdn.jsdelivr.net' web/dist; then
+            echo 'Unexpected external runtime URL in distribution'
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sm-atlas-browser-preview
+          path: web/dist/
+          if-no-files-found: error

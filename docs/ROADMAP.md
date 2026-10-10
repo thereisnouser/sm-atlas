@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Browser preview added: local `save.db` selection, decoded worlds/depths and saved Portal relationship graph; authentic save/browser integration pending |
+| User-facing browser explorer | Local-save browser preview with decoded worlds/depths, Portal graph, background parsing and self-hosted SQLite WASM build; authentic-save/browser integration still pending |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -45,12 +45,12 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 **Purpose:** shift from a research-only command-line toolkit toward the promised player experience without waiting for a complete voxel decoder.
 
 - [x] Introduce a minimal dependency-free JavaScript browser prototype with local file selection (TypeScript migration remains optional).
-- [x] Add browser-side SQLite/WASM ingestion and binary record decoding; no save upload API. Confirm performance on authentic large saves before calling this production-ready.
+- [x] Add browser-side SQLite/WASM ingestion and binary record decoding; no save upload API. Use a background worker for CPU-heavy parsing and a static bundle with local WASM files. Confirm performance on authentic large saves before calling this production-ready.
 - [x] Display decoded worlds/depths and **save-supported** Portal table relationships in an interactive schematic. Tile geometry/entrances are not yet shown.
 - [x] Explicitly label world/portal saved facts and unknown walking/collision geometry; no candidate surfaces promoted to real routes.
 - [ ] Exercise the prototype against an authentic Scrap Mechanic 1.0 test save and document unsupported cases.
 
-**Acceptance criterion:** a player can open a local save and navigate at least one useful underground topology view without installing or running the Python CLI. No validated collision route is implied where none exists. **Not yet accepted:** authentic-save integration and a hosted build remain pending. The browser prototype currently depends on a version-pinned third-party CDN for SQLite WASM; bundle/self-host that runtime before making offline/security assurances.
+**Acceptance criterion:** a player can open a local save and navigate at least one useful underground topology view without installing or running the Python CLI. No validated collision route is implied where none exists. **Not yet accepted:** authentic-save integration and a hosted build remain pending. The static build now packages the pinned SQLite WASM runtime on the same origin and processes saves in a worker; offline/PWA behavior and authentic-save integration remain unverified.
 
 ### P2 — Reliable underground mapping
 
@@ -85,9 +85,10 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-10 | Keep README short and experimental evidence in dedicated documentation | Improve discoverability and avoid repository clutter |
 | 2026-10-10 | Use measurable Python research; introduce ML only when justified by data | Demonstrate trustworthy engineering and model-evaluation expertise |
 | 2026-10-10 | Launch browser exploration with saved world IDs and Portal table before full voxel geometry | Give players a functional cave-world overview without fabricating traversable terrain |
+| 2026-10-10 | Self-host the SQLite runtime and move parsing off the UI thread | Avoid runtime CDN dependency and keep the interactive explorer responsive on demanding saves |
 
 ## Next action
 
-**Developer:** run the browser prototype against a genuine Scrap Mechanic 1.0 save, then self-host SQLite WASM assets, improve heavy-file responsiveness and begin visualizing independently grounded underground tunnel layout. Continue geometry validation in parallel when test-game observations become available.
+**Developer:** verify the packaged browser build with a genuine Scrap Mechanic 1.0 save, assess memory/performance limits, and then visualize saved underground tunnel layout with explicit uncertainty. Add a true offline cache/PWA only after the hosted preview is validated. Continue geometry validation in parallel when test-game observations become available.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

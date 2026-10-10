@@ -9,3 +9,7 @@ build/
 .idea/
 .vscode/
 *.db
+
+# Generated browser distribution and installed build dependencies
+web/dist/
+web/node_modules/

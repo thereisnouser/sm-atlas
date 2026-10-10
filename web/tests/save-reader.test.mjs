@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import initSqlJs from "sql.js";
 import {
   WORLD_MARKER_UID, assertSqliteHeader, decodeLz4Block,
   decodeWorldRecord, extractSaveData, buildWorldGraph,
@@ -152,4 +153,54 @@ test("invalid file headers and unsupported schemas fail explicitly", () => {
   const corrupt = new Uint8Array(100);
   assert.throws(() => assertSqliteHeader(corrupt), /not a SQLite/);
   assert.throws(() => extractSaveData(mockDb(["Portal"], [], [])), /GenericData/);
+});
+
+
+test("bundled SQLite reads a real in-memory save schema and decodes portal links", async () => {
+  const SQL = await initSqlJs();
+  const database = new SQL.Database();
+  try {
+    database.run(`
+      CREATE TABLE GenericData (
+        uid BLOB, worldId INTEGER, flags INTEGER, data BLOB
+      );
+      CREATE TABLE Portal (
+        id INTEGER, worldIdA INTEGER, xA INTEGER, yA INTEGER,
+        worldIdB INTEGER, xB INTEGER, yB INTEGER
+      );
+    `);
+    const terrain = '{"depth":2,"path":"$SURVIVAL_DATA/Scripts/worlds/Drill2.lua"}';
+    database.run(
+      "INSERT INTO GenericData (uid, worldId, flags, data) VALUES (?, ?, 3, ?)",
+      [WORLD_MARKER_UID, 23, worldEnvelope(23, "UndergroundWorld", { terrain })],
+    );
+    database.run(
+      "INSERT INTO GenericData (uid, worldId, flags, data) VALUES (?, ?, 3, ?)",
+      [WORLD_MARKER_UID, 1, worldEnvelope(1, "Overworld")],
+    );
+    database.run(
+      `INSERT INTO Portal
+         (id, worldIdA, xA, yA, worldIdB, xB, yB)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [9, 1, -2, 3, 23, 0, 0],
+    );
+    const savedBytes = database.export();
+    assertSqliteHeader(savedBytes);
+    const reopened = new SQL.Database(savedBytes);
+    try {
+      const result = extractSaveData(reopened);
+      assert.equal(result.worlds.length, 2);
+      assert.equal(result.portals.length, 1);
+      assert.equal(result.worlds.find((w) => w.id === 23)?.depth, 2);
+      assert.equal(result.worlds.find((w) => w.id === 23)?.label, "D2 Drill2");
+      assert.equal(result.warnings.length, 0);
+      const graph = buildWorldGraph(result.worlds, result.portals);
+      assert.equal(graph.edges.length, 1);
+      assert.equal(graph.missingWorldReferences, 0);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    database.close();
+  }
 });
