@@ -16,7 +16,7 @@ Real game raycasts have verified a small cave-ground patch, but **the exact voxe
 
 An early [browser world viewer](web/) now reads local `save.db` files with SQLite WASM and displays discovered worlds and saved portal relationships. It is a **research preview**, not a complete cave map or a hosted public release.
 
-To preview locally, run `python -m http.server 8000 --directory web` and open `http://localhost:8000`. The current prototype downloads its version-pinned SQLite WASM runtime from a third-party CDN, but does not upload the selected save; bundling the runtime locally is a planned next step.
+To build the static browser preview (Node.js 22+), run `cd web && npm ci && npm run build`, then start `python -m http.server 8000 --directory dist` from the `web` directory and open `http://localhost:8000`. A built preview can be served as static files with no backend, CDN dependency or save uploads. Save parsing takes place inside a Web Worker. Authentic-game-save and offline/PWA testing are still pending.
 
 ## Research CLI
 
