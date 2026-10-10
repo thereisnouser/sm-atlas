@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Local browser previews saved tunnel lines, cave/pocket placement groups and exact UUID-matched asset labels from a licensed 193-tile catalog; authentic save/browser integration is still unverified |
+| User-facing browser explorer | Local browser previews saved tunnel lines, cave/pocket groups, asset labels, and evidence-based coverage badges per underground world; full authentic-save browser parity remains pending |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -48,7 +48,7 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 - [x] Add browser-side SQLite/WASM ingestion and binary record decoding; no save upload API. Use a background worker for CPU-heavy parsing and a static bundle with local WASM files. Confirm performance on authentic large saves before calling this production-ready.
 - [x] Display decoded worlds/depths and **save-supported** Portal relationships. Overlay saved ScriptData tunnel centerlines and individually decoded cave/pocket placement rectangles in a top-down view; no actual collision interiors or entrances claimed.
 - [x] Explicitly label world/portal saved facts and unknown walking/collision geometry; no candidate surfaces promoted to real routes.
-- [ ] Exercise the prototype (including saved ScriptData tunnel line extraction) against an authentic Scrap Mechanic 1.0 test save and document unsupported cases.
+- [ ] Complete authentic-save parity validation in an actual browser. Read-only offline schema/LUA inspection of an authentic test save has confirmed an important sparse-world scenario (some underground worlds lack saved tunnel/placement records); synthetic SQLite WASM checks remain separate evidence. Never commit the private save.
 
 **Acceptance criterion:** a player can open a local save and navigate at least one useful underground topology view without installing or running the Python CLI. No validated collision route is implied where none exists. **Not yet accepted:** authentic-save integration and a hosted build remain pending. The static build now packages the pinned SQLite WASM runtime on the same origin and processes saves in a worker; offline/PWA behavior and authentic-save integration remain unverified.
 
@@ -90,9 +90,10 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-10 | Overlay cave and pocket allocation footprints as separate layers | Reveal authentic saved tile placements without pretending bounding boxes equal accessible interior space |
 | 2026-10-10 | Group cave cells by matching saved tile identity, rotation, depth and shared face | Replace a wall of rectangles with inspectable logical placement groups without inventing room interiors or labels |
 | 2026-10-10 | Match saved tile UUIDs to the existing licensed catalog of 193 known underground assets | Label real saved structure assets and check expected dimensions while retaining unknown identities and unverified interiors |
+| 2026-10-10 | Prioritize underground worlds with saved layout data and explicitly mark sparse levels | Authentic offline save inspection showed legitimate underground world records with no saved tunnel/placement geometry; an empty map must not imply an empty cave |
 
 ## Next action
 
-**Developer:** validate the browser's tunnel, placement, grouping and catalog-name layers against a genuine Scrap Mechanic 1.0 save and independent Python results. Next evaluate whether saved passage/elevator assets can be associated with portal/entry positions without inventing walkable routes. Keep collision and player clearance unverified pending in-game evidence; do not expand README with experiments. Continue geometry validation in parallel when test-game observations become available.
+**Developer:** complete an in-browser smoke test on an authentic test save and compare its aggregate world/portal/underground geometry counts against independent offline results, without publishing the save. Then evaluate portal/entry position alignment with saved asset footprints. Keep collision and player clearance unverified pending in-game evidence; do not expand README with experiments. Continue geometry validation in parallel when test-game observations become available.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

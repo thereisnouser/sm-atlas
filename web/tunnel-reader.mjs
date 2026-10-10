@@ -341,6 +341,36 @@ export function reconstructCaveGroups(footprints) {
   return groups.map((g, index) => ({ id: index+1, ...g }));
 }
 
+/** Lightweight metadata for local save coverage; not a walkability verdict. */
+export function summarizeSavedLayout(result) {
+  const tunnels = result.tunnels?.length ?? 0;
+  const footprints = result.footprints ?? [];
+  const caveCells = footprints.filter((p) => p.kind === "cave").length;
+  const pocketCells = footprints.filter((p) => p.kind === "pocket").length;
+  let status = "no-layout";
+  if (result.status === "too-large") status = "unsupported";
+  else if (result.status === "unavailable") status = "unavailable";
+  else if (result.status === "no-script-data") status = "unavailable";
+  else if (tunnels > 0) status = "tunnels";
+  else if (caveCells + pocketCells > 0) status = "placements";
+  return {
+    worldId: result.worldId, status, tunnels, caveCells, pocketCells,
+    caveGroups: result.caveGroups?.length ?? 0,
+  };
+}
+
+/** Cave-first default, favoring levels with actual saved lines over empty records. */
+export function preferredUndergroundWorld(worlds, coverage) {
+  const underground = worlds.filter((w) => w.kind === "underground")
+    .sort((a, b) => (a.depth ?? Infinity) - (b.depth ?? Infinity) || a.id - b.id);
+  const byId = new Map(coverage.map((c) => [c.worldId, c]));
+  for (const status of ["tunnels", "placements"]) {
+    const matching = underground.find((w) => byId.get(w.id)?.status === status);
+    if (matching) return matching.id;
+  }
+  return underground[0]?.id ?? worlds[0]?.id ?? null;
+}
+
 export function extractTerrainTunnels(database, worldId, limit = 5000) {
   if (!Number.isSafeInteger(worldId) || worldId < 0) {
     throw new Error("Invalid selected world ID");
