@@ -42,7 +42,10 @@ from .tile_objects import (
 from .tile_voxel_walk import probe_tile_voxel_walk
 from .tile_world import probe_tile_world
 from .ground_truth import render_ground_probe_lua, compare_ground_observations
-from .ground_log_extract import extract_ground_probe_run
+from .ground_log_extract import (
+    extract_ground_probe_run,
+    extract_latest_ground_probe_from_directory,
+)
 from .ground_hook import survival_hook_operation, load_portal_entrance
 from .ground_density import inspect_ground_density
 from .ground_hypotheses import compare_trilinear_hypotheses
@@ -256,7 +259,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Extract the newest complete plan-matching probe from a game log.",
     )
     ground_extract_parser.add_argument("plan", type=Path)
-    ground_extract_parser.add_argument("game_log", type=Path)
+    ground_extract_parser.add_argument("game_log", type=Path, nargs="?")
+    ground_extract_parser.add_argument(
+        "--logs-dir", type=Path,
+        help="Search game*.log files newest-first in this directory.",
+    )
     ground_extract_parser.add_argument("--output", type=Path, required=True)
 
     ground_compare_parser = subparsers.add_parser(
@@ -2130,15 +2137,32 @@ def run_tile_ground_slope_audit(
 
 
 def run_tile_ground_extract(
-    plan: Path, game_log: Path, output: Path,
+    plan: Path, game_log: Path | None, output: Path,
+    logs_dir: Path | None = None,
 ) -> int:
     try:
-        if output.resolve() in (plan.resolve(), game_log.resolve()):
-            raise ValueError("refusing to overwrite an input file")
-        extracted, summary = extract_ground_probe_run(
-            json.loads(plan.read_text(encoding="utf-8-sig")),
-            game_log.read_text(encoding="utf-8-sig"),
-        )
+        if (game_log is None) == (logs_dir is None):
+            raise ValueError(
+                "provide either game_log or --logs-dir, but not both"
+            )
+        if output.resolve() == plan.resolve():
+            raise ValueError("refusing to overwrite the ground plan")
+        plan_data = json.loads(plan.read_text(encoding="utf-8-sig"))
+        if logs_dir is None:
+            assert game_log is not None
+            source = game_log
+            extracted, summary = extract_ground_probe_run(
+                plan_data,
+                game_log.read_text(encoding="utf-8-sig", errors="replace"),
+            )
+        else:
+            extracted, summary, source = (
+                extract_latest_ground_probe_from_directory(
+                    plan_data, logs_dir,
+                )
+            )
+        if output.resolve() == source.resolve():
+            raise ValueError("refusing to overwrite the source game log")
         output.parent.mkdir(parents=True, exist_ok=True)
         # Exclusive creation keeps an earlier trusted extraction intact.
         with output.open("x", encoding="utf-8") as stream:
@@ -2154,6 +2178,7 @@ def run_tile_ground_extract(
         f"upward_ground={summary['game_ground_hits']} "
         f"other_or_miss={summary['other_hits_or_misses']}"
     )
+    print(f"  source_game_log={source}")
     print(
         f"  selected_run={summary['selected_marker_number']}/"
         f"{summary['total_probe_markers_found']} "
@@ -4966,6 +4991,7 @@ def main() -> None:
         raise SystemExit(
             run_tile_ground_extract(
                 args.plan, args.game_log, args.output,
+                args.logs_dir,
             )
         )
 
