@@ -34,6 +34,8 @@ jobs:
           node-version: '22'
       - name: Install pinned SQLite WASM dependency
         run: npm --prefix web ci --ignore-scripts --no-audit --no-fund
+      - name: Verify Python and browser tile catalogs match
+        run: python3 scripts/export_web_tile_catalog.py --check
       - name: Check browser source syntax
         run: |
           npm --prefix web run check
@@ -48,6 +50,8 @@ jobs:
           test -s web/dist/vendor/sql-wasm.wasm
           test -s web/dist/save-worker.js
           test -s web/dist/tunnel-reader.mjs
+          test -s web/dist/tile-catalog.mjs
+          test -s web/dist/THIRD_PARTY_NOTICES.md
           if grep -R 'cdn.jsdelivr.net' web/dist; then
             echo 'Unexpected external runtime URL in distribution'
             exit 1
