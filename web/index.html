@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Explore Scrap Mechanic Survival saves privately in your browser.">
+  <title>SM Atlas — Survival World Explorer</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-wasm.js"></script>
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="branding"><div class="brand-mark" aria-hidden="true">◈</div><div>
+      <div class="brand-name">SM <span>ATLAS</span></div>
+      <div class="brand-subtitle">SCRAP MECHANIC · SURVIVAL EXPLORER</div>
+    </div></div>
+    <div class="topright"><span class="privacy-indicator"><span class="status-dot"></span> LOCAL PROCESSING</span><span class="version">RESEARCH PREVIEW</span></div>
+  </header>
+
+  <main class="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="eyebrow">DISCOVER YOUR WORLD</div>
+        <h1 id="hero-title">Your Survival world,<br><span>finally understandable.</span></h1>
+        <p>Open your save to discover underground worlds, depth levels and saved portal connections. Atlas processes the file right here in your browser.</p>
+      </div>
+      <div class="upload-panel" id="drop-zone">
+        <div class="upload-symbol" aria-hidden="true">↥</div>
+        <div class="upload-title">Drop a <strong>save.db</strong> here</div>
+        <div class="upload-subtitle">or select a file from your computer</div>
+        <label class="browse-button" for="save-input">Choose save file <span aria-hidden="true">↗</span></label>
+        <input type="file" id="save-input" accept=".db,.sqlite,.sqlite3,application/octet-stream" aria-label="Select a local Scrap Mechanic save" />
+        <div class="upload-footnote">PRIVATE · READ-ONLY · NO UPLOADS</div>
+      </div>
+    </section>
+
+    <div class="message" id="message" role="status" aria-live="polite">Select a save to begin exploring.</div>
+
+    <section class="explorer is-hidden" id="explorer" aria-label="Save explorer">
+      <div class="workspace-head">
+        <div><div class="eyebrow">LOADED SAVE</div><h2 id="save-name">World overview</h2></div>
+        <span class="data-provenance">SOURCE: LOCAL SAVE.DB</span>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="stat-label">DISCOVERED WORLDS</div><div class="stat-number" id="stat-worlds">—</div></div>
+        <div class="stat"><div class="stat-label">UNDERGROUND WORLDS</div><div class="stat-number" id="stat-underground">—</div></div>
+        <div class="stat"><div class="stat-label">PORTAL RECORDS</div><div class="stat-number" id="stat-portals">—</div></div>
+        <div class="stat"><div class="stat-label">RESOLVED WORLD LINKS</div><div class="stat-number" id="stat-links">—</div></div>
+      </div>
+
+      <div class="workspace">
+        <aside class="world-sidebar">
+          <div class="panel-heading">WORLDS <span class="panel-aside">SELECT ONE</span></div>
+          <div class="filter-row">
+            <label class="sr-only" for="world-filter">Filter world types</label>
+            <select id="world-filter">
+              <option value="all">All worlds</option>
+              <option value="underground">Underground</option>
+              <option value="overworld">Overworld</option>
+              <option value="warehouse">Warehouses</option>
+              <option value="dungeon">Dungeons</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div id="world-list" class="world-list"></div>
+        </aside>
+
+        <section class="canvas-area" aria-label="World connectivity diagram">
+          <div class="canvas-heading">
+            <div><h3>World connection graph</h3><p>Schematic layout · Portal records only · Not physical distances or verified walking routes</p></div>
+            <span class="graph-legend"><span class="legend-line"></span> SAVED PORTAL</span>
+          </div>
+          <div class="graph-scroll" id="graph-scroll">
+            <svg id="world-graph" role="img" aria-label="Saved world relationships" viewBox="0 0 1080 480"></svg>
+          </div>
+          <div class="graph-caption"><span>◉</span> World identities are decoded from saved records. Connections come from the Portal table. <strong>Passage geometry and walkability are not verified.</strong></div>
+        </section>
+      </div>
+
+      <section class="details" aria-label="Selected world details">
+        <div class="panel-heading">WORLD DETAILS <span class="panel-aside">SAVED DATA</span></div>
+        <div id="world-details"></div>
+      </section>
+      <div id="warnings" class="warnings"></div>
+    </section>
+
+    <footer><span>SM ATLAS / COMMUNITY RESEARCH PROJECT</span><span>UNOFFICIAL · NOT AFFILIATED WITH AXOLOT GAMES</span></footer>
+  </main>
+</body>
+</html>

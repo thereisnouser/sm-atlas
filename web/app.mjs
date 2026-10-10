@@ -1,0 +1,270 @@
+import {
+  assertSqliteHeader, extractSaveData, buildWorldGraph,
+} from "./save-reader.mjs";
+
+const $ = (id) => document.getElementById(id);
+const ns = "http://www.w3.org/2000/svg";
+const bucketOrder = ["overworld", "underground", "warehouse", "dungeon", "other"];
+let save = null;
+let graph = null;
+let selected = null;
+let busy = false;
+let sqlitePromise = null;
+
+function svg(tag, attributes = {}, content) {
+  const element = document.createElementNS(ns, tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    element.setAttribute(name, String(value));
+  }
+  if (content !== undefined) element.textContent = String(content);
+  return element;
+}
+
+function element(tag, className, text) {
+  const result = document.createElement(tag);
+  if (className) result.className = className;
+  if (text !== undefined) result.textContent = String(text);
+  return result;
+}
+
+function setMessage(text, isError = false) {
+  $("message").textContent = text;
+  $("message").classList.toggle("error", isError);
+}
+
+function formatKind(kind) {
+  return kind[0].toUpperCase() + kind.slice(1);
+}
+
+function sortedWorlds() {
+  return [...save.worlds].sort((a, b) =>
+    bucketOrder.indexOf(a.kind) - bucketOrder.indexOf(b.kind)
+    || (a.depth ?? 999) - (b.depth ?? 999)
+    || a.id - b.id);
+}
+
+function displayWorldList() {
+  const list = $("world-list");
+  list.replaceChildren();
+  const kind = $("world-filter").value;
+  const shown = sortedWorlds().filter((w) => kind === "all" || w.kind === kind);
+  if (!shown.length) {
+    list.append(element("div", "empty", "No worlds match this filter."));
+  }
+  for (const world of shown) {
+    const button = element("button", "world-entry");
+    button.type = "button";
+    button.classList.toggle("active", world.id === selected);
+    const title = element("div", "world-entry-title");
+    title.append(element("span", "", world.label));
+    if (world.depth !== null) title.append(element("span", "depth", "D" + world.depth));
+    const subtitle = element("div", "world-entry-sub");
+    subtitle.append(element("span", "", "#" + world.id));
+    subtitle.append(element("span", "", formatKind(world.kind)));
+    button.append(title, subtitle);
+    button.addEventListener("click", () => selectWorld(world.id));
+    list.append(button);
+  }
+}
+
+function displayGraph() {
+  const root = $("world-graph");
+  root.replaceChildren();
+  const worlds = sortedWorlds();
+  if (!worlds.length) {
+    root.setAttribute("viewBox", "0 0 1080 440");
+    root.append(svg("text", { x: 540, y: 200, fill: "#8a9ca9", "text-anchor": "middle" },
+      "No world records found in this save"));
+    return;
+  }
+
+  const cols = 4, xDistance = 263, yDistance = 132;
+  const height = Math.max(420, Math.ceil(worlds.length / cols) * yDistance + 70);
+  root.setAttribute("viewBox", "0 0 1080 " + height);
+  const coordinates = new Map();
+  worlds.forEach((world, index) => {
+    coordinates.set(world.id, {
+      x: 135 + (index % cols) * xDistance,
+      y: 92 + Math.floor(index / cols) * yDistance,
+    });
+  });
+
+  const lines = svg("g", { "aria-hidden": "true" });
+  for (const portal of graph.edges) {
+    const a = coordinates.get(portal.worldA), b = coordinates.get(portal.worldB);
+    if (!a || !b) continue;
+    const active = selected === portal.worldA || selected === portal.worldB;
+    const path = portal.worldA === portal.worldB
+      ? "M " + (a.x + 86) + " " + a.y + " C " + (a.x + 115) + " "
+        + (a.y - 65) + " " + (a.x - 115) + " " + (a.y - 65)
+        + " " + (a.x - 86) + " " + a.y
+      : "M " + a.x + " " + a.y + " L " + b.x + " " + b.y;
+    const line = svg("path", {
+      d: path, class: "graph-link" + (active ? " active" : ""),
+    });
+    line.append(svg("title", {}, "Saved Portal #" + portal.id + ": world "
+      + portal.worldA + " to world " + portal.worldB));
+    lines.append(line);
+  }
+  root.append(lines);
+
+  for (const world of worlds) {
+    const { x, y } = coordinates.get(world.id);
+    const group = svg("g", {
+      class: "graph-node " + world.kind + (selected === world.id ? " active" : ""),
+      role: "button", tabindex: "0", "aria-label": "Select " + world.label,
+    });
+    group.append(svg("rect", { x: x - 95, y: y - 30, width: 190, height: 64 }));
+    const truncatedLabel = world.label.length > 23
+      ? world.label.slice(0, 21) + "…" : world.label;
+    group.append(svg("text", { x, y: y - 4, "text-anchor": "middle",
+      "font-weight": "700" }, truncatedLabel));
+    group.append(svg("text", { x, y: y + 17, class: "graph-id",
+      "text-anchor": "middle" }, "#" + world.id + "  ·  " + formatKind(world.kind)));
+    group.append(svg("title", {}, world.label + " — world " + world.id));
+    group.addEventListener("click", () => selectWorld(world.id));
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectWorld(world.id);
+      }
+    });
+    root.append(group);
+  }
+}
+
+function displayDetails() {
+  const container = $("world-details");
+  container.replaceChildren();
+  const world = save.worlds.find((w) => w.id === selected);
+  if (!world) {
+    container.append(element("div", "empty", "Choose a world."));
+    return;
+  }
+  container.append(element("div", "detail-title", world.label));
+  const tags = element("div", "detail-tags");
+  const values = [
+    "WORLD ID " + world.id,
+    formatKind(world.kind).toUpperCase(),
+    world.depth === null ? null : "DEPTH " + world.depth,
+    "SEED " + world.seed,
+  ].filter(Boolean);
+  for (const value of values) tags.append(element("span", "detail-tag", value));
+  container.append(tags);
+
+  const connections = save.portals.filter(
+    (p) => p.worldA === world.id || p.worldB === world.id,
+  );
+  const section = element("div", "portal-list");
+  section.append(element("div", "eyebrow", connections.length
+    + " SAVED PORTAL RECORD" + (connections.length === 1 ? "" : "S")));
+  if (!connections.length) {
+    section.append(element("div", "empty", "No portal record is connected to this world. This does not prove it is unreachable."));
+  }
+  for (const p of connections) {
+    const other = p.worldA === world.id ? p.worldB : p.worldA;
+    const thisCell = p.worldA === world.id
+      ? [p.xA, p.yA] : [p.xB, p.yB];
+    const otherCell = p.worldA === world.id
+      ? [p.xB, p.yB] : [p.xA, p.yA];
+    const target = save.worlds.find((w) => w.id === other);
+    const item = element("div", "portal-item");
+    item.append(element("span", "", "Portal #" + p.id + " → "
+      + (target ? target.label + " (#" + other + ")" : "World #" + other)));
+    item.append(element("small", "",
+      "Cells (" + thisCell.join(", ") + ") → (" + otherCell.join(", ") + ")"
+      + (p.resolved ? "" : " · unresolved")));
+    section.append(item);
+  }
+  container.append(section);
+}
+
+function selectWorld(id) {
+  selected = id;
+  displayWorldList();
+  displayGraph();
+  displayDetails();
+}
+
+function showSave(data, fileName) {
+  save = data;
+  graph = buildWorldGraph(data.worlds, data.portals);
+  selected = sortedWorlds()[0]?.id ?? null;
+  $("save-name").textContent = fileName;
+  $("stat-worlds").textContent = data.worlds.length;
+  $("stat-underground").textContent =
+    data.worlds.filter((w) => w.kind === "underground").length;
+  $("stat-portals").textContent = data.portals.length;
+  $("stat-links").textContent = graph.edges.length;
+  $("world-filter").value = "all";
+  $("explorer").classList.remove("is-hidden");
+  displayWorldList();
+  displayGraph();
+  displayDetails();
+  const warnings = [...data.warnings];
+  if (graph.missingWorldReferences) {
+    warnings.push(graph.missingWorldReferences
+      + " portal links refer to unavailable world definitions.");
+  }
+  $("warnings").textContent = warnings.join(" · ");
+}
+
+async function loadSave(file) {
+  if (!file || busy) return;
+  busy = true;
+  // Hide stale results if a different save cannot be opened.
+  save = null;
+  graph = null;
+  selected = null;
+  $("explorer").classList.add("is-hidden");
+  setMessage("Reading and validating " + file.name + " locally…");
+  try {
+    // This request loads ONLY public SQLite WASM runtime assets.
+    // The selected save file never leaves the current browser session.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    assertSqliteHeader(bytes);
+    sqlitePromise ??= window.initSqlJs({
+      locateFile: (name) =>
+        "https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/" + name,
+    });
+    const SQL = await sqlitePromise;
+    const db = new SQL.Database(bytes);
+    let data;
+    try {
+      data = extractSaveData(db);
+    } finally {
+      db.close();
+    }
+    showSave(data, file.name);
+    setMessage("Loaded " + file.name + " · " + data.worlds.length
+      + " world definitions · file processed locally, not uploaded.");
+  } catch (error) {
+    // A failed WASM request should be retryable after connectivity returns.
+    sqlitePromise = null;
+    setMessage(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    busy = false;
+    $("save-input").value = "";
+  }
+}
+
+$("save-input").addEventListener("change", (event) =>
+  loadSave(event.target.files?.[0]));
+$("world-filter").addEventListener("change", displayWorldList);
+const dropZone = $("drop-zone");
+for (const type of ["dragenter", "dragover"]) {
+  dropZone.addEventListener(type, (event) => {
+    event.preventDefault();
+    dropZone.classList.add("is-over");
+  });
+}
+for (const type of ["dragleave", "drop"]) {
+  dropZone.addEventListener(type, (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("is-over");
+  });
+}
+dropZone.addEventListener("drop", (event) => {
+  const file = event.dataTransfer?.files?.[0];
+  if (file) void loadSave(file);
+});
