@@ -140,3 +140,15 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 .saved-footprint.cave { fill: #d19a6030; stroke: #c08f5c; }
 .saved-footprint.pocket { fill: #76b9b049; stroke: #76b9b0; }
 .saved-footprint:hover { fill-opacity: .65; stroke-width: 2.7; }
+
+/* Group outlines are placement bounds, never inferred cave walls. */
+.layer-key.group { border-color: #b3a0ee; border-style: dashed; background: transparent; }
+.cave-group { fill: none; stroke: #ac94dd; stroke-width: 2;
+  stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; cursor: pointer; }
+.cave-group:hover, .cave-group:focus { stroke: #f2d199; stroke-width: 3; }
+.cave-group.active { stroke: #eac164; stroke-width: 3; stroke-dasharray: 6 3; }
+.cave-group-label { font-size: 10px; font-weight: 700; fill: #d9c5ff;
+  pointer-events: none; paint-order: stroke; stroke: #101923; stroke-width: 3; }
+.saved-footprint.cave.group-selected { fill: #d2c26e55; stroke: #eac164; }
+.cave-group-info { padding: 12px 18px; font-size: 12px;
+  background: #1b2533; color: #bed0df; border-top: 1px solid var(--border); }

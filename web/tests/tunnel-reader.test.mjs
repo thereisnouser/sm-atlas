@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import initSqlJs from "sql.js";
 import {
   decodeLuaValue, decodeScriptDataRecord,
-  extractSavedTunnels, extractSavedFootprints, extractTerrainTunnels,
+  extractSavedTunnels, extractSavedFootprints, reconstructCaveGroups, extractTerrainTunnels,
 } from "../tunnel-reader.mjs";
 
 class Writer {
@@ -122,11 +122,11 @@ test("Lua binary maps preserve numeric tunnel IDs and bit-packed Vec3 coordinate
   const footprints = extractSavedFootprints(value);
   assert.equal(footprints.length, 2);
   assert.deepEqual(footprints[0], {
-    kind: "cave", cellX: 4, cellY: -2, tileIndex: 7, rotation: 1,
+    kind: "cave", cellX: 4, cellY: -2, tileIndex: 7, tileUuid: null, rotation: 1,
     x: 256, y: -128, z: 32, width: 64, depth: 64, height: 48,
   });
   assert.deepEqual(footprints[1], {
-    kind: "pocket", cellX: -1, cellY: 3, tileIndex: 9, rotation: 1,
+    kind: "pocket", cellX: -1, cellY: 3, tileIndex: 9, tileUuid: null, rotation: 1,
     x: -32, y: 208, z: 80, width: 48, depth: 32, height: 64,
   });
 });
@@ -150,6 +150,8 @@ test("browser SQLite extracts a genuine saved-terrain record without external fi
     assert.equal(res.tunnels.length,1);
     assert.equal(res.tunnels[0].length,17);
     assert.equal(res.footprints.length, 2);
+    assert.equal(res.caveGroups.length, 1);
+    assert.equal(res.caveGroups[0].identityVerified, false);
     assert.equal(res.footprints[0].kind, "cave");
     assert.equal(res.footprints[1].kind, "pocket");
     assert.equal(res.failed,1);
@@ -175,4 +177,56 @@ test("malformed placement grids cannot create fictitious cave footprints", () =>
     ["pockets", new Map([["not an integer row", new Map()]])],
   ]);
   assert.deepEqual(extractSavedFootprints(value), []);
+});
+
+
+test("six adjacent cave cells form one logical placement, matching Python grouping", () => {
+  const cave = (x,y,rest={}) => ({
+    kind:"cave",cellX:x,cellY:y,tileIndex:1,
+    tileUuid:"52b1c24b-befd-41a6-95c4-54d697737fa6",
+    rotation:0,x:x*64,y:y*64,z:0,width:64,depth:64,height:128,
+    ...rest,
+  });
+  const parts = Array.from({length:2}, (_,y) =>
+    Array.from({length:3},(_,x)=>cave(10+x,-5+y))).flat().reverse();
+  const groups = reconstructCaveGroups(parts);
+  assert.equal(groups.length,1);
+  assert.equal(groups[0].fragmentCount,6);
+  assert.equal(groups[0].identityVerified,true);
+  assert.equal(groups[0].tileUuid,"52b1c24b-befd-41a6-95c4-54d697737fa6");
+  assert.deepEqual([groups[0].x,groups[0].y,groups[0].width,
+    groups[0].depth,groups[0].height],[640,-320,192,128,128]);
+  assert.deepEqual(groups[0].fragments.slice().sort((a,b)=>a-b),[0,1,2,3,4,5]);
+});
+
+test("adjacent but different tiles, rotations or Z do not merge into fictional rooms",()=>{
+  const a={kind:"cave",cellX:0,cellY:0,tileIndex:1,tileUuid:null,
+    rotation:0,z:16,x:0,y:0,width:64,depth:64,height:16};
+  const parts=[
+    a,
+    {...a,cellX:1,x:64}, // joins a
+    {...a,cellX:2,x:128,tileIndex:2}, // not same tile index
+    {...a,cellX:0,cellY:1,y:64,rotation:1}, // different rotation
+    {...a,cellX:0,cellY:-1,y:-64,z:32}, // different height
+    {...a,cellX:0,cellY:0,x:0,y:0,kind:"pocket"}, // never joins caves
+    {...a,cellX:20,x:1280}, // separate
+  ];
+  const groups=reconstructCaveGroups(parts);
+  assert.equal(groups.length,5);
+  assert.deepEqual(groups.map(g=>g.fragmentCount).sort((a,b)=>a-b),[1,1,1,1,2]);
+  assert.equal(groups.every(g=>g.identityVerified===false),true);
+  assert.equal(groups.some(g=>g.tileIndex===2&&g.fragmentCount===1),true);
+});
+
+test("saved tileList UUIDs are byte-reversed and keep equal indexes distinguishable",()=>{
+  const uuid=Uint8Array.from({length:16},(_,i)=>i);
+  const value=new Map([
+    ["tileList",new Map([[7,{type:"uuid",bytes:uuid}]])],
+    ["caves",new Map([[0,new Map([[2,new Map([[1,7]])]])]])],
+  ]);
+  const footprints=extractSavedFootprints(value);
+  assert.equal(footprints.length,1);
+  assert.equal(footprints[0].tileUuid,"0f0e0d0c-0b0a-0908-0706-050403020100");
+  const other={...footprints[0],cellX:3,x:192,tileUuid:null};
+  assert.equal(reconstructCaveGroups([...footprints,other]).length,2);
 });

@@ -200,6 +200,19 @@ export function extractSavedTunnels(value) {
 export function extractSavedFootprints(value) {
   const output = [];
   if (!(value instanceof Map)) return output;
+  const lookup = new Map();
+  const tileList = value.get("tileList");
+  if (tileList instanceof Map) {
+    for (const [index, item] of tileList) {
+      if (!Number.isInteger(index) || item?.type !== "uuid" || !(item.bytes instanceof Uint8Array)
+          || item.bytes.length !== 16) continue;
+      // Python LuaUuid stores these on disk with reversed byte ordering.
+      const hex = [...item.bytes].reverse().map((byte) =>
+        byte.toString(16).padStart(2, "0")).join("");
+      lookup.set(index, [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16),
+        hex.slice(16,20), hex.slice(20)].join("-"));
+    }
+  }
   for (const kind of ["cave", "pocket"]) {
     const grid = value.get(kind === "cave" ? "caves" : "pockets");
     if (!(grid instanceof Map)) continue;
@@ -230,14 +243,85 @@ export function extractSavedFootprints(value) {
           }
           if (![x, y, z, width, depth, height].every(Number.isFinite)) continue;
           output.push({
-            kind, cellX, cellY, tileIndex, rotation,
-            x, y, z, width, depth, height,
+            kind, cellX, cellY, tileIndex, tileUuid: lookup.get(tileIndex) || null,
+            rotation, x, y, z, width, depth, height,
           });
         }
       }
     }
   }
   return output;
+}
+
+/**
+ * Reconstruct logical cave *placement groups* from face-connected cells.
+ *
+ * Mirrors Python reconstruct_logical_structures: adjacent cave fragments
+ * share a physical cell face at the same saved Z, rotation and tile UUID.
+ * When the tile UUID is absent, only the same saved tile index may group;
+ * its semantic identity remains unknown. Groups DO NOT imply open rooms.
+ */
+export function reconstructCaveGroups(footprints) {
+  const caveIndices = footprints.map((piece, i) =>
+    piece.kind === "cave" ? i : -1).filter((i) => i >= 0);
+  const buckets = new Map();
+  const identityOf = (p) => p.tileUuid
+    ? "uuid:" + p.tileUuid : "unresolved-index:" + p.tileIndex;
+  const keyOf = (p, x = p.cellX, y = p.cellY) =>
+    [identityOf(p), p.rotation, p.z, x, y].join("|");
+  for (const index of caveIndices) {
+    const p = footprints[index];
+    const key = keyOf(p);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(index);
+  }
+  const parent = new Map(caveIndices.map((index) => [index, index]));
+  function find(i) {
+    const p = parent.get(i);
+    if (p !== i) parent.set(i, find(p));
+    return parent.get(i);
+  }
+  function union(a, b) {
+    const x = find(a), y = find(b);
+    if (x !== y) parent.set(Math.max(x,y), Math.min(x,y));
+  }
+  for (const index of caveIndices) {
+    const p = footprints[index];
+    for (const [dx, dy] of [[-1,0], [1,0], [0,-1], [0,1]]) {
+      for (const other of buckets.get(keyOf(p, p.cellX+dx, p.cellY+dy)) || []) {
+        union(index, other);
+      }
+    }
+  }
+  const components = new Map();
+  for (const index of caveIndices) {
+    const root = find(index);
+    if (!components.has(root)) components.set(root, []);
+    components.get(root).push(index);
+  }
+  const groups = [...components.values()].map((indices) => {
+    const parts = indices.map((i) => footprints[i]);
+    const first = parts[0];
+    const minX = Math.min(...parts.map((p) => p.x));
+    const maxX = Math.max(...parts.map((p) => p.x+p.width));
+    const minY = Math.min(...parts.map((p) => p.y));
+    const maxY = Math.max(...parts.map((p) => p.y+p.depth));
+    const minZ = Math.min(...parts.map((p) => p.z));
+    const maxZ = Math.max(...parts.map((p) => p.z+p.height));
+    return {
+      tileIndex: first.tileIndex, tileUuid: first.tileUuid,
+      identityVerified: Boolean(first.tileUuid),
+      rotation: first.rotation, fragments: indices,
+      fragmentCount: indices.length,
+      x: minX, y: minY, z: minZ,
+      width: maxX-minX, depth: maxY-minY, height: maxZ-minZ,
+    };
+  });
+  groups.sort((a, b) =>
+    a.z-b.z || a.y-b.y || a.x-b.x
+    || (a.tileUuid || "").localeCompare(b.tileUuid || "")
+    || a.tileIndex-b.tileIndex);
+  return groups.map((g, index) => ({ id: index+1, ...g }));
 }
 
 export function extractTerrainTunnels(database, worldId, limit = 5000) {
@@ -289,6 +373,7 @@ export function extractTerrainTunnels(database, worldId, limit = 5000) {
     return { worldId, status: "too-large", tunnels: [], footprints: [],
       scanned, failed, points, footprintsCount: footprints.length };
   }
+  const caveGroups = reconstructCaveGroups(footprints);
   return { worldId, status: tunnels.length || footprints.length ? "available" : "no-tunnels",
-    tunnels, footprints, scanned, failed, rowId: best.rowId, points };
+    tunnels, footprints, caveGroups, scanned, failed, rowId: best.rowId, points };
 }

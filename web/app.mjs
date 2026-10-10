@@ -11,6 +11,7 @@ let saveWorker = null;
 let requestNumber = 0;
 let tunnelSelectionEpoch = 0;
 let activeGeometry = null;
+let selectedCaveGroupId = null;
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -188,6 +189,7 @@ function drawTunnelMap(result) {
   const status = $("tunnel-status");
   status.classList.toggle("warning", result.status !== "available");
   if (result.status !== "available") {
+    $("cave-group-info").textContent = "No logical cave groups available for this world.";
     const explanations = {
       "no-script-data": "This save has no ScriptData table; underground placements are unavailable.",
       "unavailable": "No compatible terrain record could be decoded for this world.",
@@ -200,6 +202,29 @@ function drawTunnelMap(result) {
 
   const tunnels = result.tunnels || [];
   const footprints = result.footprints || [];
+  const groups = result.caveGroups || [];
+  const groupInfo = $("cave-group-info");
+  const selectedGroup = groups.find((g) => g.id === selectedCaveGroupId);
+  if (selectedGroup) {
+    groupInfo.textContent = "Placement group #" + selectedGroup.id
+      + " · " + selectedGroup.fragmentCount + " adjacent cave cells"
+      + " · tile index " + selectedGroup.tileIndex
+      + (selectedGroup.tileUuid ? " · UUID " + selectedGroup.tileUuid
+        : " · tile UUID unavailable")
+      + " · bounds " + selectedGroup.width + " × " + selectedGroup.depth
+      + " × " + selectedGroup.height + " saved units"
+      + " · rotation " + selectedGroup.rotation
+      + ". Exact room shape and walkability are unknown.";
+  } else {
+    groupInfo.textContent = groups.length + " logical cave placement group"
+      + (groups.length === 1 ? "" : "s")
+      + " · Select a cave cell or a dashed group boundary to inspect it."
+      + " Group names are not inferred without a verified tile catalog.";
+  }
+  const fragmentToGroup = new Map();
+  for (const g of groups) {
+    for (const index of g.fragments) fragmentToGroup.set(index, g);
+  }
   // Extents include both recorded tunnel points and placement boundaries,
   // even if their display layer is switched off, to preserve the map scale.
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -232,7 +257,8 @@ function drawTunnelMap(result) {
   const caves = footprints.filter((item) => item.kind === "cave");
   const pockets = footprints.filter((item) => item.kind === "pocket");
   status.textContent = tunnels.length + " tunnel lines · " + caves.length
-    + " cave cells · " + pockets.length + " pocket placements · "
+    + " cave cells in " + groups.length + " logical placement groups · "
+    + pockets.length + " pocket placements · "
     + pathPoints + " tunnel points · Z " + minZ.toFixed(1)
     + " to " + maxZ.toFixed(1)
     + " · source record #" + result.rowId
@@ -244,7 +270,8 @@ function drawTunnelMap(result) {
     "X " + minX.toFixed(1) + "… " + maxX.toFixed(1)
     + "  ·  Y " + minY.toFixed(1) + "… " + maxY.toFixed(1)));
 
-  for (const item of footprints) {
+  for (const [index, item] of footprints.entries()) {
+    const group = fragmentToGroup.get(index);
     const enabled = $(item.kind === "cave" ? "show-caves" : "show-pockets").checked;
     if (!enabled) continue;
     const box = svg("rect", {
@@ -252,7 +279,10 @@ function drawTunnelMap(result) {
       y: py(item.y + item.depth).toFixed(2),
       width: Math.max(0.5, item.width * scale).toFixed(2),
       height: Math.max(0.5, item.depth * scale).toFixed(2),
-      class: "saved-footprint " + item.kind,
+      class: "saved-footprint " + item.kind
+        + (group && group.id === selectedCaveGroupId ? " group-selected" : ""),
+      ...(group ? { tabindex: "0", role: "button",
+        "aria-label": "Inspect cave placement group " + group.id } : {}),
     });
     box.append(svg("title", {},
       (item.kind === "cave" ? "Cave cell" : "Pocket placement")
@@ -260,8 +290,60 @@ function drawTunnelMap(result) {
       + " · XY " + item.x + ", " + item.y
       + " · " + item.width + " × " + item.depth
       + " · Z " + item.z + "… " + (item.z + item.height)
-      + " · rotation " + item.rotation));
+      + " · rotation " + item.rotation
+      + (group ? " · logical group #" + group.id : "")));
+    if (group) {
+      const choose = () => {
+        selectedCaveGroupId = group.id;
+        drawTunnelMap(result);
+      };
+      box.addEventListener("click", choose);
+      box.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          choose();
+        }
+      });
+    }
     root.append(box);
+  }
+
+  // Dashed outlines are group bounding boxes, not claimed room walls.
+  if ($("show-groups").checked) {
+    for (const group of groups) {
+      if (group.fragmentCount < 2) continue;
+      const outline = svg("rect", {
+        x: px(group.x).toFixed(2),
+        y: py(group.y + group.depth).toFixed(2),
+        width: Math.max(0.5, group.width * scale).toFixed(2),
+        height: Math.max(0.5, group.depth * scale).toFixed(2),
+        class: "cave-group" + (group.id === selectedCaveGroupId ? " active" : ""),
+        role: "button", tabindex: "0",
+        "aria-label": "Inspect logical placement group " + group.id,
+      });
+      outline.append(svg("title", {},
+        "Logical cave placement group #" + group.id + " · "
+        + group.fragmentCount + " adjacent cells, tile index "
+        + group.tileIndex + (group.tileUuid ? " (UUID available)" : " (UUID unavailable)")
+        + " · rectangular extents only; actual room outline unverified"));
+      const choose = () => {
+        selectedCaveGroupId = group.id;
+        drawTunnelMap(result);
+      };
+      outline.addEventListener("click", choose);
+      outline.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          choose();
+        }
+      });
+      root.append(outline);
+      root.append(svg("text", {
+        x: (px(group.x) + 4).toFixed(1),
+        y: (py(group.y + group.depth) - 7).toFixed(1),
+        class: "cave-group-label",
+      }, "G" + group.id));
+    }
   }
 
   if ($("show-tunnels").checked) {
@@ -283,6 +365,8 @@ function drawTunnelMap(result) {
 async function loadSelectedTunnels() {
   const epoch = ++tunnelSelectionEpoch;
   activeGeometry = null;
+  selectedCaveGroupId = null;
+  $("cave-group-info").textContent = "Select a cave placement group to inspect it.";
   const world = save?.worlds.find((item) => item.id === selected);
   const root = $("tunnel-map");
   root.replaceChildren();
@@ -410,7 +494,7 @@ async function loadSave(file) {
 $("save-input").addEventListener("change", (event) =>
   loadSave(event.target.files?.[0]));
 $("world-filter").addEventListener("change", displayWorldList);
-for (const checkboxId of ["show-caves", "show-pockets", "show-tunnels"]) {
+for (const checkboxId of ["show-caves", "show-pockets", "show-tunnels", "show-groups"]) {
   $(checkboxId).addEventListener("change", () => {
     if (activeGeometry) drawTunnelMap(activeGeometry);
   });
