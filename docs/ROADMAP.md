@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Saved tunnel lines, cave/pocket placement layers and inspectable groups of adjoining cave cells are decoded locally from ScriptData; real-game browser integration remains unverified |
+| User-facing browser explorer | Local browser previews saved tunnel lines, cave/pocket placement groups and exact UUID-matched asset labels from a licensed 193-tile catalog; authentic save/browser integration is still unverified |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -55,7 +55,7 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 ### P2 — Reliable underground mapping
 
 - [ ] Reconstruct enough underground geometry for useful mine-level maps, with provenance and uncertainty. The browser now groups face-adjacent cave cells by saved tile identity, rotation and Z into inspectable **logical placement groups**. Actual room names, interior shapes, entrances and player clearance remain unverified.
-- [ ] Identify entrances, elevators, level transitions, underground structures and POIs where evidence permits.
+- [ ] Identify entrances, elevators, level transitions, underground structures and POIs where evidence permits. **Asset-name recognition now works for known tile UUIDs**, including catalog elevator and passage tags; these are file-name hints, not verified navigable entrance coordinates.
 - [ ] Enable search and cross-world navigation.
 - [ ] Add actual traversable routing only after physics/clearance validation.
 
@@ -89,9 +89,10 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-10 | Render saved ScriptData tunnel centerlines before attempting voxel collision geometry | Deliver an honest spatial underground overview based on actual stored coordinates, not fabricated walkable paths |
 | 2026-10-10 | Overlay cave and pocket allocation footprints as separate layers | Reveal authentic saved tile placements without pretending bounding boxes equal accessible interior space |
 | 2026-10-10 | Group cave cells by matching saved tile identity, rotation, depth and shared face | Replace a wall of rectangles with inspectable logical placement groups without inventing room interiors or labels |
+| 2026-10-10 | Match saved tile UUIDs to the existing licensed catalog of 193 known underground assets | Label real saved structure assets and check expected dimensions while retaining unknown identities and unverified interiors |
 
 ## Next action
 
-**Developer:** validate the browser's tunnel, placement and grouping layers against a genuine Scrap Mechanic 1.0 save and independent Python results. Investigate metadata-backed names and entry anchors next, with no claim of traversability before in-game clearance evidence. Keep original README concise; offline/PWA work follows hosted-preview validation. Continue geometry validation in parallel when test-game observations become available.
+**Developer:** validate the browser's tunnel, placement, grouping and catalog-name layers against a genuine Scrap Mechanic 1.0 save and independent Python results. Next evaluate whether saved passage/elevator assets can be associated with portal/entry positions without inventing walkable routes. Keep collision and player clearance unverified pending in-game evidence; do not expand README with experiments. Continue geometry validation in parallel when test-game observations become available.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.
