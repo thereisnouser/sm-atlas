@@ -212,6 +212,11 @@ function showSave(data, fileName) {
 async function loadSave(file) {
   if (!file || busy) return;
   busy = true;
+  // Hide stale results if a different save cannot be opened.
+  save = null;
+  graph = null;
+  selected = null;
+  $("explorer").classList.add("is-hidden");
   setMessage("Reading and validating " + file.name + " locally…");
   try {
     // This request loads ONLY public SQLite WASM runtime assets.
@@ -234,6 +239,8 @@ async function loadSave(file) {
     setMessage("Loaded " + file.name + " · " + data.worlds.length
       + " world definitions · file processed locally, not uploaded.");
   } catch (error) {
+    // A failed WASM request should be retryable after connectivity returns.
+    sqlitePromise = null;
     setMessage(error instanceof Error ? error.message : String(error), true);
   } finally {
     busy = false;
