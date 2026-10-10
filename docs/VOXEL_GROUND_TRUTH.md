@@ -172,11 +172,21 @@ world and coordinates before writing the output. It refuses to merge
 multiple probes or silently fall back if the latest matching run fails.
 
 ```powershell
-# Set $gameLog to an actual log from the test game session.
-sm-atlas tile-ground-extract .\ground_plan.json $gameLog --output .\atlas_ground_hits.log
+# Point Atlas to the Logs directory of your Scrap Mechanic installation.
+$logsDir = 'F:\Steam\steamapps\common\Scrap Mechanic\Logs'
+sm-atlas tile-ground-extract .\ground_plan.json --logs-dir $logsDir --output .\atlas_ground_hits.log
 sm-atlas tile-ground-compare .\ground_plan.json .\atlas_ground_hits.log
 sm-atlas tile-ground-compare .\ground_plan.json .\atlas_ground_hits.log --json > .\ground_comparison.json
 ```
+
+When `--logs-dir` is supplied, Atlas scans only `game*.log` files in
+that exact directory (not subdirectories), newest first by file
+modification time. The path above is an example from one test Steam
+installation; use the actual Logs directory on your machine. Unrelated
+logs are skipped. If the newest plan-matching experiment is incomplete
+or invalid, extraction fails rather than falling back to an older run.
+You can still supply a specific game-log path as the positional argument
+instead of `--logs-dir`.
 
 The extraction command never overwrites an existing output, plan or game
 log. Repeated captures require a different output filename or explicit
@@ -489,7 +499,7 @@ Once authentic **new** logs have been captured, isolate the matching
 experiment and test normal orientation directly on the wider grid:
 
 ```powershell
-sm-atlas tile-ground-extract .\ground_grid_plan.json $gameLog --output .\atlas_ground_grid_hits.log
+sm-atlas tile-ground-extract .\ground_grid_plan.json --logs-dir $logsDir --output .\atlas_ground_grid_hits.log
 sm-atlas tile-ground-compare .\ground_grid_plan.json .\atlas_ground_grid_hits.log
 sm-atlas tile-ground-normal-audit .\ground_grid_plan.json .\atlas_ground_grid_hits.log $tile --include-6-bit
 ```
