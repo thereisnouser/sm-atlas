@@ -4,7 +4,8 @@ import initSqlJs from "sql.js";
 import { identifyTile, tileCatalogSize } from "../tile-catalog.mjs";
 import {
   decodeLuaValue, decodeScriptDataRecord,
-  extractSavedTunnels, extractSavedFootprints, reconstructCaveGroups, extractTerrainTunnels,
+  extractSavedTunnels, extractSavedFootprints, reconstructCaveGroups,
+  extractTerrainTunnels, summarizeSavedLayout, preferredUndergroundWorld,
 } from "../tunnel-reader.mjs";
 
 class Writer {
@@ -286,4 +287,51 @@ test("known saved tile UUID references resolve from reversed Lua UUID bytes", ()
   assert.equal(piece.asset.name,"drill2_tunnelpocket_small_passage_15_2x2x2.tile");
   assert.equal(piece.asset.tags.includes("passage"),true);
   assert.equal(piece.kind,"pocket");
+});
+
+
+test("an underground save with no layout records is not labelled as an empty physical cave", () => {
+  assert.deepEqual(summarizeSavedLayout({
+    worldId: 12, status: "no-tunnels", tunnels: [], footprints: [],
+    caveGroups: [],
+  }), {
+    worldId: 12, status: "no-layout", tunnels: 0, caveCells: 0,
+    pocketCells: 0, caveGroups: 0,
+  });
+  const cave = {kind: "cave"}, pocket = {kind: "pocket"};
+  assert.equal(summarizeSavedLayout({
+    worldId: 13, status: "available", tunnels: [],
+    footprints: [cave, pocket],
+  }).status, "placements");
+  assert.equal(summarizeSavedLayout({
+    worldId: 23, status: "available", tunnels: [{id: 1}],
+    footprints: [cave],
+  }).status, "tunnels");
+  assert.equal(summarizeSavedLayout({
+    worldId: 21, status: "too-large",
+  }).status, "unsupported");
+  assert.equal(summarizeSavedLayout({
+    worldId: 25, status: "unavailable",
+  }).status, "unavailable");
+});
+
+test("cave-first selection prefers actual tunnel records over empty or placement-only worlds", () => {
+  const worlds = [
+    {id: 1, kind: "overworld", depth: null},
+    {id: 12, kind: "underground", depth: 1},
+    {id: 13, kind: "underground", depth: 2},
+    {id: 21, kind: "underground", depth: 4},
+    {id: 23, kind: "underground", depth: 6},
+  ];
+  const coverage = [
+    {worldId: 12, status: "no-layout"},
+    {worldId: 13, status: "placements"},
+    {worldId: 21, status: "tunnels"},
+    {worldId: 23, status: "tunnels"},
+  ];
+  assert.equal(preferredUndergroundWorld(worlds, coverage), 21);
+  assert.equal(preferredUndergroundWorld(worlds, coverage.slice(0,2)), 13);
+  assert.equal(preferredUndergroundWorld(worlds, []), 12);
+  assert.equal(preferredUndergroundWorld(worlds.slice(0,1), []), 1);
+  assert.equal(preferredUndergroundWorld([], []), null);
 });
