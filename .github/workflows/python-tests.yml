@@ -35,7 +35,9 @@ jobs:
       - name: Install pinned SQLite WASM dependency
         run: npm --prefix web ci --ignore-scripts --no-audit --no-fund
       - name: Check browser source syntax
-        run: npm --prefix web run check
+        run: |
+          npm --prefix web run check
+          node --check web/tunnel-reader.mjs
       - name: Test binary decoding with real SQLite WASM
         run: npm --prefix web test
       - name: Build self-hosted browser preview
@@ -45,6 +47,7 @@ jobs:
           test -s web/dist/vendor/sql-wasm.js
           test -s web/dist/vendor/sql-wasm.wasm
           test -s web/dist/save-worker.js
+          test -s web/dist/tunnel-reader.mjs
           if grep -R 'cdn.jsdelivr.net' web/dist; then
             echo 'Unexpected external runtime URL in distribution'
             exit 1
