@@ -205,7 +205,7 @@ def main() -> None:
                     page.locator("#tunnel-map .saved-footprint.cave").first.wait_for()
                     page.locator("#tunnel-map .portal-cell").first.wait_for()
                     assert page.locator("#tunnel-map .portal-cell").count() == 2
-                    page.locator("#tunnel-map .portal-cell").click()
+                    page.locator("#tunnel-map .portal-cell").first.click()
                     assert "Portal #2" in page.locator("#cave-group-info").inner_text()
                     page.locator("#show-portals").uncheck()
                     assert page.locator("#tunnel-map .portal-cell").count() == 0
