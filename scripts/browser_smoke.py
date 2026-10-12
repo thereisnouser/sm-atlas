@@ -210,10 +210,15 @@ def main() -> None:
                         "#cave-group-info").inner_text()
                     assert "D6 Drill2" in page.locator("#world-details").inner_text()
                     # User selection must persist after background coverage scanning.
-                    page.get_by_role("button", name="D2 Tutorial").click()
+                    page.locator("#world-list .world-entry").filter(
+                        has_text="D2 Tutorial").click()
                     page.locator("#tunnel-status").get_by_text(
                         "No compatible terrain record", exact=False).wait_for(
                             timeout=30000)
+                    page.locator("#world-list .world-entry").filter(
+                        has_text="D6 Drill2").click()
+                    page.locator("#tunnel-map .tunnel-line").first.wait_for(
+                        timeout=30000)
                     assert not errors, "Browser JavaScript errors: " + repr(errors)
                     assert not offsite, "Unexpected remote requests: " + repr(offsite)
                     page.screenshot(path=str(WEB / "smoke-result.png"), full_page=True)
