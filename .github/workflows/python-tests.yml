@@ -40,6 +40,7 @@ jobs:
         run: |
           npm --prefix web run check
           node --check web/tunnel-reader.mjs
+          node --check web/verify-save.mjs
       - name: Test binary decoding with real SQLite WASM
         run: npm --prefix web test
       - name: Build self-hosted browser preview
