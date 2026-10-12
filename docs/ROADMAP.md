@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Local browser previews saved cave/pocket placements, tunnels, catalog names and **Portal-table endpoint grid-cell areas**; cells are not assumed to be door coordinates. Chromium smoke test passes on synthetic saves; authentic 68 MB browser parity remains pending. |
+| User-facing browser explorer | Local browser renders saved cave/pocket/tunnel/portal layers. New private-save Chromium acceptance checks rendered counts against independent Python decoding, blocks off-origin network requests and runs on generated CI fixtures. Authentic 68 MB UI parity remains pending. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -49,7 +49,8 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 - [x] Display decoded worlds/depths and **save-supported** Portal relationships. Overlay saved ScriptData tunnel centerlines and individually decoded cave/pocket placement rectangles in a top-down view; no actual collision interiors or entrances claimed.
 - [x] Explicitly label world/portal saved facts and unknown walking/collision geometry; no candidate surfaces promoted to real routes.
 - [x] Exercise the **built static site** in real Chromium against a synthetic local SQLite save: file picker, worker, pinned WASM, underground coverage, saved cave/tunnel SVG, switching worlds, no unexpected external requests.
-- [ ] Complete exact browser-module parity and a visual browser smoke test with the **authentic private save**. Independent Python/JavaScript reproduction matched world, portal, terrain record and geometry counts on that file; these are **not yet execution results from the committed browser modules**. Use the existing local-only parity command with coordinate digests. Never commit the save.
+- [x] Implement local-only Chromium acceptance that compares the rendered SVG geometry counts against independent Python extraction, with off-origin requests blocked; exercise it on generated data in CI.
+- [ ] Run Chromium acceptance and exact module-coordinate parity against the **authentic private save**. The previous independent reconstruction matched geometry counts, but the committed full browser check still has to pass with the real file; never publish it.
 
 **Acceptance criterion:** a player can open a local save and navigate at least one useful underground topology view without installing or running the Python CLI. No validated collision route is implied where none exists. **Not yet accepted:** authentic-save integration and a hosted build remain pending. The static build now packages the pinned SQLite WASM runtime on the same origin and processes saves in a worker; offline/PWA behavior and authentic-save integration remain unverified.
 
@@ -95,6 +96,16 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-12 | Test the actual browser application in headless Chromium with a generated local save | Validate File API, static SQL/WASM loading, background worker, world selection and SVG output together without publishing private game data |
 | 2026-10-12 | Show saved portal endpoint cells as a separate underground overlay | A private authentic test save places known portal endpoint cells on saved cave placements on D2/D4/D6. Mark the 64-unit grid region instead of inventing precise door positions. |
 
+## Private-save Chromium acceptance (development only)
+
+Build the static site, install the Python package and Playwright Chromium, then
+run `python scripts/browser_acceptance.py --save "/private/path/to/save.db"`.
+The checker serves the actual browser app on localhost, loads the original
+file via the normal file picker, **blocks all non-local requests**, and compares
+rendered world, portal, tunnel, cave and pocket counts with independently decoded
+Python results. It creates no save copies, screenshots or private reports.
+Its `--synthetic` mode is exercised in CI.
+
 ## Local authentic-save parity check (development only)
 
 After installing Python development dependencies and running `npm ci` in `web/`,
@@ -107,6 +118,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** complete the exact committed Python/browser parity probe and a real-browser test using the private save without publishing it. Validate the new portal-cell overlays against independently saved cell coordinates on D2/D4/D6, then investigate portal door transforms separately (the drawn grid cells are not entrance points). Keep collision and walkability unknown without in-game evidence; keep README concise.
+**Developer:** execute Chromium acceptance and the coordinate-digest parity check on the authentic private save without publishing it. Fix any divergence before claiming browser compatibility. Treat portal cells as saved regions, not exact doors or walkable routes; keep README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

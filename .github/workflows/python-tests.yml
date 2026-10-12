@@ -82,10 +82,12 @@ jobs:
           npm --prefix web run build
       - name: Install pinned headless browser
         run: |
-          python -m pip install playwright==1.56.0
+          python -m pip install -e . playwright==1.56.0
           python -m playwright install --with-deps chromium
       - name: Open real browser and inspect a synthetic local save
         run: python scripts/browser_smoke.py
+      - name: Compare independent Python geometry with rendered Chromium SVG
+        run: python scripts/browser_acceptance.py --synthetic --timeout 90
       - name: Publish browser screenshot (synthetic data only)
         if: always()
         uses: actions/upload-artifact@v4
