@@ -13,3 +13,6 @@ build/
 # Generated browser distribution and installed build dependencies
 web/dist/
 web/node_modules/
+
+# Generated only by local/CI browser smoke tests
+web/smoke-result.png
