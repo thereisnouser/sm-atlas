@@ -160,3 +160,13 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 .coverage-label.placements { color: #e4bd82; }
 .coverage-label.no-layout, .coverage-label.unavailable,
 .coverage-label.unsupported, .coverage-label.pending { color: #98a6b4; }
+
+/* Portal markers describe whole saved grid cells, not exact door positions. */
+.layer-key.portal { border-color: #6ecbe4; border-style: dotted; background: #6ecbe433; }
+.portal-cell { fill: #4bafce16; stroke: #65cce5; stroke-width: 2.2;
+  stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; cursor: pointer; }
+.portal-cell:hover, .portal-cell:focus { stroke: #a7ecff; stroke-width: 3.2;
+  fill: #65cce540; }
+.portal-cell.active { fill: #65cce54c; stroke: #d9faff; stroke-width: 3.4; }
+.portal-cell-label { font-size: 11px; font-weight: 800; fill: #b1f1ff;
+  pointer-events: none; paint-order: stroke; stroke: #101923; stroke-width: 3; }
