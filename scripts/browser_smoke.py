@@ -11,7 +11,6 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sqlite3
 import struct
-import subprocess
 import tempfile
 from threading import Thread
 
