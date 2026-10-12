@@ -62,3 +62,33 @@ jobs:
           name: sm-atlas-browser-preview
           path: web/dist/
           if-no-files-found: error
+
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install and build self-hosted browser application
+        run: |
+          npm --prefix web ci --ignore-scripts --no-audit --no-fund
+          npm --prefix web run build
+      - name: Install pinned headless browser
+        run: |
+          python -m pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Open real browser and inspect a synthetic local save
+        run: python scripts/browser_smoke.py
+      - name: Publish browser screenshot (synthetic data only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sm-atlas-chromium-smoke
+          path: web/smoke-result.png
+          if-no-files-found: ignore
