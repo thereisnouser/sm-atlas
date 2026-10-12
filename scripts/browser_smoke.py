@@ -203,9 +203,17 @@ def main() -> None:
                             timeout=30000)
                     page.locator("#tunnel-map .tunnel-line").first.wait_for(timeout=30000)
                     page.locator("#tunnel-map .saved-footprint.cave").first.wait_for()
+                    page.locator("#tunnel-map .portal-cell").first.wait_for()
+                    assert page.locator("#tunnel-map .portal-cell").count() == 2
+                    page.locator("#tunnel-map .portal-cell").first.click()
+                    assert "Portal #2" in page.locator("#cave-group-info").inner_text()
+                    page.locator("#show-portals").uncheck()
+                    assert page.locator("#tunnel-map .portal-cell").count() == 0
+                    page.locator("#show-portals").check()
+                    assert page.locator("#tunnel-map .portal-cell").count() == 2
                     assert page.locator("#tunnel-map .tunnel-line").count() == 1
                     assert page.locator("#tunnel-map .saved-footprint.cave").count() == 1
-                    assert "0/1 named cave groups" in page.locator(
+                    assert "Portal #2" in page.locator(
                         "#cave-group-info").inner_text()
                     assert "D6 Drill2" in page.locator("#world-details").inner_text()
                     # User selection must persist after background coverage scanning.
@@ -214,6 +222,10 @@ def main() -> None:
                     page.locator("#tunnel-status").get_by_text(
                         "No compatible terrain record", exact=False).wait_for(
                             timeout=30000)
+                    page.locator("#tunnel-map .portal-cell").first.wait_for(
+                        timeout=30000)
+                    assert page.locator("#tunnel-map .tunnel-line").count() == 0
+                    assert page.locator("#tunnel-map .portal-cell").count() == 1
                     page.locator("#world-list .world-entry").filter(
                         has_text="D6 Drill2").click()
                     page.locator("#tunnel-map .tunnel-line").first.wait_for(

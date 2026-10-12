@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Real Chromium UI smoke test now passes on a synthetic local save (File API → Worker → SQLite WASM → SVG map, no external requests). Independent Python/JS research matched eight underground worlds in a private save; **exact built-browser parity with that private save remains pending**. |
+| User-facing browser explorer | Local browser previews saved cave/pocket placements, tunnels, catalog names and **Portal-table endpoint grid-cell areas**; cells are not assumed to be door coordinates. Chromium smoke test passes on synthetic saves; authentic 68 MB browser parity remains pending. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -93,6 +93,7 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-10 | Match saved tile UUIDs to the existing licensed catalog of 193 known underground assets | Label real saved structure assets and check expected dimensions while retaining unknown identities and unverified interiors |
 | 2026-10-10 | Prioritize underground worlds with saved layout data and explicitly mark sparse levels | Authentic offline save inspection showed legitimate underground world records with no saved tunnel/placement geometry; an empty map must not imply an empty cave |
 | 2026-10-12 | Test the actual browser application in headless Chromium with a generated local save | Validate File API, static SQL/WASM loading, background worker, world selection and SVG output together without publishing private game data |
+| 2026-10-12 | Show saved portal endpoint cells as a separate underground overlay | A private authentic test save places known portal endpoint cells on saved cave placements on D2/D4/D6. Mark the 64-unit grid region instead of inventing precise door positions. |
 
 ## Local authentic-save parity check (development only)
 
@@ -106,6 +107,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** execute the committed Python/browser parity probe and built UI against the authentic private test save on a machine with its local copy, without publishing it. Use exact coordinate digests and investigate any differences. Separately, test portal/entry cell alignment with cave placement data before drawing anchors; keep walkability unverified until in-game evidence. Keep README concise.
+**Developer:** complete the exact committed Python/browser parity probe and a real-browser test using the private save without publishing it. Validate the new portal-cell overlays against independently saved cell coordinates on D2/D4/D6, then investigate portal door transforms separately (the drawn grid cells are not entrance points). Keep collision and walkability unknown without in-game evidence; keep README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

@@ -1,5 +1,6 @@
 import { buildWorldGraph } from "./save-reader.mjs";
 import { preferredUndergroundWorld } from "./tunnel-reader.mjs";
+import { portalCellsForWorld, portalCellOverlapsPlacement } from "./portal-cells.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -14,6 +15,7 @@ let tunnelSelectionEpoch = 0;
 let activeGeometry = null;
 let selectedCaveGroupId = null;
 let selectedPocketIndex = null;
+let selectedPortalKey = null;
 let coverageEpoch = 0;
 let manuallySelectedWorld = false;
 let undergroundCoverage = new Map();
@@ -199,32 +201,96 @@ function displayDetails() {
   container.append(section);
 }
 
+function portalKey(cell) {
+  return cell.portalId + ":" + cell.cellX + ":" + cell.cellY;
+}
+
+function drawPortalCellLayer(root, result, cells, footprints, px, py, scale) {
+  if (!$("show-portals").checked) return;
+  for (const cell of cells) {
+    const selectedCell = selectedPortalKey === portalKey(cell);
+    const box = svg("rect", {
+      x: px(cell.x).toFixed(2), y: py(cell.y + cell.depth).toFixed(2),
+      width: Math.max(0.5, cell.width * scale).toFixed(2),
+      height: Math.max(0.5, cell.depth * scale).toFixed(2),
+      class: "portal-cell" + (selectedCell ? " active" : ""),
+      role: "button", tabindex: "0",
+      "aria-label": "Inspect saved portal #" + cell.portalId
+        + " grid cell " + cell.cellX + ", " + cell.cellY,
+    });
+    const other = save.worlds.find((world) => world.id === cell.otherWorldId);
+    const destination = other
+      ? other.label + " (#" + other.id + ")"
+      : cell.otherWorldId === null ? "unresolved world" : "world #" + cell.otherWorldId;
+    box.append(svg("title", {}, "Saved portal #" + cell.portalId
+      + " · endpoint " + cell.sides + " · grid cell (" + cell.cellX + ", " + cell.cellY
+      + ") · other side: " + destination
+      + (portalCellOverlapsPlacement(cell, footprints)
+        ? " · a saved tile placement shares this grid cell" : " · no placement match")
+      + " · door position within the cell is UNKNOWN"));
+    const select = () => {
+      selectedPortalKey = portalKey(cell);
+      selectedCaveGroupId = null;
+      selectedPocketIndex = null;
+      drawTunnelMap(result);
+    };
+    box.addEventListener("click", select);
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        select();
+      }
+    });
+    root.append(box);
+    root.append(svg("text", {
+      x: (px(cell.x) + 4).toFixed(2),
+      y: (py(cell.y + cell.depth) - 7).toFixed(2),
+      class: "portal-cell-label",
+    }, "P" + cell.portalId));
+  }
+}
+
 function drawTunnelMap(result) {
   const root = $("tunnel-map");
   root.replaceChildren();
   root.setAttribute("viewBox", "0 0 1000 620");
   const status = $("tunnel-status");
-  status.classList.toggle("warning", result.status !== "available");
-  if (result.status !== "available") {
-    $("cave-group-info").textContent = "No logical cave groups available for this world.";
-    const explanations = {
-      "no-script-data": "This save has no ScriptData table; underground placements are unavailable.",
-      "unavailable": "No compatible terrain record could be decoded for this world.",
-      "no-tunnels": "The decoded record has no tunnel lines or cave placements.",
-      "too-large": "Saved underground geometry exceeds the current display limit.",
-    };
+  const portalCells = portalCellsForWorld(save?.portals || [], selected);
+  const layoutUnavailable = result.status !== "available";
+  status.classList.toggle("warning", layoutUnavailable);
+  const explanations = {
+    "no-script-data": "This save has no ScriptData table; underground placements are unavailable.",
+    "unavailable": "No compatible terrain record could be decoded for this world.",
+    "no-tunnels": "The decoded record has no tunnel lines or cave placements.",
+    "too-large": "Saved underground geometry exceeds the current display limit.",
+  };
+  if (layoutUnavailable && !portalCells.length) {
+    $("cave-group-info").textContent = "No logical cave placements or portal cells available.";
     status.textContent = explanations[result.status] || "Saved underground geometry is unavailable.";
     return;
   }
 
-  const tunnels = result.tunnels || [];
-  const footprints = result.footprints || [];
+  const tunnels = layoutUnavailable ? [] : (result.tunnels || []);
+  const footprints = layoutUnavailable ? [] : (result.footprints || []);
   const groups = result.caveGroups || [];
   const groupInfo = $("cave-group-info");
   const selectedGroup = groups.find((g) => g.id === selectedCaveGroupId);
   const selectedPocket = footprints[selectedPocketIndex];
+  const selectedPortal = portalCells.find((cell) => portalKey(cell) === selectedPortalKey);
   const groupAsset = selectedGroup?.asset;
-  if (selectedGroup) {
+  if (selectedPortal) {
+    const other = save.worlds.find((world) => world.id === selectedPortal.otherWorldId);
+    groupInfo.textContent = "Portal #" + selectedPortal.portalId
+      + " · saved grid cell (" + selectedPortal.cellX + ", " + selectedPortal.cellY
+      + "), side " + selectedPortal.sides + " · linked to "
+      + (other ? other.label + " (#" + other.id + ")"
+        : selectedPortal.otherWorldId === null
+          ? "an unresolved world" : "world #" + selectedPortal.otherWorldId)
+      + (portalCellOverlapsPlacement(selectedPortal, footprints)
+        ? " · a saved tile placement shares this cell"
+        : " · no matching saved tile placement")
+      + ". Actual door position, height and traversability are unverified.";
+  } else if (selectedGroup) {
     groupInfo.textContent = "Placement group #" + selectedGroup.id
       + " · " + (groupAsset
         ? groupAsset.name + " [catalog asset: " + groupAsset.family + "]"
@@ -256,8 +322,9 @@ function drawTunnelMap(result) {
     const namedPockets = footprints.filter((p) => p.kind === "pocket" && p.asset).length;
     groupInfo.textContent = named + "/" + groups.length
       + " named cave groups · " + namedPockets + " recognized pocket fragments"
-      + " · Select a cave group or pocket tile to inspect source-backed names."
-      + " Catalog identity is not proof of a walkable passage.";
+      + " · " + portalCells.length + " saved portal endpoint cells"
+      + " · Select a placement or portal cell to inspect saved facts."
+      + " No actual door positions or walkable passages are inferred.";
   }
   const fragmentToGroup = new Map();
   for (const g of groups) {
@@ -280,6 +347,11 @@ function drawTunnelMap(result) {
     minY = Math.min(minY, item.y); maxY = Math.max(maxY, item.y + item.depth);
     minZ = Math.min(minZ, item.z); maxZ = Math.max(maxZ, item.z + item.height);
   }
+  // Keep cell regions inside the viewport even when a world has no terrain record.
+  for (const cell of portalCells) {
+    minX = Math.min(minX, cell.x); maxX = Math.max(maxX, cell.x + cell.width);
+    minY = Math.min(minY, cell.y); maxY = Math.max(maxY, cell.y + cell.depth);
+  }
   if (![minX, maxX, minY, maxY].every(Number.isFinite)) {
     status.textContent = "No valid saved coordinates were found.";
     return;
@@ -294,13 +366,17 @@ function drawTunnelMap(result) {
   const py = (y) => padY + dy + (maxY - y) * scale;
   const caves = footprints.filter((item) => item.kind === "cave");
   const pockets = footprints.filter((item) => item.kind === "pocket");
-  status.textContent = tunnels.length + " tunnel lines · " + caves.length
-    + " cave cells in " + groups.length + " logical placement groups · "
-    + pockets.length + " pocket placements · "
-    + pathPoints + " tunnel points · Z " + minZ.toFixed(1)
-    + " to " + maxZ.toFixed(1)
-    + " · source record #" + result.rowId
-    + (result.failed ? " · " + result.failed + " unsupported records skipped" : "");
+  status.textContent = layoutUnavailable
+    ? (explanations[result.status] || "Terrain record unavailable.")
+      + " " + portalCells.length + " saved portal endpoint cells can still be plotted."
+    : tunnels.length + " tunnel lines · " + caves.length
+      + " cave cells in " + groups.length + " logical placement groups · "
+      + pockets.length + " pocket placements · "
+      + portalCells.length + " portal cells · "
+      + pathPoints + " tunnel points · Z " + minZ.toFixed(1)
+      + " to " + maxZ.toFixed(1)
+      + " · source record #" + result.rowId
+      + (result.failed ? " · " + result.failed + " unsupported records skipped" : "");
 
   root.append(svg("text", { x: 45, y: 27, class: "tunnel-extents" },
     "SAVED PLAN VIEW · +X RIGHT / +Y UP"));
@@ -340,6 +416,7 @@ function drawTunnelMap(result) {
     const choose = () => {
       selectedCaveGroupId = group?.id || null;
       selectedPocketIndex = item.kind === "pocket" ? index : null;
+      selectedPortalKey = null;
       drawTunnelMap(result);
     };
     box.addEventListener("click", choose);
@@ -373,6 +450,7 @@ function drawTunnelMap(result) {
       const choose = () => {
         selectedCaveGroupId = group.id;
         selectedPocketIndex = null;
+        selectedPortalKey = null;
         drawTunnelMap(result);
       };
       outline.addEventListener("click", choose);
@@ -406,6 +484,7 @@ function drawTunnelMap(result) {
       root.append(path);
     }
   }
+  drawPortalCellLayer(root, result, portalCells, footprints, px, py, scale);
 }
 
 async function loadSelectedTunnels() {
@@ -413,6 +492,7 @@ async function loadSelectedTunnels() {
   activeGeometry = null;
   selectedCaveGroupId = null;
   selectedPocketIndex = null;
+  selectedPortalKey = null;
   $("cave-group-info").textContent = "Select a cave placement group to inspect it.";
   const world = save?.worlds.find((item) => item.id === selected);
   const root = $("tunnel-map");
@@ -583,7 +663,7 @@ async function loadSave(file) {
 $("save-input").addEventListener("change", (event) =>
   loadSave(event.target.files?.[0]));
 $("world-filter").addEventListener("change", displayWorldList);
-for (const checkboxId of ["show-caves", "show-pockets", "show-tunnels", "show-groups"]) {
+for (const checkboxId of ["show-caves", "show-pockets", "show-tunnels", "show-groups", "show-portals"]) {
   $(checkboxId).addEventListener("change", () => {
     if (activeGeometry) drawTunnelMap(activeGeometry);
   });

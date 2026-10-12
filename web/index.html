@@ -90,6 +90,7 @@
           <label><input type="checkbox" id="show-pockets" checked> <span class="layer-key pocket"></span> Pocket placements</label>
           <label><input type="checkbox" id="show-tunnels" checked> <span class="layer-key tunnel"></span> Tunnel lines</label>
           <label><input type="checkbox" id="show-groups" checked> <span class="layer-key group"></span> Group boundaries</label>
+          <label><input type="checkbox" id="show-portals" checked> <span class="layer-key portal"></span> Portal grid cells</label>
         </div>
         <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
           Select an underground world to inspect its saved tunnel lines.
@@ -103,7 +104,8 @@
         </div>
         <div class="graph-caption">
           <span>◉</span> Solid rectangles are stored tile placements; dashed outlines group adjacent matching cave cells.
-          Group boundaries are <strong>bounding extents, not room walls</strong>, and no walking route is verified.
+          Portal outlines show <strong>saved cell coordinates, not exact doorway positions</strong>.
+          Group boundaries are bounding extents, not room walls; no walking route is verified.
         </div>
       </section>
 
