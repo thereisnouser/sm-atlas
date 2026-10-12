@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Browser previews tunnel lines, cave/pocket groups and catalog-backed asset labels. Independent Python and JS reproductions agreed on all eight underground worlds in an authentic private save; **exact browser-module parity is still pending**. |
+| User-facing browser explorer | Real Chromium UI smoke test now passes on a synthetic local save (File API → Worker → SQLite WASM → SVG map, no external requests). Independent Python/JS research matched eight underground worlds in a private save; **exact built-browser parity with that private save remains pending**. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -48,7 +48,8 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 - [x] Add browser-side SQLite/WASM ingestion and binary record decoding; no save upload API. Use a background worker for CPU-heavy parsing and a static bundle with local WASM files. Confirm performance on authentic large saves before calling this production-ready.
 - [x] Display decoded worlds/depths and **save-supported** Portal relationships. Overlay saved ScriptData tunnel centerlines and individually decoded cave/pocket placement rectangles in a top-down view; no actual collision interiors or entrances claimed.
 - [x] Explicitly label world/portal saved facts and unknown walking/collision geometry; no candidate surfaces promoted to real routes.
-- [ ] Complete exact browser-module parity and a visual browser smoke test with an authentic save. An independent Python/JavaScript reproduction matched world, portal, selected ScriptData record and underground geometry counts on a private save; **this is not yet an execution of the committed browser modules**. The dedicated local-only parity command now compares the actual modules and coordinate digests. Never commit the save.
+- [x] Exercise the **built static site** in real Chromium against a synthetic local SQLite save: file picker, worker, pinned WASM, underground coverage, saved cave/tunnel SVG, switching worlds, no unexpected external requests.
+- [ ] Complete exact browser-module parity and a visual browser smoke test with the **authentic private save**. Independent Python/JavaScript reproduction matched world, portal, terrain record and geometry counts on that file; these are **not yet execution results from the committed browser modules**. Use the existing local-only parity command with coordinate digests. Never commit the save.
 
 **Acceptance criterion:** a player can open a local save and navigate at least one useful underground topology view without installing or running the Python CLI. No validated collision route is implied where none exists. **Not yet accepted:** authentic-save integration and a hosted build remain pending. The static build now packages the pinned SQLite WASM runtime on the same origin and processes saves in a worker; offline/PWA behavior and authentic-save integration remain unverified.
 
@@ -91,6 +92,7 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-10 | Group cave cells by matching saved tile identity, rotation, depth and shared face | Replace a wall of rectangles with inspectable logical placement groups without inventing room interiors or labels |
 | 2026-10-10 | Match saved tile UUIDs to the existing licensed catalog of 193 known underground assets | Label real saved structure assets and check expected dimensions while retaining unknown identities and unverified interiors |
 | 2026-10-10 | Prioritize underground worlds with saved layout data and explicitly mark sparse levels | Authentic offline save inspection showed legitimate underground world records with no saved tunnel/placement geometry; an empty map must not imply an empty cave |
+| 2026-10-12 | Test the actual browser application in headless Chromium with a generated local save | Validate File API, static SQL/WASM loading, background worker, world selection and SVG output together without publishing private game data |
 
 ## Local authentic-save parity check (development only)
 
@@ -104,6 +106,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** complete an in-browser smoke test on an authentic test save and compare its aggregate world/portal/underground geometry counts against independent offline results, without publishing the save. Then evaluate portal/entry position alignment with saved asset footprints. Keep collision and player clearance unverified pending in-game evidence; do not expand README with experiments. Continue geometry validation in parallel when test-game observations become available.
+**Developer:** execute the committed Python/browser parity probe and built UI against the authentic private test save on a machine with its local copy, without publishing it. Use exact coordinate digests and investigate any differences. Separately, test portal/entry cell alignment with cave placement data before drawing anchors; keep walkability unverified until in-game evidence. Keep README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.
