@@ -64,6 +64,7 @@ function displayWorldList() {
   for (const world of shown) {
     const button = element("button", "world-entry");
     button.type = "button";
+    button.dataset.worldId = String(world.id);
     button.classList.toggle("active", world.id === selected);
     const title = element("div", "world-entry-title");
     title.append(element("span", "", world.label));
