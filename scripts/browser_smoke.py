@@ -204,7 +204,7 @@ def main() -> None:
                     page.locator("#tunnel-map .tunnel-line").first.wait_for(timeout=30000)
                     page.locator("#tunnel-map .saved-footprint.cave").first.wait_for()
                     page.locator("#tunnel-map .portal-cell").first.wait_for()
-                    assert page.locator("#tunnel-map .portal-cell").count() == 1
+                    assert page.locator("#tunnel-map .portal-cell").count() == 2
                     page.locator("#tunnel-map .portal-cell").click()
                     assert "Portal #2" in page.locator("#cave-group-info").inner_text()
                     page.locator("#show-portals").uncheck()
@@ -225,7 +225,7 @@ def main() -> None:
                     page.locator("#tunnel-map .portal-cell").first.wait_for(
                         timeout=30000)
                     assert page.locator("#tunnel-map .tunnel-line").count() == 0
-                    assert page.locator("#tunnel-map .portal-cell").count() == 1
+                    assert page.locator("#tunnel-map .portal-cell").count() == 2
                     page.locator("#world-list .world-entry").filter(
                         has_text="D6 Drill2").click()
                     page.locator("#tunnel-map .tunnel-line").first.wait_for(
