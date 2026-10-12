@@ -9,7 +9,7 @@
 export const UNDERGROUND_CELL_SIZE = 64;
 
 export function portalCellsForWorld(portals, worldId) {
-  if (!Number.isSafeInteger(worldId) || worldId < 0) return [];
+  if (!Number.isSafeInteger(worldId) || worldId < 0 || worldId === 65535) return [];
   const collected = [];
   for (const portal of portals) {
     if (!Number.isSafeInteger(portal.id)) continue;
