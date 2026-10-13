@@ -204,6 +204,70 @@ test("six adjacent cave cells form one logical placement, matching Python groupi
   assert.deepEqual(groups[0].fragments.slice().sort((a,b)=>a-b),[0,1,2,3,4,5]);
 });
 
+test("neighboring identical cave assets are split by source origin, not adjacency", () => {
+  const uuid = "52b1c24b-befd-41a6-95c4-54d697737fa6";
+  const make = (originX, x, y) => ({
+    kind:"cave",cellX:originX+x,cellY:y,
+    x:(originX+x)*64,y:y*64,z:0,width:64,depth:64,height:128,
+    tileIndex:1,tileUuid:uuid,rotation:0,sourceX:x*4,sourceY:y*4,
+  });
+  const left = Array.from({length:2},(_,y) =>
+    Array.from({length:3},(_,x)=>make(0,x,y))).flat();
+  const right = Array.from({length:2},(_,y) =>
+    Array.from({length:3},(_,x)=>make(3,x,y))).flat();
+  const groups = reconstructCaveGroups([...right,...left].reverse());
+  assert.equal(groups.length,2);
+  assert.deepEqual(groups.map((g)=>g.fragmentCount),[6,6]);
+  assert.deepEqual(groups.map((g)=>g.x),[0,192]);
+  assert.equal(groups.every((g)=>g.sourceAware && g.sourceComplete
+    && g.sourceOverlapCells === 0 && g.sizeMatches),true);
+  const partial = reconstructCaveGroups(left.slice(0,4))[0];
+  assert.equal(partial.sourceAware,true);
+  assert.equal(partial.sourceComplete,false);
+  assert.equal(partial.countMatches,false);
+});
+
+test("all cave rotations retain one source-derived placement with correct XY bounds", () => {
+  const uuid="52b1c24b-befd-41a6-95c4-54d697737fa6";
+  const width=3, depth=2;
+  for (let rotation=0;rotation<4;rotation++) {
+    const pieces=[];
+    for (let sy=0;sy<depth;sy++) for(let sx=0;sx<width;sx++) {
+      let dx,dy;
+      if(rotation===0){dx=sx;dy=sy;}
+      if(rotation===1){dx=depth-1-sy;dy=sx;}
+      if(rotation===2){dx=width-1-sx;dy=depth-1-sy;}
+      if(rotation===3){dx=sy;dy=width-1-sx;}
+      const cellX=10+dx,cellY=20+dy;
+      pieces.push({
+        kind:"cave",cellX,cellY,x:cellX*64,y:cellY*64,z:0,
+        width:64,depth:64,height:128,
+        tileIndex:1,tileUuid:uuid,rotation,sourceX:sx*4,sourceY:sy*4,
+      });
+    }
+    const [group]=reconstructCaveGroups(pieces.reverse());
+    assert.equal(reconstructCaveGroups(pieces).length,1);
+    assert.equal(group.sourceAware,true);
+    assert.equal(group.sourceComplete,true);
+    assert.equal(group.sizeMatches,true);
+    assert.deepEqual([group.width,group.depth],
+      rotation%2===0?[192,128]:[128,192]);
+  }
+});
+
+test("duplicate or invalid cave sources never claim reliable placement completeness",()=>{
+  const uuid="52b1c24b-befd-41a6-95c4-54d697737fa6";
+  const a={kind:"cave",cellX:0,cellY:0,x:0,y:0,z:0,width:64,depth:64,
+    height:128,rotation:0,tileIndex:1,tileUuid:uuid,sourceX:0,sourceY:0};
+  const [duplicate]=reconstructCaveGroups([a,{...a}]);
+  assert.equal(duplicate.sourceAware,true);
+  assert.equal(duplicate.sourceOverlapCells,1);
+  assert.equal(duplicate.sourceComplete,false);
+  const [bad]=reconstructCaveGroups([{...a,sourceX:12}]);
+  assert.equal(bad.sourceAware,false);
+  assert.equal(bad.sourceComplete,null);
+});
+
 test("adjacent but different tiles, rotations or Z do not merge into fictional rooms",()=>{
   const a={kind:"cave",cellX:0,cellY:0,tileIndex:1,tileUuid:null,
     rotation:0,z:16,x:0,y:0,width:64,depth:64,height:16};

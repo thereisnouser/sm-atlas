@@ -58,6 +58,11 @@ async function main() {
         status: coverage.status, tunnels: coverage.tunnels,
         caveCells: coverage.caveCells, pocketCells: coverage.pocketCells,
         caveGroups: coverage.caveGroups,
+        caveGroupsSourceAware: result.caveGroups?.filter((g) => g.sourceAware).length ?? 0,
+        caveGroupsSourceComplete: result.caveGroups?.filter((g) =>
+          g.sourceComplete === true).length ?? 0,
+        caveGroupsSourceOverlap: result.caveGroups?.reduce((sum,g) =>
+          sum + (g.sourceOverlapCells || 0),0) ?? 0,
         pocketGroups: result.pocketGroups?.length ?? 0,
         pocketGroupsComplete: result.pocketGroups?.filter((g) => g.complete).length ?? 0,
         pocketGroupsSplit: result.pocketGroups?.filter((g) =>

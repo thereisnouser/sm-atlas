@@ -6,7 +6,7 @@
  */
 import { decodeLz4Block } from "./save-reader.mjs";
 import { identifyTile } from "./tile-catalog.mjs";
-import { reconstructPocketGroups } from "./pocket-groups.mjs";
+import { reconstructPocketGroups, rotatedSourceOffset } from "./pocket-groups.mjs";
 
 const TERRAIN_KEYS = new Set([
   "bounds", "caves", "pockets", "rotation", "spawners",
@@ -263,28 +263,60 @@ export function extractSavedFootprints(value) {
 }
 
 /**
- * Reconstruct logical cave *placement groups* from face-connected cells.
+ * Reconstruct catalog-known cave placements using their packed source-cell
+ * offsets. A visible neighboring cave with the same UUID need not belong to
+ * the same original tile. Unknown/invalid source metadata uses the original
+ * adjacency-only fallback, explicitly flagged as a heuristic.
  *
- * Mirrors Python reconstruct_logical_structures: adjacent cave fragments
- * share a physical cell face at the same saved Z, rotation and tile UUID.
- * When the tile UUID is absent, only the same saved tile index may group;
- * its semantic identity remains unknown. Groups DO NOT imply open rooms.
+ * Cave cells are 4x4 source chunks. Bounds represent saved tile placements,
+ * never proven open interiors, collisions, doors or walkable paths.
  */
 export function reconstructCaveGroups(footprints) {
-  const caveIndices = footprints.map((piece, i) =>
-    piece.kind === "cave" ? i : -1).filter((i) => i >= 0);
-  const buckets = new Map();
+  const sourceGroups = new Map();
+  const fallback = [];
+  const caveIndices = [];
   const identityOf = (p) => p.tileUuid
     ? "uuid:" + p.tileUuid : "unresolved-index:" + p.tileIndex;
-  const keyOf = (p, x = p.cellX, y = p.cellY) =>
+  const cellKey = (p, x = p.cellX, y = p.cellY) =>
     [identityOf(p), p.rotation, p.z, x, y].join("|");
-  for (const index of caveIndices) {
-    const p = footprints[index];
-    const key = keyOf(p);
+
+  for (const [index, piece] of footprints.entries()) {
+    if (piece.kind !== "cave") continue;
+    caveIndices.push(index);
+    const asset = identifyTile(piece.tileUuid);
+    const [width, depth] = asset?.dimensions || [];
+    const sourceValid = Number.isInteger(width) && Number.isInteger(depth)
+      && width >= 4 && depth >= 4 && width % 4 === 0 && depth % 4 === 0
+      && Number.isInteger(piece.sourceX) && Number.isInteger(piece.sourceY)
+      && piece.sourceX >= 0 && piece.sourceY >= 0
+      && piece.sourceX % 4 === 0 && piece.sourceY % 4 === 0
+      && piece.sourceX + 4 <= width && piece.sourceY + 4 <= depth
+      && piece.width === 64 && piece.depth === 64
+      && Number.isInteger(piece.cellX) && Number.isInteger(piece.cellY)
+      && piece.x === piece.cellX * 64 && piece.y === piece.cellY * 64
+      && Number.isInteger(piece.rotation) && piece.rotation >= 0
+      && piece.rotation <= 3 && Number.isFinite(piece.z);
+    if (!sourceValid) {
+      fallback.push(index);
+      continue;
+    }
+    const [dx, dy] = rotatedSourceOffset(piece, 4, 4, width, depth);
+    const originX = piece.cellX * 4 - dx;
+    const originY = piece.cellY * 4 - dy;
+    const key = [piece.tileUuid, piece.rotation, piece.z, originX, originY].join("|");
+    if (!sourceGroups.has(key)) sourceGroups.set(key, []);
+    sourceGroups.get(key).push(index);
+  }
+
+  // Adjacent unresolved fragments still form inspectable, but unverified,
+  // placement candidates. Never connect them to validated source groups.
+  const buckets = new Map();
+  for (const index of fallback) {
+    const key = cellKey(footprints[index]);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(index);
   }
-  const parent = new Map(caveIndices.map((index) => [index, index]));
+  const parent = new Map(fallback.map((i) => [i, i]));
   function find(i) {
     const p = parent.get(i);
     if (p !== i) parent.set(i, find(p));
@@ -292,59 +324,68 @@ export function reconstructCaveGroups(footprints) {
   }
   function union(a, b) {
     const x = find(a), y = find(b);
-    if (x !== y) parent.set(Math.max(x,y), Math.min(x,y));
+    if (x !== y) parent.set(Math.max(x, y), Math.min(x, y));
   }
-  for (const index of caveIndices) {
+  for (const index of fallback) {
     const p = footprints[index];
-    for (const [dx, dy] of [[-1,0], [1,0], [0,-1], [0,1]]) {
-      for (const other of buckets.get(keyOf(p, p.cellX+dx, p.cellY+dy)) || []) {
+    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      for (const other of buckets.get(cellKey(p, p.cellX + dx, p.cellY + dy)) || []) {
         union(index, other);
       }
     }
   }
-  const components = new Map();
-  for (const index of caveIndices) {
+  const fallbackGroups = new Map();
+  for (const index of fallback) {
     const root = find(index);
-    if (!components.has(root)) components.set(root, []);
-    components.get(root).push(index);
+    if (!fallbackGroups.has(root)) fallbackGroups.set(root, []);
+    fallbackGroups.get(root).push(index);
   }
-  const groups = [...components.values()].map((indices) => {
+
+  const groups = [
+    ...[...sourceGroups.values()].map((indices) => ({indices, sourceAware: true})),
+    ...[...fallbackGroups.values()].map((indices) => ({indices, sourceAware: false})),
+  ].map(({indices, sourceAware}) => {
     const parts = indices.map((i) => footprints[i]);
     const first = parts[0];
     const minX = Math.min(...parts.map((p) => p.x));
-    const maxX = Math.max(...parts.map((p) => p.x+p.width));
+    const maxX = Math.max(...parts.map((p) => p.x + p.width));
     const minY = Math.min(...parts.map((p) => p.y));
-    const maxY = Math.max(...parts.map((p) => p.y+p.depth));
+    const maxY = Math.max(...parts.map((p) => p.y + p.depth));
     const minZ = Math.min(...parts.map((p) => p.z));
-    const maxZ = Math.max(...parts.map((p) => p.z+p.height));
+    const maxZ = Math.max(...parts.map((p) => p.z + p.height));
     const asset = identifyTile(first.tileUuid);
-    // The catalog's filename encodes full tile dimensions in 16-m chunks.
-    // Count and bounding-box agreement is a consistency check, NOT evidence
-    // that all interior volume is empty or traversable.
     let sizeMatches = null, countMatches = null, expectedFragments = null;
+    let sourceComplete = null, sourceOverlapCells = null;
     if (asset?.dimensions) {
       const [tileW, tileD, tileH] = asset.dimensions;
       expectedFragments = Math.ceil(tileW / 4) * Math.ceil(tileD / 4);
       countMatches = indices.length === expectedFragments;
-      const [worldW, worldD] = first.rotation & 1 ? [tileD,tileW] : [tileW,tileD];
-      sizeMatches = maxX-minX === worldW*16
-        && maxY-minY === worldD*16 && maxZ-minZ === tileH*16;
+      const [worldW, worldD] = first.rotation & 1
+        ? [tileD, tileW] : [tileW, tileD];
+      sizeMatches = maxX - minX === worldW * 16
+        && maxY - minY === worldD * 16 && maxZ - minZ === tileH * 16;
+      if (sourceAware) {
+        const seen = new Set(parts.map((p) => p.sourceX + ":" + p.sourceY));
+        sourceOverlapCells = parts.length - seen.size;
+        sourceComplete = seen.size === expectedFragments && sourceOverlapCells === 0;
+      }
     }
     return {
       tileIndex: first.tileIndex, tileUuid: first.tileUuid, asset,
       identityVerified: Boolean(first.tileUuid),
+      sourceAware, sourceComplete, sourceOverlapCells,
       sizeMatches, countMatches, expectedFragments,
       rotation: first.rotation, fragments: indices,
       fragmentCount: indices.length,
       x: minX, y: minY, z: minZ,
-      width: maxX-minX, depth: maxY-minY, height: maxZ-minZ,
+      width: maxX - minX, depth: maxY - minY, height: maxZ - minZ,
     };
   });
   groups.sort((a, b) =>
-    a.z-b.z || a.y-b.y || a.x-b.x
+    a.z - b.z || a.y - b.y || a.x - b.x
     || (a.tileUuid || "").localeCompare(b.tileUuid || "")
-    || a.tileIndex-b.tileIndex);
-  return groups.map((g, index) => ({ id: index+1, ...g }));
+    || a.tileIndex - b.tileIndex);
+  return groups.map((g, index) => ({id: index + 1, ...g}));
 }
 
 /** Lightweight metadata for local save coverage; not a walkability verdict. */

@@ -84,6 +84,18 @@ test("global index selects objects by world and original placement index", () =>
 });
 
 
+test("cave search discloses source-aware consistency and adjacency uncertainty", () => {
+  const original = fixture();
+  original.caveGroups[0].sourceAware = true;
+  original.caveGroups[0].sourceComplete = true;
+  original.caveGroups[0].sizeMatches = true;
+  const entries = indexSavedObjects(original);
+  assert.match(entries[0].details, /source placement consistent/);
+  assert.match(entries[1].details, /adjacency-only candidate/);
+  original.caveGroups[0].sourceComplete = false;
+  assert.match(indexSavedObjects(original)[0].details, /incomplete\/ambiguous/);
+});
+
 test("known split pocket is searchable once as a logical placement, not twice", () => {
   const original=fixture();
   original.footprints.splice(2, 0, {...original.footprints[1],

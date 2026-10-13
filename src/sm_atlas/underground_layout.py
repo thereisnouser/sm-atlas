@@ -14,6 +14,7 @@ from .underground_features import (
 )
 from .underground_pockets import (
     reconstruct_logical_pockets,
+    rotated_source_offset,
     summarize_logical_pockets,
 )
 from .underground_tile_catalog import _tile_family, _tile_name
@@ -36,6 +37,9 @@ class LogicalStructure:
     expected_width: float | None
     expected_depth: float | None
     expected_height: float | None
+    source_aware: bool = False
+    source_complete: bool | None = None
+    source_overlap_cells: int | None = None
 
     @property
     def min_x(self) -> float:
@@ -77,6 +81,12 @@ class LogicalStructure:
     def complete(self) -> bool | None:
         if self.expected_fragments is None:
             return None
+        if self.source_aware:
+            return bool(
+                self.source_complete
+                and self.source_overlap_cells == 0
+                and self.dimensions_match
+            )
         return len(self.fragments) == self.expected_fragments
 
     @property
@@ -103,6 +113,9 @@ class LogicalStructure:
             "fragments": len(self.fragments),
             "expected_fragments": self.expected_fragments,
             "complete": self.complete,
+            "source_aware": self.source_aware,
+            "source_complete": self.source_complete,
+            "source_overlap_cells": self.source_overlap_cells,
             "bounds": {
                 "min_x": self.min_x,
                 "max_x": self.max_x,
@@ -180,79 +193,122 @@ def _face_adjacent(
     return (dx == 1 and dy == 0) or (dx == 0 and dy == 1)
 
 
+def _cave_source_key(
+    piece: UndergroundPiece,
+    dimensions: tuple[int, int, int],
+) -> tuple[str, int, float, int, int] | None:
+    """Reconstruct the recorded tile placement from its 4-chunk source cell."""
+    width, depth, _ = dimensions
+    if (
+        width < 4 or depth < 4 or width % 4 or depth % 4
+        or piece.source_x % 4 or piece.source_y % 4
+        or piece.source_x < 0 or piece.source_y < 0
+        or piece.source_x + 4 > width or piece.source_y + 4 > depth
+        or piece.width != 64.0 or piece.depth != 64.0
+        or piece.x != piece.cell_x * 64.0
+        or piece.y != piece.cell_y * 64.0
+        or piece.rotation not in range(4)
+    ):
+        return None
+    dx, dy = rotated_source_offset(
+        source_x=piece.source_x,
+        source_y=piece.source_y,
+        source_width=4,
+        source_depth=4,
+        tile_width=width,
+        tile_depth=depth,
+        rotation=piece.rotation,
+    )
+    return (
+        piece.tile_uuid or "", piece.rotation, piece.z,
+        piece.cell_x * 4 - dx, piece.cell_y * 4 - dy,
+    )
+
+
 def reconstruct_logical_structures(
     cave_fragments: list[UndergroundPiece],
 ) -> list[LogicalStructure]:
-    if not cave_fragments:
-        return []
+    """Group source-backed known caves; fall back to adjacency when unknown.
 
-    groups: list[list[UndergroundPiece]] = []
-    remaining = set(range(len(cave_fragments)))
+    Matching neighboring UUIDs do not imply matching source origins.
+    Neither grouping method establishes navigability or actual room interiors.
+    """
+    source_groups: dict[
+        tuple[str, int, float, int, int], list[UndergroundPiece]
+    ] = {}
+    fallback: list[UndergroundPiece] = []
+    for piece in cave_fragments:
+        meta = UNDERGROUND_TILE_METADATA.get(piece.tile_uuid or "")
+        name = _tile_name(str(meta["path"])) if meta else ""
+        dims = _dimensions_from_name(name) if name else None
+        key = _cave_source_key(piece, dims) if dims else None
+        if key is None:
+            fallback.append(piece)
+        else:
+            source_groups.setdefault(key, []).append(piece)
 
+    # Conservative legacy grouping only for cells without usable source IDs.
+    fallback_groups: list[list[UndergroundPiece]] = []
+    remaining = set(range(len(fallback)))
     while remaining:
         start = min(remaining)
         remaining.remove(start)
         stack = [start]
         component: list[int] = []
-
         while stack:
             index = stack.pop()
             component.append(index)
-            piece = cave_fragments[index]
-
-            candidates = list(remaining)
-            for other_index in candidates:
-                other = cave_fragments[other_index]
-
+            piece = fallback[index]
+            for other_index in list(remaining):
+                other = fallback[other_index]
                 if (
                     piece.tile_uuid != other.tile_uuid
+                    or (piece.tile_uuid is None
+                        and piece.tile_index != other.tile_index)
                     or piece.rotation != other.rotation
+                    or not _face_adjacent(piece, other)
                 ):
                     continue
-
-                if not _face_adjacent(piece, other):
-                    continue
-
                 remaining.remove(other_index)
                 stack.append(other_index)
+        fallback_groups.append([fallback[i] for i in component])
 
-        groups.append([cave_fragments[index] for index in component])
-
+    groups = [(parts, True) for parts in source_groups.values()]
+    groups.extend((parts, False) for parts in fallback_groups)
     groups.sort(
-        key=lambda group: (
-            min(piece.z for piece in group),
-            min(piece.y for piece in group),
-            min(piece.x for piece in group),
-            group[0].tile_uuid or "",
+        key=lambda item: (
+            min(piece.z for piece in item[0]),
+            min(piece.y for piece in item[0]),
+            min(piece.x for piece in item[0]),
+            item[0][0].tile_uuid or "",
+            item[0][0].tile_index,
         )
     )
 
     structures: list[LogicalStructure] = []
-
-    for structure_id, group in enumerate(groups, start=1):
+    for structure_id, (group, source_aware) in enumerate(groups, start=1):
         uuid = group[0].tile_uuid or ""
         meta = UNDERGROUND_TILE_METADATA.get(uuid)
         path = str(meta["path"]) if meta is not None else ""
         name = _tile_name(path) if path else "<unknown>"
         family = _tile_family(path) if path else "unknown"
         dimensions = _dimensions_from_name(name)
-
         expected_fragments = None
-        expected_width = None
-        expected_depth = None
-        expected_height = None
-
+        expected_width = expected_depth = expected_height = None
+        source_complete = None
+        source_overlap_cells = None
         if dimensions is not None:
             expected_fragments = _expected_fragment_count(dimensions)
-            (
-                expected_width,
-                expected_depth,
-                expected_height,
-            ) = _expected_world_size(
-                dimensions,
-                group[0].rotation,
+            expected_width, expected_depth, expected_height = (
+                _expected_world_size(dimensions, group[0].rotation)
             )
-
+            if source_aware:
+                sources = {(p.source_x, p.source_y) for p in group}
+                source_overlap_cells = len(group) - len(sources)
+                source_complete = (
+                    len(sources) == expected_fragments
+                    and source_overlap_cells == 0
+                )
         structures.append(
             LogicalStructure(
                 structure_id=structure_id,
@@ -266,9 +322,11 @@ def reconstruct_logical_structures(
                 expected_width=expected_width,
                 expected_depth=expected_depth,
                 expected_height=expected_height,
+                source_aware=source_aware,
+                source_complete=source_complete,
+                source_overlap_cells=source_overlap_cells,
             )
         )
-
     return structures
 
 

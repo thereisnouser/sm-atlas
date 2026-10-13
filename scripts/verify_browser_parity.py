@@ -78,6 +78,8 @@ def _python_report(save_path: Path) -> dict:
                 "worldId": world.world_id, "rowId": None,
                 "status": "unavailable", "tunnels": 0,
                 "caveCells": 0, "pocketCells": 0, "caveGroups": 0,
+                "caveGroupsSourceAware": 0, "caveGroupsSourceComplete": 0,
+                "caveGroupsSourceOverlap": 0,
                 "pocketGroups": 0, "pocketGroupsComplete": 0, "pocketGroupsSplit": 0,
                 "points": 0,
                 "tunnelDigest": _tunnel_digest([]),
@@ -87,6 +89,7 @@ def _python_report(save_path: Path) -> dict:
         tunnels = _extract_tunnels(value)
         caves = extract_caves(value)
         pockets = extract_pockets(value)
+        cave_groups = reconstruct_logical_structures(caves)
         logical_pockets = reconstruct_logical_pockets(pockets, _dimensions_from_name)
         underground.append({
             "worldId": world.world_id, "rowId": row_id,
@@ -96,7 +99,14 @@ def _python_report(save_path: Path) -> dict:
             ),
             "tunnels": len(tunnels), "caveCells": len(caves),
             "pocketCells": len(pockets),
-            "caveGroups": len(reconstruct_logical_structures(caves)),
+            "caveGroups": len(cave_groups),
+            "caveGroupsSourceAware": sum(g.source_aware for g in cave_groups),
+            "caveGroupsSourceComplete": sum(
+                g.source_complete is True for g in cave_groups
+            ),
+            "caveGroupsSourceOverlap": sum(
+                g.source_overlap_cells or 0 for g in cave_groups
+            ),
             "pocketGroups": len(logical_pockets),
             "pocketGroupsComplete": sum(p.complete for p in logical_pockets),
             "pocketGroupsSplit": sum(
@@ -144,7 +154,9 @@ def compare_reports(expected: dict, actual: dict) -> list[str]:
         python_info, browser_info = python_worlds[world_id], browser_worlds[world_id]
         for key in (
             "rowId", "status", "tunnels", "caveCells", "pocketCells",
-            "caveGroups", "pocketGroups", "pocketGroupsComplete",
+            "caveGroups", "caveGroupsSourceAware",
+            "caveGroupsSourceComplete", "caveGroupsSourceOverlap",
+            "pocketGroups", "pocketGroupsComplete",
             "pocketGroupsSplit", "points", "tunnelDigest", "placementDigest",
         ):
             if python_info.get(key) != browser_info.get(key):

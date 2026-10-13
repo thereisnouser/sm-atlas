@@ -6,7 +6,7 @@
  * Only exact UUID-matched catalog assets with known dimensions are grouped.
  */
 
-function rotatedSourceOffset(piece, sourceWidth, sourceDepth, tileWidth, tileDepth) {
+export function rotatedSourceOffset(piece, sourceWidth, sourceDepth, tileWidth, tileDepth) {
   const x = piece.sourceX, y = piece.sourceY;
   switch (piece.rotation & 3) {
     case 1: return [tileDepth - (y + sourceDepth), x];

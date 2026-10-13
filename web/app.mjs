@@ -475,7 +475,12 @@ function drawTunnelMap(result) {
       + " · " + (groupAsset
         ? groupAsset.name + " [catalog asset: " + groupAsset.family + "]"
         : "Unknown game tile (not in catalog)")
-      + " · " + selectedGroup.fragmentCount + " adjacent cave cells"
+      + " · " + selectedGroup.fragmentCount + " saved cave cells"
+      + (selectedGroup.sourceAware
+        ? " · source-aware placement · source coverage "
+          + (selectedGroup.sourceComplete ? "complete" : "INCOMPLETE")
+          + " · overlapping source cells " + selectedGroup.sourceOverlapCells
+        : " · adjacency-only candidate; exact identity unverified")
       + " · tile index " + selectedGroup.tileIndex
       + " · bounds " + selectedGroup.width + " × " + selectedGroup.depth
       + " × " + selectedGroup.height + " saved units"
@@ -567,7 +572,8 @@ function drawTunnelMap(result) {
       + " " + portalCells.length + " saved portal endpoints across "
       + portalGroups.length + " grid cells can still be plotted."
     : tunnels.length + " tunnel lines · " + caves.length
-      + " cave cells in " + groups.length + " logical placement groups · "
+      + " cave cells in " + groups.length + " placement groups ("
+      + groups.filter((g) => g.sourceAware).length + " source-aware) · "
       + pockets.length + " pocket placements · "
       + portalCells.length + " portal endpoints in " + portalGroups.length + " cells · "
       + pathPoints + " tunnel points · Z " + minZ.toFixed(1)
