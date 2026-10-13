@@ -4,6 +4,7 @@
 let runtimePromise = null;
 let readerPromise = null;
 let tunnelsPromise = null;
+let searchPromise = null;
 let database = null;
 const layoutCache = new Map();
 const MAX_CACHED_WORLDS = 12;
@@ -44,8 +45,21 @@ function openTunnels() {
   return tunnelsPromise;
 }
 
+function openSearch() {
+  searchPromise ??= import("./map-search.mjs");
+  return searchPromise;
+}
+
+function checkedWorldIds(ids) {
+  if (!Array.isArray(ids) || ids.length > 32
+    || ids.some((id) => !Number.isSafeInteger(id) || id < 1 || id === 65535)) {
+    throw new Error("Invalid underground world list (maximum 32 worlds per batch)");
+  }
+  return [...new Set(ids)];
+}
+
 self.addEventListener("message", async ({ data }) => {
-  if (!data || !["read", "tunnels", "coverage"].includes(data.type)) {
+  if (!data || !["read", "tunnels", "coverage", "search-index"].includes(data.type)) {
     self.postMessage({ type: "error", requestId: data?.requestId,
       message: "Invalid worker request" });
     return;
@@ -75,19 +89,28 @@ self.addEventListener("message", async ({ data }) => {
       if (!database) throw new Error("Select a save before exploring tunnels");
       const result = await getSavedLayout(data.worldId);
       self.postMessage({ type: "tunnels", requestId: data.requestId, result });
-    } else {
+    } else if (data.type === "coverage") {
       if (!database) throw new Error("Select a save before examining world coverage");
-      if (!Array.isArray(data.worldIds) || data.worldIds.length > 32
-        || data.worldIds.some((id) => !Number.isSafeInteger(id) || id < 1)) {
-        throw new Error("Invalid underground coverage request (maximum 32 worlds)");
-      }
       const { summarizeSavedLayout } = await openTunnels();
       const summary = [];
-      for (const worldId of [...new Set(data.worldIds)]) {
+      for (const worldId of checkedWorldIds(data.worldIds)) {
         summary.push(summarizeSavedLayout(await getSavedLayout(worldId)));
       }
       self.postMessage({ type: "coverage", requestId: data.requestId,
         result: summary });
+    } else {
+      if (!database) throw new Error("Select a save before searching saved assets");
+      const { indexSavedObjects } = await openSearch();
+      const entries = [];
+      // Return only compact metadata, not raw ScriptData blobs or SQLite rows.
+      for (const worldId of checkedWorldIds(data.worldIds)) {
+        const layout = await getSavedLayout(worldId);
+        for (const object of indexSavedObjects(layout)) {
+          entries.push({ ...object, worldId });
+        }
+      }
+      self.postMessage({ type: "search-index", requestId: data.requestId,
+        result: entries });
     }
   } catch (error) {
     self.postMessage({ type: "error", requestId: data.requestId,
