@@ -227,3 +227,12 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
   border-color: #78c2d1; background: #2d4353; }
 .map-search-name { overflow-wrap: anywhere; font-size: 12px; }
 .map-search-detail { font-size: 10px; color: #97afbc; }
+
+/* Global search keeps the same list, with explicit scope and per-world labels. */
+.map-search-heading { display: flex; align-items: center;
+  flex-wrap: wrap; gap: 8px 12px; }
+.map-search-heading > label:first-child { margin-right: auto; }
+.map-search-scope-label { font-size: 11px !important; color: #aebfcd !important; }
+#map-search-scope { padding: 5px 8px; background: #101c29; color: #eaf4f7;
+  border: 1px solid #476475; border-radius: 4px; font: inherit; font-size: 11px; }
+#map-search-scope:focus-visible { outline: 2px solid #579fb3; outline-offset: 1px; }
