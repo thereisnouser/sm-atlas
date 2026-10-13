@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Local browser renders saved cave/pocket/tunnel/portal layers. New private-save Chromium acceptance checks rendered counts against independent Python decoding, blocks off-origin network requests and runs on generated CI fixtures. Authentic 68 MB UI parity remains pending. |
+| User-facing browser explorer | Browser previews caves, saved tunnels, asset labels and portal cells. Distinct portal rows sharing one cell are grouped in an inspectable marker with navigation to linked worlds, avoiding overlapping controls. Local synthetic Chromium/JS/Python acceptance passes; full authentic-save Chromium parity remains pending. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -95,6 +95,7 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-10 | Prioritize underground worlds with saved layout data and explicitly mark sparse levels | Authentic offline save inspection showed legitimate underground world records with no saved tunnel/placement geometry; an empty map must not imply an empty cave |
 | 2026-10-12 | Test the actual browser application in headless Chromium with a generated local save | Validate File API, static SQL/WASM loading, background worker, world selection and SVG output together without publishing private game data |
 | 2026-10-12 | Show saved portal endpoint cells as a separate underground overlay | A private authentic test save places known portal endpoint cells on saved cave placements on D2/D4/D6. Mark the 64-unit grid region instead of inventing precise door positions. |
+| 2026-10-13 | Aggregate co-located portal endpoints into inspectable cell markers | Authentic Mining Hub data has eight distinct Portal rows in the same cell (-2, 2); overlapping independent rectangles hid destinations. Keep every record and permit navigation without inventing door positions. |
 
 ## Private-save Chromium acceptance (development only)
 
@@ -118,6 +119,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** execute Chromium acceptance and the coordinate-digest parity check on the authentic private save without publishing it. Fix any divergence before claiming browser compatibility. Treat portal cells as saved regions, not exact doors or walkable routes; keep README concise.
+**Developer:** run existing Chromium acceptance and coordinate-digest Python/JS parity against the authentic private save without publishing it, then investigate precise portal door transforms. Keep the shared-cell marker as a coordinate region, never an inferred walkable entrance; keep README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.
