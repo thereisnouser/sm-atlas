@@ -6,6 +6,7 @@
  */
 import { decodeLz4Block } from "./save-reader.mjs";
 import { identifyTile } from "./tile-catalog.mjs";
+import { reconstructPocketGroups } from "./pocket-groups.mjs";
 
 const TERRAIN_KEYS = new Set([
   "bounds", "caves", "pockets", "rotation", "spawners",
@@ -229,10 +230,13 @@ export function extractSavedFootprints(value) {
           const asset = identifyTile(tileUuid);
           const rotation = kind === "cave" ? (n >>> 20) & 3 : (n >>> 28) & 3;
           let x = cellX * 64, y = cellY * 64, z, width, depth, height;
+          let sourceX, sourceY;
           if (kind === "cave") {
             z = ((n >>> 8) & 15) * 16;
             height = (((n >>> 12) & 15) + 1) * 16;
             width = depth = 64;
+            sourceX = ((n >>> 16) & 3) * 4;
+            sourceY = ((n >>> 18) & 3) * 4;
           } else {
             const placement = (n >>> 8) & 255;
             x += (placement & 3) * 16;
@@ -243,11 +247,13 @@ export function extractSavedFootprints(value) {
             const d = (((size >>> 2) & 3) + 1) * 16;
             [width, depth] = rotation & 1 ? [d, w] : [w, d];
             height = (((size >>> 4) & 15) + 1) * 16;
+            sourceX = (n >>> 24) & 3;
+            sourceY = (n >>> 26) & 3;
           }
           if (![x, y, z, width, depth, height].every(Number.isFinite)) continue;
           output.push({
             kind, cellX, cellY, tileIndex, tileUuid, asset,
-            rotation, x, y, z, width, depth, height,
+            rotation, x, y, z, width, depth, height, sourceX, sourceY,
           });
         }
       }
@@ -421,6 +427,7 @@ export function extractTerrainTunnels(database, worldId, limit = 5000) {
       scanned, failed, points, footprintsCount: footprints.length };
   }
   const caveGroups = reconstructCaveGroups(footprints);
+  const pocketGroups = reconstructPocketGroups(footprints);
   return { worldId, status: tunnels.length || footprints.length ? "available" : "no-tunnels",
-    tunnels, footprints, caveGroups, scanned, failed, rowId: best.rowId, points };
+    tunnels, footprints, caveGroups, pocketGroups, scanned, failed, rowId: best.rowId, points };
 }
