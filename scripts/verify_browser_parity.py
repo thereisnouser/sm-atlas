@@ -17,7 +17,11 @@ import sys
 
 from sm_atlas.database import SaveDatabase
 from sm_atlas.underground_features import extract_caves, extract_pockets
-from sm_atlas.underground_layout import reconstruct_logical_structures
+from sm_atlas.underground_layout import (
+    _dimensions_from_name,
+    reconstruct_logical_structures,
+)
+from sm_atlas.underground_pockets import reconstruct_logical_pockets
 from sm_atlas.underground_tunnels import _extract_tunnels, _load_terrain_table
 from sm_atlas.worlds import discover_worlds
 
@@ -74,6 +78,7 @@ def _python_report(save_path: Path) -> dict:
                 "worldId": world.world_id, "rowId": None,
                 "status": "unavailable", "tunnels": 0,
                 "caveCells": 0, "pocketCells": 0, "caveGroups": 0,
+                "pocketGroups": 0, "pocketGroupsComplete": 0, "pocketGroupsSplit": 0,
                 "points": 0,
                 "tunnelDigest": _tunnel_digest([]),
                 "placementDigest": _placement_digest([]),
@@ -82,6 +87,7 @@ def _python_report(save_path: Path) -> dict:
         tunnels = _extract_tunnels(value)
         caves = extract_caves(value)
         pockets = extract_pockets(value)
+        logical_pockets = reconstruct_logical_pockets(pockets, _dimensions_from_name)
         underground.append({
             "worldId": world.world_id, "rowId": row_id,
             "status": (
@@ -91,6 +97,11 @@ def _python_report(save_path: Path) -> dict:
             "tunnels": len(tunnels), "caveCells": len(caves),
             "pocketCells": len(pockets),
             "caveGroups": len(reconstruct_logical_structures(caves)),
+            "pocketGroups": len(logical_pockets),
+            "pocketGroupsComplete": sum(p.complete for p in logical_pockets),
+            "pocketGroupsSplit": sum(
+                len(p.fragments) > 1 for p in logical_pockets
+            ),
             "points": sum(len(tunnel["points"]) for tunnel in tunnels),
             "tunnelDigest": _tunnel_digest(tunnels),
             "placementDigest": _placement_digest(caves + pockets),
@@ -133,7 +144,8 @@ def compare_reports(expected: dict, actual: dict) -> list[str]:
         python_info, browser_info = python_worlds[world_id], browser_worlds[world_id]
         for key in (
             "rowId", "status", "tunnels", "caveCells", "pocketCells",
-            "caveGroups", "points", "tunnelDigest", "placementDigest",
+            "caveGroups", "pocketGroups", "pocketGroupsComplete",
+            "pocketGroupsSplit", "points", "tunnelDigest", "placementDigest",
         ):
             if python_info.get(key) != browser_info.get(key):
                 failures.append(

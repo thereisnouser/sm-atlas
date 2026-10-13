@@ -236,3 +236,12 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 #map-search-scope { padding: 5px 8px; background: #101c29; color: #eaf4f7;
   border: 1px solid #476475; border-radius: 4px; font: inherit; font-size: 11px; }
 #map-search-scope:focus-visible { outline: 2px solid #579fb3; outline-offset: 1px; }
+
+
+/* Source-aware pocket outlines show grouped saved chunks, not empty room interiors. */
+.pocket-group { fill: none; stroke: #65c7a9; stroke-width: 2;
+  stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; cursor: pointer; }
+.pocket-group:hover, .pocket-group:focus-visible { stroke: #c0fbe6; stroke-width: 3; }
+.pocket-group.active { stroke: #f0d480; stroke-width: 3.5; }
+.pocket-group-label { font-size: 10px; font-weight: 700; fill: #b3f4da;
+  pointer-events: none; paint-order: stroke; stroke: #101923; stroke-width: 3; }

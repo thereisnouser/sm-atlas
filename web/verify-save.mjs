@@ -58,6 +58,10 @@ async function main() {
         status: coverage.status, tunnels: coverage.tunnels,
         caveCells: coverage.caveCells, pocketCells: coverage.pocketCells,
         caveGroups: coverage.caveGroups,
+        pocketGroups: result.pocketGroups?.length ?? 0,
+        pocketGroupsComplete: result.pocketGroups?.filter((g) => g.complete).length ?? 0,
+        pocketGroupsSplit: result.pocketGroups?.filter((g) =>
+          g.fragmentCount > 1).length ?? 0,
         points: tunnels.reduce((n, t) => n + t.points.length, 0),
         tunnelDigest: tunnelDigest(tunnels),
         placementDigest: placementDigest(footprints),

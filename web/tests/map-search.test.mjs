@@ -82,3 +82,26 @@ test("global index selects objects by world and original placement index", () =>
   assert.equal(searchSavedObjectsAcrossWorlds(entries, "gold").matches[0].worldId, 23);
   assert.equal(searchSavedObjectsAcrossWorlds(entries, "gold").matches[0].index, 1);
 });
+
+
+test("known split pocket is searchable once as a logical placement, not twice", () => {
+  const original=fixture();
+  original.footprints.splice(2, 0, {...original.footprints[1],
+    x: 0, y: 16, width: 32, depth: 32});
+  original.pocketGroups=[{
+    id: 4, fragments:[1,2], fragmentCount:2,
+    asset: original.footprints[1].asset,
+    tileUuid: original.footprints[1].tileUuid,
+    x:-32,y:16,width:64,depth:32,
+    complete:true,
+  }];
+  const entries=indexSavedObjects(original);
+  assert.equal(searchSavedObjects(entries,"gold").total,1);
+  const [gold]=searchSavedObjects(entries,"gold").matches;
+  assert.equal(gold.kind,"pocket-group");
+  assert.equal(gold.id,4);
+  assert.equal(gold.index,1);
+  assert.deepEqual([gold.x,gold.y],[0,32]);
+  assert.match(gold.details,/2 saved fragments/);
+  assert.equal(searchSavedObjects(entries,"pocket tile 12").total,1);
+});

@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | The shipped JavaScript decoder and independent Python research agree on saved layout coordinates in an authentic private save (25 worlds, 69 portals, 8 underground worlds, 6,702 tunnel points). Saved asset search now spans all underground worlds with direct map navigation, without uploading the save; synthetic Chromium tests cover selection, zoom and cross-world results. Authentic visual Chromium parity remains unverified. |
+| User-facing browser explorer | The shipped JavaScript decoder and independent Python research agree on saved layout coordinates in an authentic private save (25 worlds, 69 portals, 8 underground worlds, 6,702 tunnel points). Saved asset search now spans all underground worlds with direct map navigation and reconstructed known-pocket placements, without uploading the save; synthetic Chromium tests cover selection, zoom and cross-world results. Authentic visual Chromium parity remains unverified. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -57,7 +57,7 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 
 ### P2 — Reliable underground mapping
 
-- [ ] Reconstruct enough underground geometry for useful mine-level maps, with provenance and uncertainty. The browser now groups face-adjacent cave cells by saved tile identity, rotation and Z into inspectable **logical placement groups**. Actual room names, interior shapes, entrances and player clearance remain unverified.
+- [ ] Reconstruct enough underground geometry for useful mine-level maps, with provenance and uncertainty. Browser cave groups are face-adjacent saved cells and can still merge independent same-ID instances. **Known pockets** now have source-aware logical placements (packed source offsets, rotation, tile dimensions and completeness checks), which avoids conflating adjacent instances and repeating one structure per fragment. Interior shapes, entrances and clearance remain unverified.
 - [ ] Identify entrances, elevators, level transitions, underground structures and POIs where evidence permits. **Asset-name recognition now works for known tile UUIDs**, including catalog elevator and passage tags; these are file-name hints, not verified navigable entrance coordinates.
 - [x] Search source-backed cave groups and pocket asset names/tags within the selected world or **across all underground worlds**, showing the destination world and focusing the chosen saved coordinates after navigation. Indexing is local-only in the existing Worker, uses compact results and batches 32 worlds. This is structural search, not pathfinding.
 - [ ] Add actual traversable routing only after physics/clearance validation.
@@ -100,6 +100,28 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-13 | Add bounded zoom/pan to underground map | The authentic save has 295 tunnel segments and 666 pocket placements on D4 and 286/687 on D6; precise inspection needs cursor-oriented zoom and drag without altering game coordinates. |
 | 2026-10-13 | Verify real-save XY/Z geometry using independent execution and add in-level saved asset search | Python and actual JavaScript agree on terrain IDs, 6,702 float32 tunnel coordinates and all placement coordinate digests on eight worlds. D4/D6 contain hundreds of named resource and pocket objects; find-by-filename is more useful than browsing a flat crowded map. |
 | 2026-10-13 | Search named saved placements across underground worlds using the local Worker | Cross-level discovery reuses decoded layout cache, transfers only index metadata, and navigates directly to the selected saved object without treating catalog names as verified walkable locations. |
+| 2026-10-13 | Port Python source-aware logical pocket reconstruction to the browser | Packed pocket records contain source chunk offsets; grouping by UUID, source origin, rotation and height avoids treating split pieces as independent structures and checks saved source coverage without inferring traversable interiors. |
+| 2026-10-13 | Validate source-aware browser pocket reconstruction on a private authentic save | With shipped browser JS and independent Python extraction: D4 has 666 saved fragments forming 549 logical known pockets (83 multi-fragment); D6 has 687 forming 545 (102 multi-fragment). Every reconstructed group has full source coverage and expected recorded bounds; these are placement consistency checks, not collision evidence. |
+
+## Source-aware pocket instance verification (2026-10-13)
+
+Downloaded the static browser artifact produced by GitHub Actions, ran the
+shipped decoder and source-aware pocket grouping against the **private local**
+71,270,400-byte Survival save, and compared per-world aggregate pocket placement
+results with a separately executed Python implementation reading the raw
+ScriptData/LUA fields.
+
+| World | Saved pocket fragments | Source-backed logical placements | Multi-fragment placements | Complete |
+| --- | ---: | ---: | ---: | ---: |
+| D4 (Drill 1) | 666 | 549 | 83 | 549 |
+| D6 (Drill 2) | 687 | 545 | 102 | 545 |
+
+Both independent readers also found **zero overlapping source chunks and zero
+catalog extent mismatches** across the known reconstructed placements. The
+other six underground worlds contain no pocket fragments. These checks verify
+saved placement relationships and catalog dimensions, **not** navigable space.
+The real save and any private coordinates remain outside the repository.
+The developer-only parity probe now compares the new group counts too.
 
 ## Independent exact coordinate parity (2026-10-13)
 

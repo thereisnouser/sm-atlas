@@ -126,10 +126,12 @@ test("Lua binary maps preserve numeric tunnel IDs and bit-packed Vec3 coordinate
   assert.deepEqual(footprints[0], {
     kind: "cave", cellX: 4, cellY: -2, tileIndex: 7, tileUuid: null, asset: null, rotation: 1,
     x: 256, y: -128, z: 32, width: 64, depth: 64, height: 48,
+    sourceX: 4, sourceY: 8,
   });
   assert.deepEqual(footprints[1], {
     kind: "pocket", cellX: -1, cellY: 3, tileIndex: 9, tileUuid: null, asset: null, rotation: 1,
     x: -32, y: 208, z: 80, width: 48, depth: 32, height: 64,
+    sourceX: 0, sourceY: 0,
   });
 });
 test("ScriptData envelope validates embedded world ID and compressed byte length",()=>{
@@ -153,6 +155,7 @@ test("browser SQLite extracts a genuine saved-terrain record without external fi
     assert.equal(res.tunnels[0].length,17);
     assert.equal(res.footprints.length, 2);
     assert.equal(res.caveGroups.length, 1);
+    assert.equal(res.pocketGroups.length, 0); // unknown UUID: no invented group
     assert.equal(res.caveGroups[0].identityVerified, false);
     assert.equal(res.footprints[0].kind, "cave");
     assert.equal(res.footprints[1].kind, "pocket");

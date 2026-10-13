@@ -92,6 +92,11 @@ class LuaBits:
             self.add(10003, 32)
             for coordinate in value[1:]:
                 self.add(struct.unpack(">I", struct.pack(">f", coordinate))[0], 32)
+        elif isinstance(value, tuple) and len(value) == 2 and value[0] == "uuid":
+            self.add(0x64, 8)
+            self.add(10001, 32)
+            for byte in value[1]:
+                self.add(byte, 8)
         else:
             raise TypeError(f"Unsupported synthetic LUA type: {type(value)}")
 
@@ -108,6 +113,13 @@ class LuaBits:
 
 def terrain_blob(world_id: int) -> bytes:
     # Two-point saved line, one cave placement, and no assumed walkable floors.
+    # Exact catalog UUID of the 2x2x2 known passage pocket (disk bytes reversed).
+    pocket_uuid = bytes.fromhex(
+        "034b98c5c3ce4fbcb055cd052d9864ca"
+    )[::-1]
+    # Two 1x2 fragments forming one 2x2 known pocket.
+    pocket_left = 12 | (0x14 << 16)
+    pocket_right = 12 | (1 << 8) | (0x14 << 16) | (1 << 24)
     terrain = {
         "tunnels": {
             17: {
@@ -119,7 +131,8 @@ def terrain_blob(world_id: int) -> bytes:
             }
         },
         "caves": {0: {0: {1: 7}}},  # index 7, a 64x64 cell at z=0
-        "tileList": {},
+        "pockets": {0: {0: {1: pocket_left, 2: pocket_right}}},
+        "tileList": {12: ("uuid", pocket_uuid)},
     }
     bits = LuaBits()
     for b in b"LUA":
@@ -205,6 +218,19 @@ def main() -> None:
                             timeout=30000)
                     page.locator("#tunnel-map .tunnel-line").first.wait_for(timeout=30000)
                     page.locator("#tunnel-map .saved-footprint.cave").first.wait_for()
+                    page.locator("#tunnel-map .pocket-group").first.wait_for()
+                    assert page.locator("#tunnel-map .pocket-group").count() == 1
+                    assert page.locator("#tunnel-map .saved-footprint.pocket").count() == 2
+                    page.locator("#map-search-input").fill("passage")
+                    page.locator("#map-search-status").get_by_text(
+                        "1 matching saved object", exact=False).wait_for()
+                    page.locator("#map-search-results .map-search-result").click()
+                    assert "Logical pocket placement #1" in page.locator(
+                        "#cave-group-info").inner_text()
+                    assert "source coverage complete" in page.locator(
+                        "#cave-group-info").inner_text()
+                    page.locator("#map-zoom-reset").click()
+                    page.locator("#map-search-input").fill("")
                     # Search returns only saved objects, then focuses their actual XY.
                     page.locator("#map-search-input").fill("cave")
                     page.locator("#map-search-status").get_by_text(
