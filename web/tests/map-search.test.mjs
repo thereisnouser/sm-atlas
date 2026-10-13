@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { indexSavedObjects, searchSavedObjects } from "../map-search.mjs";
+import { indexSavedObjects, searchSavedObjects,
+  searchSavedObjectsAcrossWorlds } from "../map-search.mjs";
 
 function fixture() {
   return {
@@ -54,4 +55,30 @@ test("result limit affects display only, not real match count", () => {
   assert.deepEqual(searchSavedObjects(base, "", 10), {matches: [], total: 0});
   assert.deepEqual(searchSavedObjects(base, "  ", 10), {matches: [], total: 0});
   assert.deepEqual(indexSavedObjects({status: "unavailable"}), []);
+});
+
+
+test("global matches retain their world IDs and include later worlds when first is crowded", () => {
+  const items = [
+    ...Array.from({length: 75}, (_, i) => ({
+      worldId: 21, searchText: "gold deposit", label: "gold on D4 #" + i,
+    })),
+    {worldId: 23, searchText: "gold deposit", label: "gold on D6"},
+    {worldId: 22, searchText: "stone", label: "other material"},
+  ];
+  const result = searchSavedObjectsAcrossWorlds(items, "GOLD", 5);
+  assert.equal(result.total, 76);
+  assert.equal(result.matches.length, 5);
+  assert.deepEqual(result.matches.map((o) => o.worldId), [21, 23, 21, 21, 21]);
+  assert.equal(searchSavedObjectsAcrossWorlds(items, "unobtainium").total, 0);
+  assert.deepEqual(searchSavedObjectsAcrossWorlds(items, "", 5),
+    { matches: [], total: 0 });
+});
+
+test("global index selects objects by world and original placement index", () => {
+  const entries = indexSavedObjects(fixture()).map((entry) => ({
+    ...entry, worldId: 23,
+  }));
+  assert.equal(searchSavedObjectsAcrossWorlds(entries, "gold").matches[0].worldId, 23);
+  assert.equal(searchSavedObjectsAcrossWorlds(entries, "gold").matches[0].index, 1);
 });

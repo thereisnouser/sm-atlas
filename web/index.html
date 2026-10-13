@@ -96,7 +96,14 @@
           Select an underground world to inspect its saved tunnel lines.
         </div>
         <div class="map-search" role="search" aria-label="Find saved underground objects">
-          <label for="map-search-input">Find a saved structure</label>
+          <div class="map-search-heading">
+            <label for="map-search-input">Find a saved structure</label>
+            <label for="map-search-scope" class="map-search-scope-label">Search in</label>
+            <select id="map-search-scope" aria-label="Saved object search scope">
+              <option value="current">Current world</option>
+              <option value="all">All underground worlds</option>
+            </select>
+          </div>
           <input type="search" id="map-search-input" autocomplete="off"
             placeholder="Asset name or tag · e.g. gold, deposit, elevator"
             aria-controls="map-search-results">

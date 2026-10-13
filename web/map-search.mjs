@@ -48,3 +48,30 @@ export function searchSavedObjects(items, query, limit = 30) {
   }
   return { matches, total };
 }
+
+
+/** Preserve discoverability on all worlds when one level dominates matches. */
+export function searchSavedObjectsAcrossWorlds(items, query, limit = 30) {
+  const byWorld = new Map();
+  for (const item of items) {
+    if (!byWorld.has(item.worldId)) byWorld.set(item.worldId, []);
+    byWorld.get(item.worldId).push(item);
+  }
+  const groups = [...byWorld.values()].map((entries) =>
+    searchSavedObjects(entries, query, limit));
+  const bound = Number.isInteger(limit) && limit >= 0 ? Math.min(limit, 100) : 30;
+  const matches = [];
+  // Round-robin the visible results; total still counts ALL matches.
+  for (let i = 0; matches.length < bound; i++) {
+    let added = false;
+    for (const group of groups) {
+      if (matches.length >= bound) break;
+      if (i < group.matches.length) {
+        matches.push(group.matches[i]);
+        added = true;
+      }
+    }
+    if (!added) break;
+  }
+  return { matches, total: groups.reduce((sum, g) => sum + g.total, 0) };
+}

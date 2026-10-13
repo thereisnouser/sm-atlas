@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Local-first browser now decodes a genuine 71.3 MB Survival save (25 worlds, 69 portals, 8 underground levels). Independent Python and actual JS modules agree on chosen terrain rows, all 6,702 tunnel points and each cave/pocket placement by SHA-256 digest across all eight levels. Exact Chromium visual acceptance on the private save remains blocked by local browser policy; synthetic CI browser tests pass. Added in-level search by source-backed asset filenames/tags. |
+| User-facing browser explorer | The shipped JavaScript decoder and independent Python research agree on saved layout coordinates in an authentic private save (25 worlds, 69 portals, 8 underground worlds, 6,702 tunnel points). Saved asset search now spans all underground worlds with direct map navigation, without uploading the save; synthetic Chromium tests cover selection, zoom and cross-world results. Authentic visual Chromium parity remains unverified. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -59,7 +59,7 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 
 - [ ] Reconstruct enough underground geometry for useful mine-level maps, with provenance and uncertainty. The browser now groups face-adjacent cave cells by saved tile identity, rotation and Z into inspectable **logical placement groups**. Actual room names, interior shapes, entrances and player clearance remain unverified.
 - [ ] Identify entrances, elevators, level transitions, underground structures and POIs where evidence permits. **Asset-name recognition now works for known tile UUIDs**, including catalog elevator and passage tags; these are file-name hints, not verified navigable entrance coordinates.
-- [x] Search source-backed saved cave groups and pocket asset names/tags within a selected world, with direct map focus. Portal cross-world navigation is supported; **global** search across all worlds remains future work.
+- [x] Search source-backed cave groups and pocket asset names/tags within the selected world or **across all underground worlds**, showing the destination world and focusing the chosen saved coordinates after navigation. Indexing is local-only in the existing Worker, uses compact results and batches 32 worlds. This is structural search, not pathfinding.
 - [ ] Add actual traversable routing only after physics/clearance validation.
 
 ### P3 — Complete world explorer
@@ -99,6 +99,7 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-13 | Aggregate co-located portal endpoints into inspectable cell markers | Authentic Mining Hub data has eight distinct Portal rows in the same cell (-2, 2); overlapping independent rectangles hid destinations. Keep every record and permit navigation without inventing door positions. |
 | 2026-10-13 | Add bounded zoom/pan to underground map | The authentic save has 295 tunnel segments and 666 pocket placements on D4 and 286/687 on D6; precise inspection needs cursor-oriented zoom and drag without altering game coordinates. |
 | 2026-10-13 | Verify real-save XY/Z geometry using independent execution and add in-level saved asset search | Python and actual JavaScript agree on terrain IDs, 6,702 float32 tunnel coordinates and all placement coordinate digests on eight worlds. D4/D6 contain hundreds of named resource and pocket objects; find-by-filename is more useful than browsing a flat crowded map. |
+| 2026-10-13 | Search named saved placements across underground worlds using the local Worker | Cross-level discovery reuses decoded layout cache, transfers only index metadata, and navigates directly to the selected saved object without treating catalog names as verified walkable locations. |
 
 ## Independent exact coordinate parity (2026-10-13)
 
@@ -152,6 +153,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** use a browser-enabled environment to finish visual Chromium acceptance on the authentic private save; the independent Python/JS coordinate-level comparison has passed. Continue evidence-based entrance-transform and cave collision research. Keep source-backed asset search honest and move toward global indexing after in-world search is proven; keep README concise.
+**Developer:** complete authentic-save Chromium visual acceptance in a browser-enabled environment; independent Python/JS coordinate comparison is already confirmed. Investigate reliable physical entrance transforms and continue voxel collision research before routing. Keep structural global search factual, and README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

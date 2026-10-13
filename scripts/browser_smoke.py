@@ -217,6 +217,24 @@ def main() -> None:
                     page.locator("#map-search-status").get_by_text(
                         "0 matching saved objects", exact=False).wait_for()
                     page.locator("#map-search-input").fill("")
+                    # From an empty underground world, search another world's assets.
+                    page.locator("#map-search-scope").select_option("all")
+                    page.locator("#map-search-input").fill("cave")
+                    page.locator("#map-search-status").get_by_text(
+                        "1 matching saved object", exact=False).wait_for(timeout=30000)
+                    page.locator("#world-list .world-entry").filter(
+                        has_text="D2 Tutorial").click()
+                    page.locator("#map-search-results .map-search-result").get_by_text(
+                        "D6 Drill2", exact=False).wait_for()
+                    page.locator("#map-search-results .map-search-result").click()
+                    page.locator("#world-details").get_by_text(
+                        "D6 Drill2", exact=False).first.wait_for(timeout=30000)
+                    page.locator("#map-zoom-level").get_by_text("400%", exact=True).wait_for()
+                    assert "Placement group #1" in page.locator(
+                        "#cave-group-info").inner_text()
+                    page.locator("#map-search-scope").select_option("current")
+                    page.locator("#map-search-input").fill("")
+                    page.locator("#map-zoom-reset").click()
                     # The map camera is independent of geometry and UI selection.
                     assert page.locator("#map-zoom-level").inner_text() == "100%"
                     page.locator("#map-zoom-in").click()
