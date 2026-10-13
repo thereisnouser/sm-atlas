@@ -48,12 +48,13 @@ def expected_from_python(path: Path) -> dict:
     for world in worlds:
         if world.kind != "underground":
             continue
-        portal_cells: set[tuple[int, int, int]] = set()
+        # Distinct grid cells, not raw endpoints (several portals can share XY).
+        portal_cells: set[tuple[int, int]] = set()
         for record_id, a, xa, ya, b, xb, yb in portals:
             if a == world.world_id and a != MISSING_WORLD:
-                portal_cells.add((record_id, xa, ya))
+                portal_cells.add((xa, ya))
             if b == world.world_id and b != MISSING_WORLD:
-                portal_cells.add((record_id, xb, yb))
+                portal_cells.add((xb, yb))
         try:
             _, terrain = _load_terrain_table(database, world_id=world.world_id)
             tunnels = _extract_tunnels(terrain)

@@ -163,6 +163,8 @@ def make_synthetic_save(target: Path) -> None:
             (1, 1, 0, 0, 13, 0, 0, None),
             (2, 1, 5, 7, 23, 0, 0, None),
             (3, 23, 1, 0, 65535, 0, 0, None),
+            # Same cell as #2 in Drill2 and #1 in Tutorial.
+            (4, 23, 0, 0, 13, 0, 0, None),
         ]
         db.executemany("INSERT INTO Portal VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                        portals)
@@ -197,7 +199,7 @@ def main() -> None:
                     page.locator("#save-input").set_input_files(str(save))
                     page.locator("#stat-worlds").get_by_text("3", exact=True).wait_for()
                     page.locator("#stat-underground").get_by_text("2", exact=True).wait_for()
-                    page.locator("#stat-portals").get_by_text("3", exact=True).wait_for()
+                    page.locator("#stat-portals").get_by_text("4", exact=True).wait_for()
                     page.locator("#world-coverage-summary").get_by_text(
                         "1 of 2 checked underground worlds", exact=False).wait_for(
                             timeout=30000)
@@ -206,7 +208,17 @@ def main() -> None:
                     page.locator("#tunnel-map .portal-cell").first.wait_for()
                     assert page.locator("#tunnel-map .portal-cell").count() == 2
                     page.locator("#tunnel-map .portal-cell").first.click()
+                    assert "2 saved portal endpoints" in page.locator(
+                        "#cave-group-info").inner_text()
                     assert "Portal #2" in page.locator("#cave-group-info").inner_text()
+                    assert "Portal #4" in page.locator("#cave-group-info").inner_text()
+                    page.locator("#cave-group-info .portal-go").filter(
+                        has_text="D2 Tutorial").click()
+                    assert "D2 Tutorial" in page.locator("#world-details").inner_text()
+                    page.locator("#world-list .world-entry").filter(
+                        has_text="D6 Drill2").click()
+                    page.locator("#tunnel-map .portal-cell").first.wait_for()
+                    page.locator("#tunnel-map .portal-cell").first.click()
                     page.locator("#show-portals").uncheck()
                     assert page.locator("#tunnel-map .portal-cell").count() == 0
                     page.locator("#show-portals").check()

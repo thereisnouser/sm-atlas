@@ -1,6 +1,6 @@
 import { buildWorldGraph } from "./save-reader.mjs";
 import { preferredUndergroundWorld } from "./tunnel-reader.mjs";
-import { portalCellsForWorld, portalCellOverlapsPlacement } from "./portal-cells.mjs";
+import { portalCellsForWorld, groupPortalCells, portalCellOverlapsPlacement } from "./portal-cells.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -203,34 +203,65 @@ function displayDetails() {
 }
 
 function portalKey(cell) {
-  return cell.portalId + ":" + cell.cellX + ":" + cell.cellY;
+  return cell.cellX + ":" + cell.cellY;
 }
 
-function drawPortalCellLayer(root, result, cells, footprints, px, py, scale) {
+function renderPortalGroupInfo(info, group, footprints) {
+  info.replaceChildren();
+  const n = group.endpoints.length;
+  info.append(element("div", "portal-detail-heading",
+    n + " saved portal endpoint" + (n === 1 ? "" : "s") +
+    " in grid cell (" + group.cellX + ", " + group.cellY + ")" +
+    (portalCellOverlapsPlacement(group, footprints)
+      ? " · saved tile placement overlaps this cell"
+      : " · no recorded tile placement at this cell")));
+  info.append(element("div", "portal-detail-note",
+    "The cell is a 64 × 64 region; exact doorway positions, heights and walkability remain unknown."));
+  const entries = element("div", "portal-destinations");
+  for (const endpoint of group.endpoints) {
+    const row = element("div", "portal-destination-row");
+    row.append(element("span", "portal-record-id",
+      "Portal #" + endpoint.portalId + " · side " + endpoint.sides +
+      (endpoint.linked ? "" : " · unresolved")));
+    const destination = save.worlds.find((w) => w.id === endpoint.otherWorldId);
+    if (destination) {
+      const button = element("button", "portal-go", "Open " + destination.label);
+      button.type = "button";
+      button.addEventListener("click", () => selectWorld(destination.id));
+      row.append(button);
+    } else {
+      row.append(element("span", "portal-unresolved",
+        endpoint.otherWorldId === null
+          ? "Destination not recorded" : "World #" + endpoint.otherWorldId + " not in save"));
+    }
+    entries.append(row);
+  }
+  info.append(entries);
+}
+
+function drawPortalCellLayer(root, result, groups, footprints, px, py, scale) {
   if (!$("show-portals").checked) return;
-  for (const cell of cells) {
-    const selectedCell = selectedPortalKey === portalKey(cell);
+  for (const group of groups) {
+    const count = group.endpoints.length;
+    const selectedCell = selectedPortalKey === portalKey(group);
     const box = svg("rect", {
-      x: px(cell.x).toFixed(2), y: py(cell.y + cell.depth).toFixed(2),
-      width: Math.max(0.5, cell.width * scale).toFixed(2),
-      height: Math.max(0.5, cell.depth * scale).toFixed(2),
+      x: px(group.x).toFixed(2), y: py(group.y + group.depth).toFixed(2),
+      width: Math.max(0.5, group.width * scale).toFixed(2),
+      height: Math.max(0.5, group.depth * scale).toFixed(2),
       class: "portal-cell" + (selectedCell ? " active" : ""),
       role: "button", tabindex: "0",
-      "aria-label": "Inspect saved portal #" + cell.portalId
-        + " grid cell " + cell.cellX + ", " + cell.cellY,
+      "data-cell-x": group.cellX, "data-cell-y": group.cellY,
+      "aria-label": "Inspect " + count + " saved portal endpoint"
+        + (count === 1 ? "" : "s") + " in grid cell "
+        + group.cellX + ", " + group.cellY,
     });
-    const other = save.worlds.find((world) => world.id === cell.otherWorldId);
-    const destination = other
-      ? other.label + " (#" + other.id + ")"
-      : cell.otherWorldId === null ? "unresolved world" : "world #" + cell.otherWorldId;
-    box.append(svg("title", {}, "Saved portal #" + cell.portalId
-      + " · endpoint " + cell.sides + " · grid cell (" + cell.cellX + ", " + cell.cellY
-      + ") · other side: " + destination
-      + (portalCellOverlapsPlacement(cell, footprints)
-        ? " · a saved tile placement shares this grid cell" : " · no placement match")
-      + " · door position within the cell is UNKNOWN"));
+    box.append(svg("title", {},
+      count + " saved portal endpoint" + (count === 1 ? "" : "s")
+      + " · grid cell (" + group.cellX + ", " + group.cellY + ")"
+      + " · records " + group.endpoints.map((p) => "#" + p.portalId).join(", ")
+      + " · door positions in this cell are UNKNOWN"));
     const select = () => {
-      selectedPortalKey = portalKey(cell);
+      selectedPortalKey = portalKey(group);
       selectedCaveGroupId = null;
       selectedPocketIndex = null;
       drawTunnelMap(result);
@@ -244,10 +275,10 @@ function drawPortalCellLayer(root, result, cells, footprints, px, py, scale) {
     });
     root.append(box);
     root.append(svg("text", {
-      x: (px(cell.x) + 4).toFixed(2),
-      y: (py(cell.y + cell.depth) - 7).toFixed(2),
+      x: (px(group.x) + 4).toFixed(2),
+      y: (py(group.y + group.depth) - 7).toFixed(2),
       class: "portal-cell-label",
-    }, "P" + cell.portalId));
+    }, count > 1 ? "P×" + count : "P" + group.endpoints[0].portalId));
   }
 }
 
@@ -257,6 +288,7 @@ function drawTunnelMap(result) {
   root.setAttribute("viewBox", "0 0 1000 620");
   const status = $("tunnel-status");
   const portalCells = portalCellsForWorld(save?.portals || [], selected);
+  const portalGroups = groupPortalCells(portalCells);
   const layoutUnavailable = result.status !== "available";
   status.classList.toggle("warning", layoutUnavailable);
   const explanations = {
@@ -277,20 +309,11 @@ function drawTunnelMap(result) {
   const groupInfo = $("cave-group-info");
   const selectedGroup = groups.find((g) => g.id === selectedCaveGroupId);
   const selectedPocket = footprints[selectedPocketIndex];
-  const selectedPortal = portalCells.find((cell) => portalKey(cell) === selectedPortalKey);
+  const selectedPortalGroup = portalGroups.find((group) =>
+    portalKey(group) === selectedPortalKey);
   const groupAsset = selectedGroup?.asset;
-  if (selectedPortal) {
-    const other = save.worlds.find((world) => world.id === selectedPortal.otherWorldId);
-    groupInfo.textContent = "Portal #" + selectedPortal.portalId
-      + " · saved grid cell (" + selectedPortal.cellX + ", " + selectedPortal.cellY
-      + "), side " + selectedPortal.sides + " · linked to "
-      + (other ? other.label + " (#" + other.id + ")"
-        : selectedPortal.otherWorldId === null
-          ? "an unresolved world" : "world #" + selectedPortal.otherWorldId)
-      + (portalCellOverlapsPlacement(selectedPortal, footprints)
-        ? " · a saved tile placement shares this cell"
-        : " · no matching saved tile placement")
-      + ". Actual door position, height and traversability are unverified.";
+  if (selectedPortalGroup) {
+    renderPortalGroupInfo(groupInfo, selectedPortalGroup, footprints);
   } else if (selectedGroup) {
     groupInfo.textContent = "Placement group #" + selectedGroup.id
       + " · " + (groupAsset
@@ -323,7 +346,8 @@ function drawTunnelMap(result) {
     const namedPockets = footprints.filter((p) => p.kind === "pocket" && p.asset).length;
     groupInfo.textContent = named + "/" + groups.length
       + " named cave groups · " + namedPockets + " recognized pocket fragments"
-      + " · " + portalCells.length + " saved portal endpoint cells"
+      + " · " + portalCells.length + " portal endpoints across "
+      + portalGroups.length + " grid cells"
       + " · Select a placement or portal cell to inspect saved facts."
       + " No actual door positions or walkable passages are inferred.";
   }
@@ -369,11 +393,12 @@ function drawTunnelMap(result) {
   const pockets = footprints.filter((item) => item.kind === "pocket");
   status.textContent = layoutUnavailable
     ? (explanations[result.status] || "Terrain record unavailable.")
-      + " " + portalCells.length + " saved portal endpoint cells can still be plotted."
+      + " " + portalCells.length + " saved portal endpoints across "
+      + portalGroups.length + " grid cells can still be plotted."
     : tunnels.length + " tunnel lines · " + caves.length
       + " cave cells in " + groups.length + " logical placement groups · "
       + pockets.length + " pocket placements · "
-      + portalCells.length + " portal cells · "
+      + portalCells.length + " portal endpoints in " + portalGroups.length + " cells · "
       + pathPoints + " tunnel points · Z " + minZ.toFixed(1)
       + " to " + maxZ.toFixed(1)
       + " · source record #" + result.rowId
@@ -485,7 +510,7 @@ function drawTunnelMap(result) {
       root.append(path);
     }
   }
-  drawPortalCellLayer(root, result, portalCells, footprints, px, py, scale);
+  drawPortalCellLayer(root, result, portalGroups, footprints, px, py, scale);
 }
 
 async function loadSelectedTunnels() {
