@@ -205,6 +205,18 @@ def main() -> None:
                             timeout=30000)
                     page.locator("#tunnel-map .tunnel-line").first.wait_for(timeout=30000)
                     page.locator("#tunnel-map .saved-footprint.cave").first.wait_for()
+                    # Search returns only saved objects, then focuses their actual XY.
+                    page.locator("#map-search-input").fill("cave")
+                    page.locator("#map-search-status").get_by_text(
+                        "1 matching saved object", exact=False).wait_for()
+                    page.locator("#map-search-results .map-search-result").click()
+                    assert "Placement group #1" in page.locator("#cave-group-info").inner_text()
+                    assert page.locator("#map-zoom-level").inner_text() == "400%"
+                    page.locator("#map-zoom-reset").click()
+                    page.locator("#map-search-input").fill("unknown-mineral")
+                    page.locator("#map-search-status").get_by_text(
+                        "0 matching saved objects", exact=False).wait_for()
+                    page.locator("#map-search-input").fill("")
                     # The map camera is independent of geometry and UI selection.
                     assert page.locator("#map-zoom-level").inner_text() == "100%"
                     page.locator("#map-zoom-in").click()
