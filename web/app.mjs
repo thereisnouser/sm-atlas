@@ -19,6 +19,7 @@ let tunnelSelectionEpoch = 0;
 let activeGeometry = null;
 let selectedCaveGroupId = null;
 let selectedPocketIndex = null;
+let selectedPocketGroupId = null;
 let selectedPortalKey = null;
 let coverageEpoch = 0;
 let manuallySelectedWorld = false;
@@ -247,7 +248,9 @@ function focusSavedSearchResult(item) {
     && candidate.y === item.y);
   if (!present) return false;
   selectedCaveGroupId = item.kind === "group" ? item.id : null;
-  selectedPocketIndex = item.kind === "pocket" ? item.index : null;
+  selectedPocketIndex = item.kind === "pocket" ? item.index
+    : item.kind === "pocket-group" ? item.index : null;
+  selectedPocketGroupId = item.kind === "pocket-group" ? item.id : null;
   selectedPortalKey = null;
   drawTunnelMap(activeGeometry);
   if (mapProjection) {
@@ -403,6 +406,7 @@ function drawPortalCellLayer(root, result, groups, footprints, px, py, scale) {
       selectedPortalKey = portalKey(group);
       selectedCaveGroupId = null;
       selectedPocketIndex = null;
+      selectedPocketGroupId = null;
       drawTunnelMap(result);
     };
     box.addEventListener("click", select);
@@ -450,9 +454,15 @@ function drawTunnelMap(result) {
   const tunnels = layoutUnavailable ? [] : (result.tunnels || []);
   const footprints = layoutUnavailable ? [] : (result.footprints || []);
   const groups = result.caveGroups || [];
+  const pocketGroups = result.pocketGroups || [];
+  const pocketFragmentToGroup = new Map();
+  for (const group of pocketGroups) {
+    for (const index of group.fragments) pocketFragmentToGroup.set(index, group);
+  }
   const groupInfo = $("cave-group-info");
   const selectedGroup = groups.find((g) => g.id === selectedCaveGroupId);
   const selectedPocket = footprints[selectedPocketIndex];
+  const selectedPocketGroup = pocketGroups.find((g) => g.id === selectedPocketGroupId);
   const selectedPortalGroup = portalGroups.find((group) =>
     portalKey(group) === selectedPortalKey);
   const groupAsset = selectedGroup?.asset;
@@ -474,6 +484,19 @@ function drawTunnelMap(result) {
           + " · catalog size " + (selectedGroup.sizeMatches ? "matches" : "DIFFERS")
         : " · no known catalog dimensions")
       + ". Catalog names describe saved assets; room interior and walkability are unknown.";
+  } else if (selectedPocketGroup) {
+    groupInfo.textContent = "Logical pocket placement #" + selectedPocketGroup.id
+      + " · " + selectedPocketGroup.asset.name
+      + " [catalog asset: " + selectedPocketGroup.asset.family + "]"
+      + " · " + selectedPocketGroup.fragmentCount + " saved fragments"
+      + " · source coverage " + (selectedPocketGroup.sourceComplete ? "complete" : "INCOMPLETE")
+      + " · catalog dimensions " + (selectedPocketGroup.sizeMatches ? "match" : "DIFFER")
+      + " · overlapping source chunks " + selectedPocketGroup.sourceOverlapChunks
+      + " · bounds " + selectedPocketGroup.width + " × "
+      + selectedPocketGroup.depth + " × " + selectedPocketGroup.height
+      + " saved units · rotation " + selectedPocketGroup.rotation
+      + ". Source placement identity is supported by packed offsets, "
+      + "but walkability and interior geometry are unverified.";
   } else if (selectedPocket?.kind === "pocket") {
     const asset = selectedPocket.asset;
     groupInfo.textContent = "Pocket placement · "
@@ -489,7 +512,8 @@ function drawTunnelMap(result) {
     const named = groups.filter((g) => g.asset).length;
     const namedPockets = footprints.filter((p) => p.kind === "pocket" && p.asset).length;
     groupInfo.textContent = named + "/" + groups.length
-      + " named cave groups · " + namedPockets + " recognized pocket fragments"
+      + " named cave groups · " + pocketGroups.length + " reconstructed pocket placements"
+      + " from " + namedPockets + " recognized fragments"
       + " · " + portalCells.length + " portal endpoints across "
       + portalGroups.length + " grid cells"
       + " · Select a placement or portal cell to inspect saved facts."
@@ -557,6 +581,7 @@ function drawTunnelMap(result) {
 
   for (const [index, item] of footprints.entries()) {
     const group = fragmentToGroup.get(index);
+    const pocketGroup = pocketFragmentToGroup.get(index);
     const enabled = $(item.kind === "cave" ? "show-caves" : "show-pockets").checked;
     if (!enabled) continue;
     const box = svg("rect", {
@@ -566,7 +591,8 @@ function drawTunnelMap(result) {
       height: Math.max(0.5, item.depth * scale).toFixed(2),
       class: "saved-footprint " + item.kind
         + (group && group.id === selectedCaveGroupId ? " group-selected" : "")
-        + (item.kind === "pocket" && selectedPocketIndex === index
+        + (item.kind === "pocket" && (selectedPocketIndex === index
+          || (pocketGroup && pocketGroup.id === selectedPocketGroupId))
           ? " placement-selected" : ""),
       tabindex: "0", role: "button",
       "aria-label": item.kind === "pocket"
@@ -583,10 +609,12 @@ function drawTunnelMap(result) {
       + (item.asset ? " · asset " + item.asset.name
         + " · catalog tags " + (item.asset.tags.join(", ") || "none")
         : " · catalog asset unknown")
-      + (group ? " · logical group #" + group.id : "")));
+      + (group ? " · logical group #" + group.id : "")
+      + (pocketGroup ? " · logical pocket #" + pocketGroup.id : "")));
     const choose = () => {
       selectedCaveGroupId = group?.id || null;
       selectedPocketIndex = item.kind === "pocket" ? index : null;
+      selectedPocketGroupId = item.kind === "pocket" ? (pocketGroup?.id ?? null) : null;
       selectedPortalKey = null;
       drawTunnelMap(result);
     };
@@ -621,6 +649,7 @@ function drawTunnelMap(result) {
       const choose = () => {
         selectedCaveGroupId = group.id;
         selectedPocketIndex = null;
+        selectedPocketGroupId = null;
         selectedPortalKey = null;
         drawTunnelMap(result);
       };
@@ -638,6 +667,44 @@ function drawTunnelMap(result) {
         class: "cave-group-label",
       }, group.asset?.family === "elevator" ? "ELEVATOR · G" + group.id
         : "G" + group.id));
+    }
+  }
+
+  if ($("show-groups").checked && $("show-pockets").checked) {
+    for (const group of pocketGroups) {
+      if (group.fragmentCount < 2) continue;
+      const outline = svg("rect", {
+        x: px(group.x).toFixed(2),
+        y: py(group.y + group.depth).toFixed(2),
+        width: Math.max(0.5, group.width * scale).toFixed(2),
+        height: Math.max(0.5, group.depth * scale).toFixed(2),
+        class: "pocket-group" + (group.id === selectedPocketGroupId ? " active" : ""),
+        role: "button", tabindex: "0",
+        "aria-label": "Inspect logical pocket placement " + group.id,
+      });
+      outline.append(svg("title", {}, "Logical pocket placement #" + group.id
+        + " · " + group.asset.name + " · " + group.fragmentCount
+        + " fragments · stored rectangular extent only"));
+      const choose = () => {
+        selectedCaveGroupId = null;
+        selectedPocketIndex = group.fragments[0];
+        selectedPocketGroupId = group.id;
+        selectedPortalKey = null;
+        drawTunnelMap(result);
+      };
+      outline.addEventListener("click", choose);
+      outline.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          choose();
+        }
+      });
+      root.append(outline);
+      root.append(svg("text", {
+        x: (px(group.x) + 4).toFixed(1),
+        y: (py(group.y + group.depth) - 7).toFixed(1),
+        class: "pocket-group-label",
+      }, "PG" + group.id));
     }
   }
 
@@ -666,6 +733,7 @@ async function loadSelectedTunnels() {
   updateObjectSearch();
   selectedCaveGroupId = null;
   selectedPocketIndex = null;
+  selectedPocketGroupId = null;
   selectedPortalKey = null;
   $("cave-group-info").textContent = "Select a cave placement group to inspect it.";
   const world = save?.worlds.find((item) => item.id === selected);
