@@ -265,6 +265,7 @@ function updateObjectSearch() {
   const list = $("map-search-results");
   list.replaceChildren();
   const query = $("map-search-input").value.trim();
+  const category = $("map-search-category").value;
   const status = $("map-search-status");
   const all = $("map-search-scope").value === "all";
   let indexed;
@@ -283,14 +284,15 @@ function updateObjectSearch() {
     }
     indexed = indexSavedObjects(activeGeometry);
   }
-  if (!query) {
+  if (!query && category === "all") {
     status.textContent = "Search " + indexed.length + " saved cave groups and pocket placements "
-      + (all ? "across all underground worlds." : "in this world.");
+      + (all ? "across all underground worlds." : "in this world.")
+      + " Choose a category to browse without typing.";
     return;
   }
   const { matches, total } = all
-    ? searchSavedObjectsAcrossWorlds(indexed, query)
-    : searchSavedObjects(indexed, query);
+    ? searchSavedObjectsAcrossWorlds(indexed, query, 30, category)
+    : searchSavedObjects(indexed, query, 30, category);
   status.textContent = total + " matching saved object" + (total === 1 ? "" : "s")
     + (total > matches.length ? " · showing first " + matches.length : "");
   for (const match of matches) {
@@ -833,6 +835,7 @@ function showSave(data, fileName) {
   $("world-filter").value = "all";
   $("map-search-input").value = "";
   $("map-search-scope").value = "current";
+  $("map-search-category").value = "all";
   $("explorer").classList.remove("is-hidden");
   displayWorldList();
   displayGraph();
@@ -926,6 +929,7 @@ async function loadSave(file) {
 
 $("map-search-input").addEventListener("input", updateObjectSearch);
 $("map-search-scope").addEventListener("change", updateObjectSearch);
+$("map-search-category").addEventListener("change", updateObjectSearch);
 $("map-zoom-in").addEventListener("click", () => zoomMap(1.5));
 $("map-zoom-out").addEventListener("click", () => zoomMap(1 / 1.5));
 $("map-zoom-reset").addEventListener("click", resetMapView);

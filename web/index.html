@@ -104,6 +104,19 @@
               <option value="all">All underground worlds</option>
             </select>
           </div>
+          <div class="map-search-category-row">
+            <label for="map-search-category">Browse category</label>
+            <select id="map-search-category" aria-label="Saved object category">
+              <option value="all">All saved objects</option>
+              <option value="elevator">Elevator-named assets</option>
+              <option value="passage">Passage-named assets</option>
+              <option value="deposit">Deposit-named assets</option>
+              <option value="resource">Resource-tagged assets</option>
+              <option value="cave">Cave placement groups</option>
+              <option value="unknown">Unidentified placements</option>
+            </select>
+            <span>Categories come from saved catalog names, not verified routes or loot.</span>
+          </div>
           <input type="search" id="map-search-input" autocomplete="off"
             placeholder="Asset name or tag · e.g. gold, deposit, elevator"
             aria-controls="map-search-results">
