@@ -2,7 +2,8 @@ import { buildWorldGraph } from "./save-reader.mjs";
 import { preferredUndergroundWorld } from "./tunnel-reader.mjs";
 import { portalCellsForWorld, groupPortalCells, portalCellOverlapsPlacement } from "./portal-cells.mjs";
 import { FULL_MAP_VIEW, MAX_MAP_ZOOM, zoomMapView,
-  panMapView, mapZoomPercent } from "./map-camera.mjs";
+  panMapView, mapZoomPercent, focusMapView } from "./map-camera.mjs";
+import { indexSavedObjects, searchSavedObjects } from "./map-search.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -23,6 +24,7 @@ let manuallySelectedWorld = false;
 let undergroundCoverage = new Map();
 let mapView = { ...FULL_MAP_VIEW };
 let mapDrag = null;
+let mapProjection = null;
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -231,6 +233,46 @@ function zoomMap(factor, clientX = null, clientY = null) {
   applyMapView();
 }
 
+function updateObjectSearch() {
+  const list = $("map-search-results");
+  list.replaceChildren();
+  const query = $("map-search-input").value.trim();
+  const status = $("map-search-status");
+  if (!activeGeometry) {
+    status.textContent = "Select an underground world to search its saved objects.";
+    return;
+  }
+  const indexed = indexSavedObjects(activeGeometry);
+  if (!query) {
+    status.textContent = "Search " + indexed.length
+      + " saved cave groups and pocket placements by asset filename or tag.";
+    return;
+  }
+  const { matches, total } = searchSavedObjects(indexed, query);
+  status.textContent = total + " matching saved object" + (total === 1 ? "" : "s")
+    + (total > matches.length ? " · showing first " + matches.length : "");
+  if (!matches.length) return;
+  for (const match of matches) {
+    const button = element("button", "map-search-result");
+    button.type = "button";
+    button.append(element("span", "map-search-name", match.label));
+    button.append(element("span", "map-search-detail", match.details));
+    button.addEventListener("click", () => {
+      if (!activeGeometry || !mapProjection) return;
+      selectedCaveGroupId = match.kind === "group" ? match.id : null;
+      selectedPocketIndex = match.kind === "pocket" ? match.index : null;
+      selectedPortalKey = null;
+      drawTunnelMap(activeGeometry);
+      if (mapProjection) {
+        const point = mapProjection(match.x, match.y);
+        mapView = focusMapView(point.x, point.y, 4);
+        applyMapView();
+      }
+    });
+    list.append(button);
+  }
+}
+
 function portalKey(cell) {
   return cell.cellX + ":" + cell.cellY;
 }
@@ -312,6 +354,7 @@ function drawPortalCellLayer(root, result, groups, footprints, px, py, scale) {
 }
 
 function drawTunnelMap(result) {
+  mapProjection = null;
   const root = $("tunnel-map");
   root.replaceChildren();
   applyMapView();
@@ -422,6 +465,7 @@ function drawTunnelMap(result) {
   const dy = (height - (maxY - minY) * scale) / 2;
   const px = (x) => padX + dx + (x - minX) * scale;
   const py = (y) => padY + dy + (maxY - y) * scale;
+  mapProjection = (x,y) => ({x:px(x),y:py(y)});
   const caves = footprints.filter((item) => item.kind === "cave");
   const pockets = footprints.filter((item) => item.kind === "pocket");
   status.textContent = layoutUnavailable
@@ -550,6 +594,8 @@ async function loadSelectedTunnels() {
   const epoch = ++tunnelSelectionEpoch;
   resetMapView();
   activeGeometry = null;
+  mapProjection = null;
+  updateObjectSearch();
   selectedCaveGroupId = null;
   selectedPocketIndex = null;
   selectedPortalKey = null;
@@ -568,9 +614,11 @@ async function loadSelectedTunnels() {
     if (epoch !== tunnelSelectionEpoch || selected !== world.id) return;
     activeGeometry = result;
     drawTunnelMap(result);
+    updateObjectSearch();
   } catch (error) {
     if (epoch !== tunnelSelectionEpoch) return;
     $("tunnel-status").classList.add("warning");
+    updateObjectSearch();
     $("tunnel-status").textContent = "Cannot inspect this world: "
       + (error instanceof Error ? error.message : String(error));
   }
@@ -635,6 +683,7 @@ function showSave(data, fileName) {
   $("stat-portals").textContent = data.portals.length;
   $("stat-links").textContent = graph.edges.length;
   $("world-filter").value = "all";
+  $("map-search-input").value = "";
   $("explorer").classList.remove("is-hidden");
   displayWorldList();
   displayGraph();
@@ -721,6 +770,7 @@ async function loadSave(file) {
   }
 }
 
+$("map-search-input").addEventListener("input", updateObjectSearch);
 $("map-zoom-in").addEventListener("click", () => zoomMap(1.5));
 $("map-zoom-out").addEventListener("click", () => zoomMap(1 / 1.5));
 $("map-zoom-reset").addEventListener("click", resetMapView);

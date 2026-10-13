@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Actual browser decoding modules successfully opened the authentic private 71.3 MB save, finding 25 worlds, 69 portals, and 8 underground levels with 0 decoding failures. A real Chromium navigation check is restricted by this local environment's browser policy; synthetic CI smoke tests cover the UI. Added bounded zoom/pan for dense D4/D6 saved layouts. |
+| User-facing browser explorer | Local-first browser now decodes a genuine 71.3 MB Survival save (25 worlds, 69 portals, 8 underground levels). Independent Python and actual JS modules agree on chosen terrain rows, all 6,702 tunnel points and each cave/pocket placement by SHA-256 digest across all eight levels. Exact Chromium visual acceptance on the private save remains blocked by local browser policy; synthetic CI browser tests pass. Added in-level search by source-backed asset filenames/tags. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -50,7 +50,8 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 - [x] Explicitly label world/portal saved facts and unknown walking/collision geometry; no candidate surfaces promoted to real routes.
 - [x] Exercise the **built static site** in real Chromium against a synthetic local SQLite save: file picker, worker, pinned WASM, underground coverage, saved cave/tunnel SVG, switching worlds, no unexpected external requests.
 - [x] Implement local-only Chromium acceptance that compares the rendered SVG geometry counts against independent Python extraction, with off-origin requests blocked; exercise it on generated data in CI.
-- [ ] Run Chromium acceptance and exact module-coordinate parity against the **authentic private save**. The previous independent reconstruction matched geometry counts, but the committed full browser check still has to pass with the real file; never publish it.
+- [x] Run the actual browser JavaScript decoders against the authentic private save; independently cross-check decoded terrain record IDs, **6,702 saved tunnel point coordinates** and every cave/pocket placement with separate Python execution and SHA-256 digests on all eight worlds. Exact numeric digests are private and were not committed.
+- [ ] Complete the **authentic private-save Chromium visual acceptance** and execute the project's checked-in full parity wrapper on a browser-enabled machine. The independent coordinate-level decoder comparison has passed, but the hosted browser's visual state on that same private save remains unverified. Never publish the save.
 
 **Acceptance criterion:** a player can open a local save and navigate at least one useful underground topology view without installing or running the Python CLI. No validated collision route is implied where none exists. **Not yet accepted:** authentic-save integration and a hosted build remain pending. The static build now packages the pinned SQLite WASM runtime on the same origin and processes saves in a worker; offline/PWA behavior and authentic-save integration remain unverified.
 
@@ -58,7 +59,7 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 
 - [ ] Reconstruct enough underground geometry for useful mine-level maps, with provenance and uncertainty. The browser now groups face-adjacent cave cells by saved tile identity, rotation and Z into inspectable **logical placement groups**. Actual room names, interior shapes, entrances and player clearance remain unverified.
 - [ ] Identify entrances, elevators, level transitions, underground structures and POIs where evidence permits. **Asset-name recognition now works for known tile UUIDs**, including catalog elevator and passage tags; these are file-name hints, not verified navigable entrance coordinates.
-- [ ] Enable search and cross-world navigation.
+- [x] Search source-backed saved cave groups and pocket asset names/tags within a selected world, with direct map focus. Portal cross-world navigation is supported; **global** search across all worlds remains future work.
 - [ ] Add actual traversable routing only after physics/clearance validation.
 
 ### P3 — Complete world explorer
@@ -97,6 +98,23 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-12 | Show saved portal endpoint cells as a separate underground overlay | A private authentic test save places known portal endpoint cells on saved cave placements on D2/D4/D6. Mark the 64-unit grid region instead of inventing precise door positions. |
 | 2026-10-13 | Aggregate co-located portal endpoints into inspectable cell markers | Authentic Mining Hub data has eight distinct Portal rows in the same cell (-2, 2); overlapping independent rectangles hid destinations. Keep every record and permit navigation without inventing door positions. |
 | 2026-10-13 | Add bounded zoom/pan to underground map | The authentic save has 295 tunnel segments and 666 pocket placements on D4 and 286/687 on D6; precise inspection needs cursor-oriented zoom and drag without altering game coordinates. |
+| 2026-10-13 | Verify real-save XY/Z geometry using independent execution and add in-level saved asset search | Python and actual JavaScript agree on terrain IDs, 6,702 float32 tunnel coordinates and all placement coordinate digests on eight worlds. D4/D6 contain hundreds of named resource and pocket objects; find-by-filename is more useful than browsing a flat crowded map. |
+
+## Independent exact coordinate parity (2026-10-13)
+
+On the **private local** 71,270,400-byte save, a separately executed Python
+decoder (SQLite read-only, raw ScriptData/LZ4/LUA decoding) was compared with
+the **actual bundled browser JavaScript** running the same local pinned
+SQLite WASM runtime. For each of the eight underground worlds, selected
+ScriptData row IDs, counts, and SHA-256 digests of the ordered 3D tunnel
+centerline coordinates and every saved cave/pocket rectangle agreed exactly.
+D4 had 3,378 tunnel points and D6 had 3,324; other worlds had zero tunnel
+points. No private geometry fingerprints or game save data were committed.
+
+This is **not** the same as successfully navigating the authentic save in
+Chromium. The local Chromium security policy blocks even localhost URLs.
+The in-repository Chromium acceptance test still runs against synthetic
+local saves in CI; authentic-save UI parity remains pending.
 
 ## Authentic-save browser module validation (2026-10-13)
 
@@ -134,6 +152,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** seek full independent Python coordinate-digest parity and authentic-save Chromium visual acceptance on a browser-enabled local machine, then continue evidence-based entrance-transform research. Distinguish saved portal grid cells from physical doors and verified routes; keep README concise.
+**Developer:** use a browser-enabled environment to finish visual Chromium acceptance on the authentic private save; the independent Python/JS coordinate-level comparison has passed. Continue evidence-based entrance-transform and cave collision research. Keep source-backed asset search honest and move toward global indexing after in-world search is proven; keep README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

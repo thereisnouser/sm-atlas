@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { FULL_MAP_VIEW, MAX_MAP_ZOOM, zoomMapView, panMapView,
-  mapZoomPercent } from "../map-camera.mjs";
+  mapZoomPercent, focusMapView } from "../map-camera.mjs";
 
 test("zoom is anchored to the cursor without distorting map proportions", () => {
   const view = zoomMapView(FULL_MAP_VIEW, 2, 0.25, 0.75);
@@ -33,4 +33,17 @@ test("invalid zoom/pan input and out-of-bounds anchors are harmless", () => {
   assert.equal(panMapView(FULL_MAP_VIEW, Infinity, 0), FULL_MAP_VIEW);
   const corner = zoomMapView(FULL_MAP_VIEW, 2, 2, -1);
   assert.deepEqual(corner, {x:500, y:0, width:500, height:310});
+});
+
+
+test("selected object focus centers the map and clamps to valid edges", () => {
+  assert.deepEqual(focusMapView(500, 310), {
+    x:375, y:232.5, width:250, height:155,
+  });
+  assert.deepEqual(focusMapView(50, 50), {
+    x:0, y:0, width:250, height:155,
+  });
+  assert.deepEqual(focusMapView(990, 610), {
+    x:750, y:465, width:250, height:155,
+  });
 });
