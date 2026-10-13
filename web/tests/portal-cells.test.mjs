@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  UNDERGROUND_CELL_SIZE, portalCellsForWorld, portalCellOverlapsPlacement,
+  UNDERGROUND_CELL_SIZE, portalCellsForWorld, groupPortalCells, portalCellOverlapsPlacement,
 } from "../portal-cells.mjs";
 
 test("known saved portal side is mapped to an entire 64-unit grid cell", () => {
@@ -62,4 +62,35 @@ test("portal grid overlap reports cell placement, never actual doorway geometry"
 test("nonintegral, invalid portal endpoints are not plotted", () => {
   assert.deepEqual(portalCellsForWorld([{id: 1, worldA: 23, xA: 1.5, yA: 0,
     worldB: 13, xB: 0, yB: 0}], 23), []);
+});
+
+
+test("eight authentic-style shared-cell endpoints become one marker without lost links", () => {
+  const ids = [33, 42, 63, 64, 66, 67, 68, 69];
+  const portals = ids.map((id, index) => ({
+    id, worldA: 12, xA: -2, yA: 2,
+    worldB: index % 2 ? 21 : 23, xB: 0, yB: 0, resolved: true,
+  }));
+  const all = portalCellsForWorld(portals, 12);
+  assert.equal(all.length, 8);
+  const groups = groupPortalCells(all);
+  assert.equal(groups.length, 1);
+  assert.deepEqual([groups[0].cellX, groups[0].cellY, groups[0].x, groups[0].y],
+    [-2, 2, -128, 128]);
+  assert.deepEqual(groups[0].endpoints.map((p) => p.portalId), ids);
+  assert.equal(groups[0].endpoints.filter((p) => p.otherWorldId === 21).length, 4);
+});
+
+test("different portal grid cells remain separate and sorted by Y then X", () => {
+  const cells = portalCellsForWorld([
+    {id: 4, worldA: 23, xA: 0, yA: 0, worldB: 13, xB: 0, yB: 0, resolved: true},
+    {id: 2, worldA: 23, xA: 0, yA: 0, worldB: 1, xB: 0, yB: 0, resolved: true},
+    {id: 3, worldA: 23, xA: 1, yA: 0, worldB: 65535, xB: 0, yB: 0, resolved: false},
+    {id: 5, worldA: 23, xA: -1, yA: -2, worldB: 1, xB: 0, yB: 0, resolved: true},
+  ], 23);
+  const groups = groupPortalCells(cells);
+  assert.deepEqual(groups.map((g) => [g.cellX,g.cellY,g.endpoints.length]),
+    [[-1,-2,1], [0,0,2], [1,0,1]]);
+  assert.deepEqual(groups[1].endpoints.map((p) => p.portalId), [2,4]);
+  assert.equal(groups[2].endpoints[0].otherWorldId, null);
 });
