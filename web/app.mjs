@@ -25,6 +25,10 @@ let undergroundCoverage = new Map();
 let mapView = { ...FULL_MAP_VIEW };
 let mapDrag = null;
 let mapProjection = null;
+let globalSearchIndex = [];
+let globalIndexEpoch = 0;
+let globalIndexState = "idle";
+let pendingSearchTarget = null;
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -233,45 +237,106 @@ function zoomMap(factor, clientX = null, clientY = null) {
   applyMapView();
 }
 
+function focusSavedSearchResult(item) {
+  if (!activeGeometry || !mapProjection) return false;
+  // Validate against the active world, not stale results from a prior save.
+  const present = indexSavedObjects(activeGeometry).some((candidate) =>
+    candidate.kind === item.kind && candidate.id === item.id
+    && candidate.index === item.index && candidate.x === item.x
+    && candidate.y === item.y);
+  if (!present) return false;
+  selectedCaveGroupId = item.kind === "group" ? item.id : null;
+  selectedPocketIndex = item.kind === "pocket" ? item.index : null;
+  selectedPortalKey = null;
+  drawTunnelMap(activeGeometry);
+  if (mapProjection) {
+    const point = mapProjection(item.x, item.y);
+    mapView = focusMapView(point.x, point.y, 4);
+    applyMapView();
+  }
+  return true;
+}
+
 function updateObjectSearch() {
   const list = $("map-search-results");
   list.replaceChildren();
   const query = $("map-search-input").value.trim();
   const status = $("map-search-status");
-  if (!activeGeometry) {
-    status.textContent = "Select an underground world to search its saved objects.";
-    return;
+  const all = $("map-search-scope").value === "all";
+  let indexed;
+  if (all) {
+    if (globalIndexState !== "ready") {
+      status.textContent = globalIndexState === "error"
+        ? "Could not index all underground worlds. Current-world search remains available."
+        : "Indexing saved structures across underground worlds locally…";
+      return;
+    }
+    indexed = globalSearchIndex;
+  } else {
+    if (!activeGeometry) {
+      status.textContent = "Select an underground world to search its saved objects.";
+      return;
+    }
+    indexed = indexSavedObjects(activeGeometry);
   }
-  const indexed = indexSavedObjects(activeGeometry);
   if (!query) {
-    status.textContent = "Search " + indexed.length
-      + " saved cave groups and pocket placements by asset filename or tag.";
+    status.textContent = "Search " + indexed.length + " saved cave groups and pocket placements "
+      + (all ? "across all underground worlds." : "in this world.");
     return;
   }
   const { matches, total } = searchSavedObjects(indexed, query);
   status.textContent = total + " matching saved object" + (total === 1 ? "" : "s")
     + (total > matches.length ? " · showing first " + matches.length : "");
-  if (!matches.length) return;
   for (const match of matches) {
     const button = element("button", "map-search-result");
     button.type = "button";
+    const destination = all ? save?.worlds.find((w) => w.id === match.worldId) : null;
     button.append(element("span", "map-search-name", match.label));
-    button.append(element("span", "map-search-detail", match.details));
+    button.append(element("span", "map-search-detail",
+      (destination ? destination.label + " · " : "") + match.details));
     button.addEventListener("click", () => {
-      if (!activeGeometry || !mapProjection) return;
-      selectedCaveGroupId = match.kind === "group" ? match.id : null;
-      selectedPocketIndex = match.kind === "pocket" ? match.index : null;
-      selectedPortalKey = null;
-      drawTunnelMap(activeGeometry);
-      if (mapProjection) {
-        const point = mapProjection(match.x, match.y);
-        mapView = focusMapView(point.x, point.y, 4);
-        applyMapView();
+      if (all && match.worldId !== selected) {
+        pendingSearchTarget = match;
+        selectWorld(match.worldId);
+      } else if (activeGeometry) {
+        focusSavedSearchResult(match);
+      } else if (all) {
+        pendingSearchTarget = match;
+        selectWorld(match.worldId);
       }
     });
     list.append(button);
   }
 }
+
+async function indexAllUndergroundWorlds() {
+  const epoch = ++globalIndexEpoch;
+  const ids = save?.worlds.filter((w) => w.kind === "underground").map((w) => w.id) || [];
+  globalSearchIndex = [];
+  globalIndexState = "loading";
+  updateObjectSearch();
+  try {
+    const entries = [];
+    // Worker accepts small batches and reuses its existing decoded-world cache.
+    for (let offset = 0; offset < ids.length; offset += 32) {
+      const batch = await askWorker({
+        type: "search-index", worldIds: ids.slice(offset, offset + 32),
+      });
+      if (epoch !== globalIndexEpoch) return;
+      entries.push(...batch);
+    }
+    if (epoch !== globalIndexEpoch) return;
+    globalSearchIndex = entries;
+    globalIndexState = "ready";
+    updateObjectSearch();
+  } catch (error) {
+    if (epoch !== globalIndexEpoch) return;
+    globalSearchIndex = [];
+    globalIndexState = "error";
+    updateObjectSearch();
+  }
+}
+
 
 function portalKey(cell) {
   return cell.cellX + ":" + cell.cellY;
@@ -614,6 +679,11 @@ async function loadSelectedTunnels() {
     if (epoch !== tunnelSelectionEpoch || selected !== world.id) return;
     activeGeometry = result;
     drawTunnelMap(result);
+    if (pendingSearchTarget?.worldId === world.id) {
+      const requested = pendingSearchTarget;
+      pendingSearchTarget = null;
+      focusSavedSearchResult(requested);
+    }
     updateObjectSearch();
   } catch (error) {
     if (epoch !== tunnelSelectionEpoch) return;
@@ -625,6 +695,9 @@ async function loadSelectedTunnels() {
 }
 
 function selectWorld(id, automatic = false) {
+  if (pendingSearchTarget && pendingSearchTarget.worldId !== id) {
+    pendingSearchTarget = null;
+  }
   if (!automatic) manuallySelectedWorld = true;
   if (selected === id && activeGeometry) return;
   selected = id;
@@ -671,6 +744,10 @@ async function inspectUndergroundCoverage() {
 }
 
 function showSave(data, fileName) {
+  ++globalIndexEpoch;
+  globalSearchIndex = [];
+  globalIndexState = "idle";
+  pendingSearchTarget = null;
   manuallySelectedWorld = false;
   undergroundCoverage = new Map();
   save = data;
@@ -684,12 +761,14 @@ function showSave(data, fileName) {
   $("stat-links").textContent = graph.edges.length;
   $("world-filter").value = "all";
   $("map-search-input").value = "";
+  $("map-search-scope").value = "current";
   $("explorer").classList.remove("is-hidden");
   displayWorldList();
   displayGraph();
   displayDetails();
   void loadSelectedTunnels();
   void inspectUndergroundCoverage();
+  void indexAllUndergroundWorlds();
   const warnings = [...data.warnings];
   if (graph.missingWorldReferences) {
     warnings.push(graph.missingWorldReferences
@@ -749,6 +828,10 @@ async function loadSave(file) {
   // Close old saved data when the user selects another save.
   resetMapView();
   ++coverageEpoch;
+  ++globalIndexEpoch;
+  globalSearchIndex = [];
+  globalIndexState = "idle";
+  pendingSearchTarget = null;
   disposeWorker();
   ++tunnelSelectionEpoch;
   save = null;
@@ -771,6 +854,7 @@ async function loadSave(file) {
 }
 
 $("map-search-input").addEventListener("input", updateObjectSearch);
+$("map-search-scope").addEventListener("change", updateObjectSearch);
 $("map-zoom-in").addEventListener("click", () => zoomMap(1.5));
 $("map-zoom-out").addEventListener("click", () => zoomMap(1 / 1.5));
 $("map-zoom-reset").addEventListener("click", resetMapView);
