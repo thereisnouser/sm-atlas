@@ -92,6 +92,18 @@
           <label><input type="checkbox" id="show-groups" checked> <span class="layer-key group"></span> Group boundaries</label>
           <label><input type="checkbox" id="show-portals" checked> <span class="layer-key portal"></span> Portal grid cells</label>
         </div>
+        <div class="elevation-controls" role="group" aria-label="Saved elevation filter">
+          <label for="height-mode">Height view</label>
+          <select id="height-mode" disabled aria-label="Saved height view">
+            <option value="all">All saved heights</option>
+            <option value="band">16-unit Z slice</option>
+          </select>
+          <input id="height-band" type="range" min="0" max="0" value="0"
+            step="1" disabled aria-label="Choose saved Z slice">
+          <output id="height-band-label" for="height-mode height-band">All saved heights</output>
+          <span>Overlapping saved placements, not verified floors.
+            Portal cell elevation is unknown, so portals remain visible.</span>
+        </div>
         <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
           Select an underground world to inspect its saved tunnel lines.
         </div>
@@ -142,7 +154,7 @@
           Select a dashed group outline to inspect its saved fragments and extent.
         </div>
         <div class="graph-caption">
-          <span>◉</span> Solid rectangles are stored tile placements; dashed outlines group adjacent matching cave cells.
+          <span>◉</span> Solid rectangles are stored tile placements; dashed outlines show reconstructed placement extents.
           Portal outlines show <strong>saved cell coordinates, not exact doorway positions</strong>.
           Group boundaries are bounding extents, not room walls; no walking route is verified.
         </div>

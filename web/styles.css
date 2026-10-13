@@ -131,6 +131,16 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 .layout-controls label { display: inline-flex; align-items: center; gap: 8px;
   cursor: pointer; white-space: nowrap; }
 .layout-controls input { accent-color: var(--accent); }
+.elevation-controls { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 8px 14px; padding: 10px 20px; background: #182633;
+  border-bottom: 1px solid var(--border); font-size: 12px; color: #d0e1ec; }
+.elevation-controls label { font-weight: 700; }
+.elevation-controls select { padding: 6px 9px; border: 1px solid #496377;
+  border-radius: 5px; background: #101c29; color: #edf6fb; }
+.elevation-controls input { width: min(210px, 60vw); accent-color: var(--accent); }
+.elevation-controls select:disabled, .elevation-controls input:disabled { opacity: .48; }
+#height-band-label { min-width: 188px; font-variant-numeric: tabular-nums; }
+.elevation-controls > span { flex-basis: 100%; font-size: 11px; color: #97acbb; }
 .layer-key { display: inline-block; width: 13px; height: 10px;
   border: 1px solid #d19a60; background: #d19a6044; }
 .layer-key.pocket { border-color: #76b9b0; background: #76b9b055; }

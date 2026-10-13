@@ -5,6 +5,8 @@ import { FULL_MAP_VIEW, MAX_MAP_ZOOM, zoomMapView,
   panMapView, mapZoomPercent, focusMapView } from "./map-camera.mjs";
 import { indexSavedObjects, searchSavedObjects,
   searchSavedObjectsAcrossWorlds } from "./map-search.mjs";
+import { availableElevationBands, elevationBand, placementOverlapsBand,
+  visibleTunnelPaths } from "./elevation-slice.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -31,6 +33,7 @@ let globalSearchIndex = [];
 let globalIndexEpoch = 0;
 let globalIndexState = "idle";
 let pendingSearchTarget = null;
+let elevationBounds = null;
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -239,6 +242,44 @@ function zoomMap(factor, clientX = null, clientY = null) {
   applyMapView();
 }
 
+function resetElevationControls() {
+  elevationBounds = null;
+  $("height-mode").value = "all";
+  $("height-mode").disabled = true;
+  $("height-band").min = "0";
+  $("height-band").max = "0";
+  $("height-band").value = "0";
+  $("height-band").disabled = true;
+  $("height-band-label").textContent = "All saved heights";
+}
+
+function configureElevationControls(result) {
+  elevationBounds = availableElevationBands(result.tunnels || [], result.footprints || []);
+  $("height-mode").value = "all";
+  $("height-mode").disabled = !elevationBounds;
+  if (elevationBounds) {
+    $("height-band").min = String(elevationBounds.min);
+    $("height-band").max = String(elevationBounds.max);
+    $("height-band").value = String(elevationBounds.min);
+  }
+  updateElevationControls();
+}
+
+function updateElevationControls() {
+  const active = $("height-mode").value === "band" && Boolean(elevationBounds);
+  $("height-band").disabled = !active;
+  const band = active ? elevationBand(Number($("height-band").value)) : null;
+  $("height-band-label").textContent = band
+    ? "Saved Z " + band.low + " to " + band.high + " (16-unit slice)"
+    : "All saved heights";
+  if (activeGeometry) drawTunnelMap(activeGeometry);
+}
+
+function activeElevationBand() {
+  return $("height-mode").value === "band" && elevationBounds
+    ? elevationBand(Number($("height-band").value)) : null;
+}
+
 function focusSavedSearchResult(item) {
   if (!activeGeometry || !mapProjection) return false;
   // Validate against the active world, not stale results from a prior save.
@@ -247,6 +288,11 @@ function focusSavedSearchResult(item) {
     && candidate.index === item.index && candidate.x === item.x
     && candidate.y === item.y);
   if (!present) return false;
+  // A result may be hidden by an unrelated height slice. Always reveal it.
+  if (activeElevationBand()) {
+    $("height-mode").value = "all";
+    updateElevationControls();
+  }
   selectedCaveGroupId = item.kind === "group" ? item.id : null;
   selectedPocketIndex = item.kind === "pocket" ? item.index
     : item.kind === "pocket-group" ? item.index : null;
@@ -454,9 +500,19 @@ function drawTunnelMap(result) {
   }
 
   const tunnels = layoutUnavailable ? [] : (result.tunnels || []);
+  const band = activeElevationBand();
   const footprints = layoutUnavailable ? [] : (result.footprints || []);
   const groups = result.caveGroups || [];
   const pocketGroups = result.pocketGroups || [];
+  const visibleFootprint = (piece) => placementOverlapsBand(piece, band);
+  const visibleLines = [];
+  if ($("show-tunnels").checked) {
+    for (const tunnel of tunnels) {
+      for (const points of visibleTunnelPaths(tunnel.points, band)) {
+        visibleLines.push({tunnel,points});
+      }
+    }
+  }
   const pocketFragmentToGroup = new Map();
   for (const group of pocketGroups) {
     for (const index of group.fragments) pocketFragmentToGroup.set(index, group);
@@ -579,7 +635,12 @@ function drawTunnelMap(result) {
       + pathPoints + " tunnel points · Z " + minZ.toFixed(1)
       + " to " + maxZ.toFixed(1)
       + " · source record #" + result.rowId
-      + (result.failed ? " · " + result.failed + " unsupported records skipped" : "");
+      + (result.failed ? " · " + result.failed + " unsupported records skipped" : "")
+      + (band ? " · Z " + band.low + " to " + band.high
+        + ": " + caves.filter(visibleFootprint).length + " cave cells, "
+        + pockets.filter(visibleFootprint).length + " pocket fragments, "
+        + visibleLines.length + " visible tunnel line sections"
+        + " · portal heights unknown (always shown)" : "");
 
   root.append(svg("text", { x: 45, y: 27, class: "tunnel-extents" },
     "SAVED PLAN VIEW · +X RIGHT / +Y UP"));
@@ -591,7 +652,7 @@ function drawTunnelMap(result) {
     const group = fragmentToGroup.get(index);
     const pocketGroup = pocketFragmentToGroup.get(index);
     const enabled = $(item.kind === "cave" ? "show-caves" : "show-pockets").checked;
-    if (!enabled) continue;
+    if (!enabled || !visibleFootprint(item)) continue;
     const box = svg("rect", {
       x: px(item.x).toFixed(2),
       y: py(item.y + item.depth).toFixed(2),
@@ -639,7 +700,8 @@ function drawTunnelMap(result) {
   // Dashed outlines are group bounding boxes, not claimed room walls.
   if ($("show-groups").checked) {
     for (const group of groups) {
-      if (group.fragmentCount < 2) continue;
+      if (group.fragmentCount < 2
+        || !group.fragments.some((i) => visibleFootprint(footprints[i]))) continue;
       const outline = svg("rect", {
         x: px(group.x).toFixed(2),
         y: py(group.y + group.depth).toFixed(2),
@@ -680,7 +742,8 @@ function drawTunnelMap(result) {
 
   if ($("show-groups").checked && $("show-pockets").checked) {
     for (const group of pocketGroups) {
-      if (group.fragmentCount < 2) continue;
+      if (group.fragmentCount < 2
+        || !group.fragments.some((i) => visibleFootprint(footprints[i]))) continue;
       const outline = svg("rect", {
         x: px(group.x).toFixed(2),
         y: py(group.y + group.depth).toFixed(2),
@@ -716,19 +779,19 @@ function drawTunnelMap(result) {
     }
   }
 
-  if ($("show-tunnels").checked) {
-    for (const tunnel of tunnels) {
-      const points = tunnel.points.map(([x, y]) => px(x).toFixed(1)
-        + "," + py(y).toFixed(1)).join(" ");
-      const path = svg("polyline", {
-        points, class: "tunnel-line",
-        tabindex: "0", "aria-label": "Tunnel " + tunnel.id + ", " + tunnel.type,
-      });
-      path.append(svg("title", {},
-        "Tunnel #" + tunnel.id + " · " + tunnel.type + " · "
-        + tunnel.length.toFixed(1) + " saved-coordinate units"));
-      root.append(path);
-    }
+  for (const {tunnel, points} of visibleLines) {
+    const coordinates = points.map(([x, y]) => px(x).toFixed(1)
+      + "," + py(y).toFixed(1)).join(" ");
+    const path = svg("polyline", {
+      points: coordinates, class: "tunnel-line",
+      tabindex: "0", "aria-label": "Tunnel " + tunnel.id + ", " + tunnel.type,
+    });
+    path.append(svg("title", {},
+      "Tunnel #" + tunnel.id + " · " + tunnel.type
+      + (band ? " · section intersecting saved Z " + band.low + " to " + band.high
+        : " · " + tunnel.length.toFixed(1) + " saved-coordinate units")
+      + " · centerline only, not verified walkability"));
+    root.append(path);
   }
   drawPortalCellLayer(root, result, portalGroups, footprints, px, py, scale);
 }
@@ -738,6 +801,7 @@ async function loadSelectedTunnels() {
   resetMapView();
   activeGeometry = null;
   mapProjection = null;
+  resetElevationControls();
   updateObjectSearch();
   selectedCaveGroupId = null;
   selectedPocketIndex = null;
@@ -757,7 +821,7 @@ async function loadSelectedTunnels() {
     const result = await askWorker({ type: "tunnels", worldId: world.id });
     if (epoch !== tunnelSelectionEpoch || selected !== world.id) return;
     activeGeometry = result;
-    drawTunnelMap(result);
+    configureElevationControls(result);
     if (pendingSearchTarget?.worldId === world.id) {
       const requested = pendingSearchTarget;
       pendingSearchTarget = null;
@@ -912,6 +976,7 @@ async function loadSave(file) {
   globalSearchIndex = [];
   globalIndexState = "idle";
   pendingSearchTarget = null;
+  resetElevationControls();
   disposeWorker();
   ++tunnelSelectionEpoch;
   save = null;
@@ -935,6 +1000,8 @@ async function loadSave(file) {
 
 $("map-search-input").addEventListener("input", updateObjectSearch);
 $("map-search-scope").addEventListener("change", updateObjectSearch);
+$("height-mode").addEventListener("change", updateElevationControls);
+$("height-band").addEventListener("input", updateElevationControls);
 $("map-search-category").addEventListener("change", updateObjectSearch);
 $("map-zoom-in").addEventListener("click", () => zoomMap(1.5));
 $("map-zoom-out").addEventListener("click", () => zoomMap(1 / 1.5));
@@ -981,6 +1048,7 @@ function finishMapDrag(event) {
 mapSvg.addEventListener("pointerup", finishMapDrag);
 mapSvg.addEventListener("pointercancel", finishMapDrag);
 resetMapView();
+resetElevationControls();
 
 $("save-input").addEventListener("change", (event) =>
   loadSave(event.target.files?.[0]));
