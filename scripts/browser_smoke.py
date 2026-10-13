@@ -221,6 +221,20 @@ def main() -> None:
                     page.locator("#tunnel-map .pocket-group").first.wait_for()
                     assert page.locator("#tunnel-map .pocket-group").count() == 1
                     assert page.locator("#tunnel-map .saved-footprint.pocket").count() == 2
+                    # The stacked pocket reaches Z 16–32, but the cave and
+                    # horizontal tunnel line only occupy Z 0–16.
+                    page.locator("#height-mode").select_option("band")
+                    assert "Saved Z 0 to 16" in page.locator("#height-band-label").inner_text()
+                    page.locator("#height-band").focus()
+                    page.locator("#height-band").press("ArrowRight")
+                    assert "Saved Z 16 to 32" in page.locator("#height-band-label").inner_text()
+                    assert page.locator("#tunnel-map .saved-footprint.cave").count() == 0
+                    assert page.locator("#tunnel-map .saved-footprint.pocket").count() == 2
+                    assert page.locator("#tunnel-map .tunnel-line").count() == 0
+                    assert page.locator("#tunnel-map .portal-cell").count() == 2
+                    page.locator("#height-mode").select_option("all")
+                    assert page.locator("#tunnel-map .saved-footprint.cave").count() == 1
+                    assert page.locator("#tunnel-map .tunnel-line").count() == 1
                     # A source-backed category can be browsed without typing.
                     page.locator("#map-search-category").select_option("passage")
                     page.locator("#map-search-status").get_by_text(
@@ -240,7 +254,12 @@ def main() -> None:
                     page.locator("#map-search-input").fill("cave")
                     page.locator("#map-search-status").get_by_text(
                         "1 matching saved object", exact=False).wait_for()
+                    page.locator("#height-mode").select_option("band")
+                    page.locator("#height-band").focus()
+                    page.locator("#height-band").press("ArrowRight")
+                    assert page.locator("#tunnel-map .saved-footprint.cave").count() == 0
                     page.locator("#map-search-results .map-search-result").click()
+                    assert page.locator("#height-mode").input_value() == "all"
                     assert "Placement group #1" in page.locator("#cave-group-info").inner_text()
                     assert page.locator("#map-zoom-level").inner_text() == "400%"
                     page.locator("#map-zoom-reset").click()
