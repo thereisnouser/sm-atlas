@@ -54,6 +54,7 @@ jobs:
           test -s web/dist/portal-cells.mjs
           test -s web/dist/map-camera.mjs
           test -s web/dist/map-search.mjs
+          test -s web/dist/tunnel-contacts.mjs
           test -s web/dist/elevation-slice.mjs
           test -s web/dist/pocket-groups.mjs
           test -s web/dist/tile-catalog.mjs

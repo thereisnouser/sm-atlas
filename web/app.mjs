@@ -7,6 +7,7 @@ import { indexSavedObjects, searchSavedObjects,
   searchSavedObjectsAcrossWorlds } from "./map-search.mjs";
 import { availableElevationBands, elevationBand, placementOverlapsBand,
   visibleTunnelPaths } from "./elevation-slice.mjs";
+import { analyzeTunnelPlacementContacts } from "./tunnel-contacts.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -527,6 +528,11 @@ function drawTunnelMap(result) {
   const selectedPortalGroup = portalGroups.find((group) =>
     portalKey(group) === selectedPortalKey);
   const selectedTunnel = tunnels.find((t) => t.id === selectedTunnelId);
+  const contacts = selectedTunnel
+    ? analyzeTunnelPlacementContacts(selectedTunnel, footprints, groups, pocketGroups)
+    : null;
+  const touchingXYZ = new Set(contacts?.xyzIndices || []);
+  const projectedOnly = new Set(contacts?.xyOnlyIndices || []);
   const groupAsset = selectedGroup?.asset;
   if (selectedPortalGroup) {
     renderPortalGroupInfo(groupInfo, selectedPortalGroup, footprints);
@@ -539,7 +545,18 @@ function drawTunnelMap(result) {
       + " saved-coordinate units"
       + " · recorded Z " + Math.min(...zs).toFixed(1)
       + " to " + Math.max(...zs).toFixed(1)
-      + ". This saved centerline is NOT a verified open or walkable route.";
+      + ". This saved centerline is NOT a verified open or walkable route."
+      + " Saved placement bounding boxes touched in XYZ: "
+      + contacts.xyzPlacements.length
+      + (contacts.xyzPlacements.length
+        ? " (" + contacts.xyzPlacements.slice(0,4).join(", ")
+          + (contacts.xyzPlacements.length > 4 ? ", …" : "") + ")" : "")
+      + " · XY projection only at a different height: "
+      + contacts.xyOnlyPlacements.length
+      + (contacts.xyOnlyPlacements.length
+        ? " (" + contacts.xyOnlyPlacements.slice(0,4).join(", ")
+          + (contacts.xyOnlyPlacements.length > 4 ? ", …" : "") + ")" : "")
+      + ". Bounding-box contact does NOT verify an entrance, physical opening or clearance.";
   } else if (selectedGroup) {
     groupInfo.textContent = "Placement group #" + selectedGroup.id
       + " · " + (groupAsset
@@ -674,6 +691,8 @@ function drawTunnelMap(result) {
       width: Math.max(0.5, item.width * scale).toFixed(2),
       height: Math.max(0.5, item.depth * scale).toFixed(2),
       class: "saved-footprint " + item.kind
+        + (touchingXYZ.has(index) ? " line-contact-xyz"
+          : projectedOnly.has(index) ? " line-projection-only" : "")
         + (group && group.id === selectedCaveGroupId ? " group-selected" : "")
         + (item.kind === "pocket" && (selectedPocketIndex === index
           || (pocketGroup && pocketGroup.id === selectedPocketGroupId))

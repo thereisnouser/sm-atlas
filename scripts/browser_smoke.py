@@ -244,6 +244,13 @@ def main() -> None:
                     assert "TtVeinT4" in page.locator("#cave-group-info").inner_text()
                     assert "NOT a verified" in page.locator("#cave-group-info").inner_text()
                     assert page.locator("#tunnel-map .tunnel-line.active").count() == 1
+                    # A stored line touches the cave and the two fragments of
+                    # one logical pocket, but this is NOT a verified opening.
+                    info = page.locator("#cave-group-info").inner_text()
+                    assert "Saved placement bounding boxes touched in XYZ: 2" in info
+                    assert "XY projection only at a different height: 0" in info
+                    assert "does NOT verify an entrance" in info
+                    assert page.locator("#tunnel-map .line-contact-xyz").count() == 3
                     page.locator("#map-search-category").select_option("tunnel")
                     page.locator("#map-search-status").get_by_text(
                         "1 matching saved object", exact=False).wait_for()
