@@ -3,7 +3,8 @@ import { preferredUndergroundWorld } from "./tunnel-reader.mjs";
 import { portalCellsForWorld, groupPortalCells, portalCellOverlapsPlacement } from "./portal-cells.mjs";
 import { FULL_MAP_VIEW, MAX_MAP_ZOOM, zoomMapView,
   panMapView, mapZoomPercent, focusMapView } from "./map-camera.mjs";
-import { indexSavedObjects, searchSavedObjects } from "./map-search.mjs";
+import { indexSavedObjects, searchSavedObjects,
+  searchSavedObjectsAcrossWorlds } from "./map-search.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -284,7 +285,9 @@ function updateObjectSearch() {
       + (all ? "across all underground worlds." : "in this world.");
     return;
   }
-  const { matches, total } = searchSavedObjects(indexed, query);
+  const { matches, total } = all
+    ? searchSavedObjectsAcrossWorlds(indexed, query)
+    : searchSavedObjects(indexed, query);
   status.textContent = total + " matching saved object" + (total === 1 ? "" : "s")
     + (total > matches.length ? " · showing first " + matches.length : "");
   for (const match of matches) {
