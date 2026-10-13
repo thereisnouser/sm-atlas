@@ -18,8 +18,24 @@ export function indexSavedObjects(result) {
       y: group.y + group.depth / 2,
     });
   }
+  const groupedFragments = new Set();
+  for (const group of result.pocketGroups || []) {
+    for (const index of group.fragments) groupedFragments.add(index);
+    output.push({
+      kind: "pocket-group", id: group.id, index: group.fragments[0],
+      label: group.asset.name,
+      details: "Logical pocket placement PG" + group.id + " · "
+        + group.fragmentCount + " saved fragments"
+        + (group.complete ? " · source coverage matches" : " · partial/ambiguous"),
+      searchText: [group.asset.name, group.asset.family,
+        ...(group.asset.tags || []), group.tileUuid,
+        "pocket group", "PG" + group.id].filter(Boolean).join(" ").toLowerCase(),
+      x: group.x + group.width / 2,
+      y: group.y + group.depth / 2,
+    });
+  }
   for (const [index, piece] of (result.footprints || []).entries()) {
-    if (piece.kind !== "pocket") continue;
+    if (piece.kind !== "pocket" || groupedFragments.has(index)) continue;
     output.push({
       kind: "pocket", id: null, index,
       label: piece.asset?.name || "Unidentified pocket tile #" + piece.tileIndex,
