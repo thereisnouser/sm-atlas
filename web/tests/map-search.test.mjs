@@ -103,5 +103,5 @@ test("known split pocket is searchable once as a logical placement, not twice", 
   assert.equal(gold.index,1);
   assert.deepEqual([gold.x,gold.y],[0,32]);
   assert.match(gold.details,/2 saved fragments/);
-  assert.equal(searchSavedObjects(entries,"unidentified pocket").total,1);
+  assert.equal(searchSavedObjects(entries,"pocket tile 12").total,1);
 });
