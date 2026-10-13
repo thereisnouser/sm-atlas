@@ -84,9 +84,9 @@ export function reconstructPocketGroups(footprints) {
     const x = Math.min(...pieces.map((p) => p.x));
     const y = Math.min(...pieces.map((p) => p.y));
     const z = Math.min(...pieces.map((p) => p.z));
-    const width = Math.max(...pieces.map((p) => p.x + p.width) - x;
-    const depth = Math.max(...pieces.map((p) => p.y + p.depth) - y;
-    const height = Math.max(...pieces.map((p) => p.z + p.height) - z;
+    const width = Math.max(...pieces.map((p) => p.x + p.width)) - x;
+    const depth = Math.max(...pieces.map((p) => p.y + p.depth)) - y;
+    const height = Math.max(...pieces.map((p) => p.z + p.height)) - z;
     const expectedWidth = (group.rotation & 1 ? tileDepth : tileWidth) * 16;
     const expectedDepth = (group.rotation & 1 ? tileWidth : tileDepth) * 16;
     const expectedHeight = tileHeight * 16;
