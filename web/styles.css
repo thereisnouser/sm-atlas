@@ -206,3 +206,24 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 #tunnel-map { touch-action: none; }
 #tunnel-map .map-pan-surface { fill: transparent; cursor: grab; }
 #tunnel-map.is-dragging .map-pan-surface { cursor: grabbing; }
+
+/* Source-backed object search scoped to the current underground world. */
+.map-search { padding: 12px 18px; border-bottom: 1px solid var(--border);
+  background: #182532; display: grid; gap: 7px; }
+.map-search label { color: #d6e5ed; font-weight: 650; font-size: 12px; }
+#map-search-input { max-width: 560px; width: 100%; padding: 9px 12px;
+  border: 1px solid #476475; border-radius: 5px;
+  background: #101c29; color: #eef7fa; font: inherit; }
+#map-search-input:focus { outline: 2px solid #579fb3; outline-offset: 1px; }
+.map-search-status { color: #97b2c2; font-size: 11px; }
+.map-search-results { display: grid; grid-template-columns:
+  repeat(auto-fit, minmax(min(235px,100%), 1fr)); gap: 7px;
+  max-height: 210px; overflow: auto; }
+.map-search-result { display: grid; text-align: left; gap: 4px;
+  min-width: 0; padding: 8px 10px; border: 1px solid #334a5c;
+  background: #202f3d; color: #d7ecf2; border-radius: 5px;
+  font: inherit; cursor: pointer; }
+.map-search-result:hover, .map-search-result:focus-visible {
+  border-color: #78c2d1; background: #2d4353; }
+.map-search-name { overflow-wrap: anywhere; font-size: 12px; }
+.map-search-detail { font-size: 10px; color: #97afbc; }
