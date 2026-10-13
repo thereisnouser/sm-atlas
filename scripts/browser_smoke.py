@@ -294,6 +294,10 @@ def main() -> None:
                     page.locator("#map-search-results .map-search-result").click()
                     page.locator("#world-details").get_by_text(
                         "D6 Drill2", exact=False).first.wait_for(timeout=30000)
+                    # World details update synchronously; worker geometry loads
+                    # separately. Wait for the selected line to be rendered.
+                    page.locator("#tunnel-map .tunnel-line.active").first.wait_for(
+                        timeout=30000)
                     assert "Saved tunnel #17" in page.locator("#cave-group-info").inner_text()
                     assert page.locator("#tunnel-map .tunnel-line.active").count() == 1
                     page.locator("#map-zoom-reset").click()
