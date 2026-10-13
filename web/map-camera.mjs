@@ -40,3 +40,16 @@ export function panMapView(view, deltaX, deltaY) {
 export function mapZoomPercent(view) {
   return Math.round(100 * FULL_MAP_VIEW.width / view.width);
 }
+
+
+/** Reveal a selected, already-projected saved object without changing game XY. */
+export function focusMapView(svgX, svgY, zoom = 4) {
+  const factor = clamp(Number.isFinite(zoom) ? zoom : 4, 1, MAX_MAP_ZOOM);
+  const width = FULL_MAP_VIEW.width / factor;
+  const height = FULL_MAP_VIEW.height / factor;
+  return {
+    x: clamp(svgX - width / 2, 0, FULL_MAP_VIEW.width - width),
+    y: clamp(svgY - height / 2, 0, FULL_MAP_VIEW.height - height),
+    width, height,
+  };
+}
