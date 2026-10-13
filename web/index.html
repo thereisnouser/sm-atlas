@@ -95,6 +95,16 @@
         <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
           Select an underground world to inspect its saved tunnel lines.
         </div>
+        <div class="map-search" role="search" aria-label="Find saved underground objects">
+          <label for="map-search-input">Find a saved structure</label>
+          <input type="search" id="map-search-input" autocomplete="off"
+            placeholder="Asset name or tag · e.g. gold, deposit, elevator"
+            aria-controls="map-search-results">
+          <div id="map-search-status" class="map-search-status" aria-live="polite">
+            Select an underground world to search its saved objects.
+          </div>
+          <div id="map-search-results" class="map-search-results" aria-label="Matching saved objects"></div>
+        </div>
         <div class="map-navigation" role="group" aria-label="Underground map navigation">
           <div class="map-navigation-actions">
             <button type="button" id="map-zoom-out" aria-label="Zoom out underground map">−</button>
