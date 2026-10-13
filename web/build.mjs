@@ -10,7 +10,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, "dist");
 const vendor = join(root, "node_modules", "sql.js");
 const browserFiles = ["index.html", "styles.css", "app.mjs",
-  "save-reader.mjs", "tunnel-reader.mjs", "portal-cells.mjs", "map-camera.mjs", "map-search.mjs", "tile-catalog.mjs", "save-worker.js"];
+  "save-reader.mjs", "tunnel-reader.mjs", "portal-cells.mjs", "map-camera.mjs", "map-search.mjs", "pocket-groups.mjs", "tile-catalog.mjs", "save-worker.js"];
 const vendorFiles = ["sql-wasm.js", "sql-wasm.wasm"];
 
 const pkg = JSON.parse(await readFile(join(vendor, "package.json"), "utf8"));
