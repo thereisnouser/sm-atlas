@@ -236,7 +236,10 @@ def main() -> None:
                     assert page.locator("#tunnel-map .saved-footprint.cave").count() == 1
                     assert page.locator("#tunnel-map .tunnel-line").count() == 1
                     # A recorded tunnel line is selectable, even without a tile catalog UUID.
-                    page.locator("#tunnel-map .tunnel-line").first.click(force=True)
+                    # Keyboard selection is deterministic even when an SVG line
+                    # overlaps another saved map marker.
+                    page.locator("#tunnel-map .tunnel-line").first.focus()
+                    page.locator("#tunnel-map .tunnel-line").first.press("Enter")
                     assert "Saved tunnel #17" in page.locator("#cave-group-info").inner_text()
                     assert "TtVeinT4" in page.locator("#cave-group-info").inner_text()
                     assert "NOT a verified" in page.locator("#cave-group-info").inner_text()
