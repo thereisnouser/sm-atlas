@@ -205,6 +205,25 @@ def main() -> None:
                             timeout=30000)
                     page.locator("#tunnel-map .tunnel-line").first.wait_for(timeout=30000)
                     page.locator("#tunnel-map .saved-footprint.cave").first.wait_for()
+                    # The map camera is independent of geometry and UI selection.
+                    assert page.locator("#map-zoom-level").inner_text() == "100%"
+                    page.locator("#map-zoom-in").click()
+                    assert page.locator("#map-zoom-level").inner_text() == "150%"
+                    assert page.locator("#tunnel-map").get_attribute("viewBox") != "0 0 1000 620"
+                    page.locator("#show-tunnels").uncheck()
+                    assert page.locator("#map-zoom-level").inner_text() == "150%"
+                    page.locator("#show-tunnels").check()
+                    page.locator("#map-zoom-reset").click()
+                    assert page.locator("#tunnel-map").get_attribute("viewBox") == "0 0 1000 620"
+                    page.locator("#map-zoom-in").click()
+                    assert page.locator("#map-zoom-level").inner_text() == "150%"
+                    page.locator("#world-list .world-entry").filter(
+                        has_text="D2 Tutorial").click()
+                    assert page.locator("#map-zoom-level").inner_text() == "100%"
+                    page.locator("#world-list .world-entry").filter(
+                        has_text="D6 Drill2").click()
+                    page.locator("#tunnel-map .tunnel-line").first.wait_for()
+                    assert page.locator("#map-zoom-level").inner_text() == "100%"
                     page.locator("#tunnel-map .portal-cell").first.wait_for()
                     assert page.locator("#tunnel-map .portal-cell").count() == 2
                     page.locator("#tunnel-map .portal-cell").first.click()

@@ -1,6 +1,8 @@
 import { buildWorldGraph } from "./save-reader.mjs";
 import { preferredUndergroundWorld } from "./tunnel-reader.mjs";
 import { portalCellsForWorld, groupPortalCells, portalCellOverlapsPlacement } from "./portal-cells.mjs";
+import { FULL_MAP_VIEW, MAX_MAP_ZOOM, zoomMapView,
+  panMapView, mapZoomPercent } from "./map-camera.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -19,6 +21,8 @@ let selectedPortalKey = null;
 let coverageEpoch = 0;
 let manuallySelectedWorld = false;
 let undergroundCoverage = new Map();
+let mapView = { ...FULL_MAP_VIEW };
+let mapDrag = null;
 const requests = new Map();
 
 function svg(tag, attributes = {}, content) {
@@ -202,6 +206,31 @@ function displayDetails() {
   container.append(section);
 }
 
+function applyMapView() {
+  $("tunnel-map").setAttribute("viewBox",
+    [mapView.x, mapView.y, mapView.width, mapView.height].join(" "));
+  $("map-zoom-level").textContent = mapZoomPercent(mapView) + "%";
+  $("map-zoom-in").disabled = mapZoomPercent(mapView) >= MAX_MAP_ZOOM * 100;
+  $("map-zoom-out").disabled = mapZoomPercent(mapView) <= 100;
+}
+
+function resetMapView() {
+  mapView = { ...FULL_MAP_VIEW };
+  mapDrag = null;
+  $("tunnel-map").classList.remove("is-dragging");
+  applyMapView();
+}
+
+function zoomMap(factor, clientX = null, clientY = null) {
+  const rect = $("tunnel-map").getBoundingClientRect();
+  const ax = clientX === null || !rect.width ? 0.5
+    : (clientX - rect.left) / rect.width;
+  const ay = clientY === null || !rect.height ? 0.5
+    : (clientY - rect.top) / rect.height;
+  mapView = zoomMapView(mapView, factor, ax, ay);
+  applyMapView();
+}
+
 function portalKey(cell) {
   return cell.cellX + ":" + cell.cellY;
 }
@@ -285,7 +314,11 @@ function drawPortalCellLayer(root, result, groups, footprints, px, py, scale) {
 function drawTunnelMap(result) {
   const root = $("tunnel-map");
   root.replaceChildren();
-  root.setAttribute("viewBox", "0 0 1000 620");
+  applyMapView();
+  root.append(svg("rect", {
+    x: 0, y: 0, width: FULL_MAP_VIEW.width, height: FULL_MAP_VIEW.height,
+    class: "map-pan-surface",
+  }));
   const status = $("tunnel-status");
   const portalCells = portalCellsForWorld(save?.portals || [], selected);
   const portalGroups = groupPortalCells(portalCells);
@@ -515,6 +548,7 @@ function drawTunnelMap(result) {
 
 async function loadSelectedTunnels() {
   const epoch = ++tunnelSelectionEpoch;
+  resetMapView();
   activeGeometry = null;
   selectedCaveGroupId = null;
   selectedPocketIndex = null;
@@ -664,6 +698,7 @@ async function loadSave(file) {
   if (!file || busy) return;
   busy = true;
   // Close old saved data when the user selects another save.
+  resetMapView();
   ++coverageEpoch;
   disposeWorker();
   ++tunnelSelectionEpoch;
@@ -685,6 +720,52 @@ async function loadSave(file) {
     $("save-input").value = "";
   }
 }
+
+$("map-zoom-in").addEventListener("click", () => zoomMap(1.5));
+$("map-zoom-out").addEventListener("click", () => zoomMap(1 / 1.5));
+$("map-zoom-reset").addEventListener("click", resetMapView);
+
+const mapSvg = $("tunnel-map");
+mapSvg.addEventListener("wheel", (event) => {
+  // Prevent page scrolling only while the pointer is over the map itself.
+  event.preventDefault();
+  zoomMap(event.deltaY < 0 ? 1.25 : 1 / 1.25, event.clientX, event.clientY);
+}, { passive: false });
+
+mapSvg.addEventListener("pointerdown", (event) => {
+  // Do not intercept clicks on portal/cave/pocket selection targets.
+  if (event.button !== 0 || (event.target !== mapSvg
+    && !event.target.classList?.contains("map-pan-surface"))) return;
+  const rect = mapSvg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  mapDrag = {
+    pointerId: event.pointerId,
+    originX: event.clientX, originY: event.clientY,
+    originView: { ...mapView }, width: rect.width, height: rect.height,
+  };
+  mapSvg.setPointerCapture(event.pointerId);
+  mapSvg.classList.add("is-dragging");
+});
+mapSvg.addEventListener("pointermove", (event) => {
+  if (!mapDrag || event.pointerId !== mapDrag.pointerId) return;
+  const dx = -(event.clientX - mapDrag.originX)
+    * mapDrag.originView.width / mapDrag.width;
+  const dy = -(event.clientY - mapDrag.originY)
+    * mapDrag.originView.height / mapDrag.height;
+  mapView = panMapView(mapDrag.originView, dx, dy);
+  applyMapView();
+});
+function finishMapDrag(event) {
+  if (!mapDrag || event.pointerId !== mapDrag.pointerId) return;
+  mapDrag = null;
+  mapSvg.classList.remove("is-dragging");
+  if (mapSvg.hasPointerCapture(event.pointerId)) {
+    mapSvg.releasePointerCapture(event.pointerId);
+  }
+}
+mapSvg.addEventListener("pointerup", finishMapDrag);
+mapSvg.addEventListener("pointercancel", finishMapDrag);
+resetMapView();
 
 $("save-input").addEventListener("change", (event) =>
   loadSave(event.target.files?.[0]));

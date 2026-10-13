@@ -17,7 +17,7 @@ A **browser-first, local-first, read-only all-in-one Scrap Mechanic Survival exp
 | Cave physical ground evidence | 15 real Drill2 upward `voxelTerrain` hits from 2026-10-08 |
 | Broader cave sampling | Separate 25-point off-grid plan prepared; **new game hits not yet verified here** |
 | Voxel collision decoder and player-walkable routing | **Unverified**; competing candidate models disagree with actual terrain |
-| User-facing browser explorer | Browser previews caves, saved tunnels, asset labels and portal cells. Distinct portal rows sharing one cell are grouped in an inspectable marker with navigation to linked worlds, avoiding overlapping controls. Local synthetic Chromium/JS/Python acceptance passes; full authentic-save Chromium parity remains pending. |
+| User-facing browser explorer | Actual browser decoding modules successfully opened the authentic private 71.3 MB save, finding 25 worlds, 69 portals, and 8 underground levels with 0 decoding failures. A real Chromium navigation check is restricted by this local environment's browser policy; synthetic CI smoke tests cover the UI. Added bounded zoom/pan for dense D4/D6 saved layouts. |
 
 Experiments, raw-byte hypotheses and their reproducibility details belong in
 [VOXEL_GROUND_TRUTH.md](VOXEL_GROUND_TRUTH.md), **not** the README or this execution plan.
@@ -96,6 +96,21 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-12 | Test the actual browser application in headless Chromium with a generated local save | Validate File API, static SQL/WASM loading, background worker, world selection and SVG output together without publishing private game data |
 | 2026-10-12 | Show saved portal endpoint cells as a separate underground overlay | A private authentic test save places known portal endpoint cells on saved cave placements on D2/D4/D6. Mark the 64-unit grid region instead of inventing precise door positions. |
 | 2026-10-13 | Aggregate co-located portal endpoints into inspectable cell markers | Authentic Mining Hub data has eight distinct Portal rows in the same cell (-2, 2); overlapping independent rectangles hid destinations. Keep every record and permit navigation without inventing door positions. |
+| 2026-10-13 | Add bounded zoom/pan to underground map | The authentic save has 295 tunnel segments and 666 pocket placements on D4 and 286/687 on D6; precise inspection needs cursor-oriented zoom and drag without altering game coordinates. |
+
+## Authentic-save browser module validation (2026-10-13)
+
+The exact JavaScript decoder modules from the GitHub Actions static build were
+run against the private 71,270,400-byte test save locally using the bundled
+pinned `sql.js` WASM library. Results: 25 worlds, 69 portals, 8 underground
+levels; D4: 295 tunnel lines, 26 cave cells, 666 pocket placements;
+D6: 286 tunnel lines, 26 cave cells, 687 pocket placements. All eight
+world terrain decoders completed without errors. This establishes real-save
+**module decoding**, not a full Python coordinate-digest parity run.
+Chromium navigation from this local environment was blocked by its browser
+security policy even for localhost and file URLs, so real-save
+**visual UI acceptance** is still unverified; CI continues to run
+synthetic-browser smoke tests. No private save bytes were committed.
 
 ## Private-save Chromium acceptance (development only)
 
@@ -119,6 +134,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** run existing Chromium acceptance and coordinate-digest Python/JS parity against the authentic private save without publishing it, then investigate precise portal door transforms. Keep the shared-cell marker as a coordinate region, never an inferred walkable entrance; keep README concise.
+**Developer:** seek full independent Python coordinate-digest parity and authentic-save Chromium visual acceptance on a browser-enabled local machine, then continue evidence-based entrance-transform research. Distinguish saved portal grid cells from physical doors and verified routes; keep README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.
