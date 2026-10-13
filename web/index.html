@@ -95,6 +95,15 @@
         <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
           Select an underground world to inspect its saved tunnel lines.
         </div>
+        <div class="map-navigation" role="group" aria-label="Underground map navigation">
+          <div class="map-navigation-actions">
+            <button type="button" id="map-zoom-out" aria-label="Zoom out underground map">−</button>
+            <output id="map-zoom-level" aria-label="Current underground map zoom level">100%</output>
+            <button type="button" id="map-zoom-in" aria-label="Zoom in underground map">+</button>
+            <button type="button" id="map-zoom-reset">Fit map</button>
+          </div>
+          <span class="map-navigation-hint">Scroll to zoom · Drag empty map space to pan</span>
+        </div>
         <div class="tunnel-viewport" id="tunnel-viewport">
           <svg id="tunnel-map" role="img" aria-label="Top-down saved underground tunnel line map"
             viewBox="0 0 1000 620"></svg>
