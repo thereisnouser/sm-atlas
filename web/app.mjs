@@ -315,6 +315,10 @@ function drawTunnelMap(result) {
   const root = $("tunnel-map");
   root.replaceChildren();
   applyMapView();
+  root.append(svg("rect", {
+    x: 0, y: 0, width: FULL_MAP_VIEW.width, height: FULL_MAP_VIEW.height,
+    class: "map-pan-surface",
+  }));
   const status = $("tunnel-status");
   const portalCells = portalCellsForWorld(save?.portals || [], selected);
   const portalGroups = groupPortalCells(portalCells);
@@ -730,7 +734,8 @@ mapSvg.addEventListener("wheel", (event) => {
 
 mapSvg.addEventListener("pointerdown", (event) => {
   // Do not intercept clicks on portal/cave/pocket selection targets.
-  if (event.button !== 0 || event.target !== mapSvg) return;
+  if (event.button !== 0 || (event.target !== mapSvg
+    && !event.target.classList?.contains("map-pan-surface"))) return;
   const rect = mapSvg.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
   mapDrag = {
