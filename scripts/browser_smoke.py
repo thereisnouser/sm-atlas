@@ -218,6 +218,7 @@ def main() -> None:
                     page.locator("#world-list .world-entry").filter(
                         has_text="D6 Drill2").click()
                     page.locator("#tunnel-map .portal-cell").first.wait_for()
+                    page.locator("#tunnel-map .portal-cell").first.click()
                     page.locator("#show-portals").uncheck()
                     assert page.locator("#tunnel-map .portal-cell").count() == 0
                     page.locator("#show-portals").check()
