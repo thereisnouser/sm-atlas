@@ -105,3 +105,36 @@ test("known split pocket is searchable once as a logical placement, not twice", 
   assert.match(gold.details,/2 saved fragments/);
   assert.equal(searchSavedObjects(entries,"pocket tile 12").total,1);
 });
+
+test("category browsing works without a query and never invents asset contents", () => {
+  const items = indexSavedObjects(fixture());
+  assert.deepEqual(items.map((item) => item.facets), [
+    ["cave", "elevator"], ["cave", "unknown"],
+    ["deposit", "resource"], ["unknown"],
+  ]);
+  assert.equal(searchSavedObjects(items, "", 30, "cave").total, 2);
+  assert.equal(searchSavedObjects(items, "", 30, "resource").total, 1);
+  assert.equal(searchSavedObjects(items, "", 30, "deposit").total, 1);
+  assert.equal(searchSavedObjects(items, "", 30, "elevator").total, 1);
+  assert.equal(searchSavedObjects(items, "", 30, "passage").total, 0);
+  assert.equal(searchSavedObjects(items, "", 30, "unknown").total, 2);
+  assert.equal(searchSavedObjects(items, "gold", 30, "elevator").total, 0);
+  assert.equal(searchSavedObjects(items, "gold", 30, "resource").total, 1);
+  assert.equal(searchSavedObjects(items, "", 30, "nonsense").total, 0);
+});
+
+test("category-only global browse is balanced and keeps exact world identity", () => {
+  const items = [
+    ...Array.from({length: 60}, (_, i) => ({
+      worldId: 21, facets: ["resource"], searchText: "gold", label: "gold " + i,
+    })),
+    {worldId: 23, facets: ["resource"], searchText: "gold", label: "gold on D6"},
+    {worldId: 22, facets: ["unknown"], searchText: "tile"},
+  ];
+  const result = searchSavedObjectsAcrossWorlds(items, "", 5, "resource");
+  assert.equal(result.total, 61);
+  assert.deepEqual(result.matches.map((item) => item.worldId), [21, 23, 21, 21, 21]);
+  assert.equal(searchSavedObjectsAcrossWorlds(items, "", 5, "unknown").total, 1);
+  assert.deepEqual(searchSavedObjectsAcrossWorlds(items, "", 5, "all"),
+    {matches: [], total: 0});
+});

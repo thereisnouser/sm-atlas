@@ -3,12 +3,32 @@
  * Labels are exact game-asset filenames when present in the UUID catalog;
  * never infer a resource deposit or route from unspecified collision data.
  */
+const RESOURCE_TAGS = new Set([
+  "deposit", "gold", "sapphire", "sparkstone", "potato", "crystal", "corralium",
+]);
+const SEARCH_FILTERS = new Set([
+  "all", "cave", "elevator", "passage", "deposit", "resource", "unknown",
+]);
+
+// Categories describe saved catalog names/tags, never observed ore or passable space.
+function savedObjectFacets(asset, kind) {
+  const categories = kind === "group" ? ["cave"] : [];
+  if (!asset) return [...categories, "unknown"];
+  const tags = new Set(asset.tags || []);
+  if (asset.family === "elevator" || tags.has("elevator")) categories.push("elevator");
+  if (tags.has("passage")) categories.push("passage");
+  if (tags.has("deposit")) categories.push("deposit");
+  if ([...tags].some((tag) => RESOURCE_TAGS.has(tag))) categories.push("resource");
+  return categories;
+}
+
 export function indexSavedObjects(result) {
   if (!result || result.status !== "available") return [];
   const output = [];
   for (const group of result.caveGroups || []) {
     output.push({
       kind: "group", id: group.id, index: null,
+      facets: savedObjectFacets(group.asset, "group"),
       label: group.asset?.name || "Unidentified cave group G" + group.id,
       details: "Cave group G" + group.id + " · " + group.fragmentCount + " cells",
       searchText: [group.asset?.name, group.asset?.family,
@@ -23,6 +43,7 @@ export function indexSavedObjects(result) {
     for (const index of group.fragments) groupedFragments.add(index);
     output.push({
       kind: "pocket-group", id: group.id, index: group.fragments[0],
+      facets: savedObjectFacets(group.asset, "pocket-group"),
       label: group.asset.name,
       details: "Logical pocket placement PG" + group.id + " · "
         + group.fragmentCount + " saved fragments"
@@ -38,6 +59,7 @@ export function indexSavedObjects(result) {
     if (piece.kind !== "pocket" || groupedFragments.has(index)) continue;
     output.push({
       kind: "pocket", id: null, index,
+      facets: savedObjectFacets(piece.asset, "pocket"),
       label: piece.asset?.name || "Unidentified pocket tile #" + piece.tileIndex,
       details: "Pocket placement · XY " + piece.x + ", " + piece.y,
       searchText: [piece.asset?.name, piece.asset?.family,
@@ -50,14 +72,17 @@ export function indexSavedObjects(result) {
   return output;
 }
 
-export function searchSavedObjects(items, query, limit = 30) {
+export function searchSavedObjects(items, query, limit = 30, filter = "all") {
   const terms = String(query || "").trim().toLowerCase().slice(0, 100)
     .split(/\s+/).filter(Boolean);
-  if (!terms.length) return { matches: [], total: 0 };
+  if (!SEARCH_FILTERS.has(filter) || (!terms.length && filter === "all")) {
+    return { matches: [], total: 0 };
+  }
   const matches = [];
   let total = 0;
   const bound = Number.isInteger(limit) && limit >= 0 ? Math.min(limit, 100) : 30;
   for (const item of items) {
+    if (filter !== "all" && !item.facets?.includes(filter)) continue;
     if (!terms.every((term) => item.searchText.includes(term))) continue;
     total++;
     if (matches.length < bound) matches.push(item);
@@ -67,14 +92,14 @@ export function searchSavedObjects(items, query, limit = 30) {
 
 
 /** Preserve discoverability on all worlds when one level dominates matches. */
-export function searchSavedObjectsAcrossWorlds(items, query, limit = 30) {
+export function searchSavedObjectsAcrossWorlds(items, query, limit = 30, filter = "all") {
   const byWorld = new Map();
   for (const item of items) {
     if (!byWorld.has(item.worldId)) byWorld.set(item.worldId, []);
     byWorld.get(item.worldId).push(item);
   }
   const groups = [...byWorld.values()].map((entries) =>
-    searchSavedObjects(entries, query, limit));
+    searchSavedObjects(entries, query, limit, filter));
   const bound = Number.isInteger(limit) && limit >= 0 ? Math.min(limit, 100) : 30;
   const matches = [];
   // Round-robin the visible results; total still counts ALL matches.

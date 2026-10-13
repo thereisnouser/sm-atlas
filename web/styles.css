@@ -233,9 +233,16 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
   flex-wrap: wrap; gap: 8px 12px; }
 .map-search-heading > label:first-child { margin-right: auto; }
 .map-search-scope-label { font-size: 11px !important; color: #aebfcd !important; }
-#map-search-scope { padding: 5px 8px; background: #101c29; color: #eaf4f7;
+#map-search-scope, #map-search-category { padding: 5px 8px; background: #101c29; color: #eaf4f7;
   border: 1px solid #476475; border-radius: 4px; font: inherit; font-size: 11px; }
-#map-search-scope:focus-visible { outline: 2px solid #579fb3; outline-offset: 1px; }
+#map-search-scope:focus-visible, #map-search-category:focus-visible {
+  outline: 2px solid #579fb3; outline-offset: 1px;
+}
+.map-search-category-row { display: flex; align-items: center; flex-wrap: wrap;
+  gap: 7px 12px; }
+.map-search-category-row > span { font-size: 11px; color: #97afbc; }
+.map-search-category-row > label { font-size: 11px; }
+
 
 
 /* Source-aware pocket outlines show grouped saved chunks, not empty room interiors. */

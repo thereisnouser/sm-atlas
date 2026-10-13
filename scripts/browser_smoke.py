@@ -221,6 +221,11 @@ def main() -> None:
                     page.locator("#tunnel-map .pocket-group").first.wait_for()
                     assert page.locator("#tunnel-map .pocket-group").count() == 1
                     assert page.locator("#tunnel-map .saved-footprint.pocket").count() == 2
+                    # A source-backed category can be browsed without typing.
+                    page.locator("#map-search-category").select_option("passage")
+                    page.locator("#map-search-status").get_by_text(
+                        "1 matching saved object", exact=False).wait_for()
+                    page.locator("#map-search-category").select_option("all")
                     page.locator("#map-search-input").fill("passage")
                     page.locator("#map-search-status").get_by_text(
                         "1 matching saved object", exact=False).wait_for()
@@ -245,6 +250,10 @@ def main() -> None:
                     page.locator("#map-search-input").fill("")
                     # From an empty underground world, search another world's assets.
                     page.locator("#map-search-scope").select_option("all")
+                    page.locator("#map-search-category").select_option("passage")
+                    page.locator("#map-search-results .map-search-result").get_by_text(
+                        "D6 Drill2", exact=False).wait_for(timeout=30000)
+                    page.locator("#map-search-category").select_option("all")
                     page.locator("#map-search-input").fill("cave")
                     page.locator("#map-search-status").get_by_text(
                         "1 matching saved object", exact=False).wait_for(timeout=30000)
