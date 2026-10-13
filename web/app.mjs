@@ -23,6 +23,7 @@ let selectedCaveGroupId = null;
 let selectedPocketIndex = null;
 let selectedPocketGroupId = null;
 let selectedPortalKey = null;
+let selectedTunnelId = null;
 let coverageEpoch = 0;
 let manuallySelectedWorld = false;
 let undergroundCoverage = new Map();
@@ -293,6 +294,7 @@ function focusSavedSearchResult(item) {
     $("height-mode").value = "all";
     updateElevationControls();
   }
+  selectedTunnelId = item.kind === "tunnel" ? item.id : null;
   selectedCaveGroupId = item.kind === "group" ? item.id : null;
   selectedPocketIndex = item.kind === "pocket" ? item.index
     : item.kind === "pocket-group" ? item.index : null;
@@ -331,7 +333,7 @@ function updateObjectSearch() {
     indexed = indexSavedObjects(activeGeometry);
   }
   if (!query && category === "all") {
-    status.textContent = "Search " + indexed.length + " saved cave groups and pocket placements "
+    status.textContent = "Search " + indexed.length + " saved placements and tunnel centerlines "
       + (all ? "across all underground worlds." : "in this world.")
       + " Choose a category to browse without typing.";
     return;
@@ -455,6 +457,7 @@ function drawPortalCellLayer(root, result, groups, footprints, px, py, scale) {
       selectedCaveGroupId = null;
       selectedPocketIndex = null;
       selectedPocketGroupId = null;
+      selectedTunnelId = null;
       drawTunnelMap(result);
     };
     box.addEventListener("click", select);
@@ -523,9 +526,20 @@ function drawTunnelMap(result) {
   const selectedPocketGroup = pocketGroups.find((g) => g.id === selectedPocketGroupId);
   const selectedPortalGroup = portalGroups.find((group) =>
     portalKey(group) === selectedPortalKey);
+  const selectedTunnel = tunnels.find((t) => t.id === selectedTunnelId);
   const groupAsset = selectedGroup?.asset;
   if (selectedPortalGroup) {
     renderPortalGroupInfo(groupInfo, selectedPortalGroup, footprints);
+  } else if (selectedTunnel) {
+    const zs = selectedTunnel.points.map((p) => p[2]);
+    groupInfo.textContent = "Saved tunnel #" + selectedTunnel.id
+      + " · recorded type " + selectedTunnel.type
+      + " · " + selectedTunnel.points.length + " saved centerline points"
+      + " · line length " + selectedTunnel.length.toFixed(1)
+      + " saved-coordinate units"
+      + " · recorded Z " + Math.min(...zs).toFixed(1)
+      + " to " + Math.max(...zs).toFixed(1)
+      + ". This saved centerline is NOT a verified open or walkable route.";
   } else if (selectedGroup) {
     groupInfo.textContent = "Placement group #" + selectedGroup.id
       + " · " + (groupAsset
@@ -579,7 +593,8 @@ function drawTunnelMap(result) {
       + " from " + namedPockets + " recognized fragments"
       + " · " + portalCells.length + " portal endpoints across "
       + portalGroups.length + " grid cells"
-      + " · Select a placement or portal cell to inspect saved facts."
+      + " · " + tunnels.length + " saved tunnel lines"
+      + " · Select a placement, portal cell or tunnel line to inspect saved facts."
       + " No actual door positions or walkable passages are inferred.";
   }
   const fragmentToGroup = new Map();
@@ -685,6 +700,7 @@ function drawTunnelMap(result) {
       selectedPocketIndex = item.kind === "pocket" ? index : null;
       selectedPocketGroupId = item.kind === "pocket" ? (pocketGroup?.id ?? null) : null;
       selectedPortalKey = null;
+      selectedTunnelId = null;
       drawTunnelMap(result);
     };
     box.addEventListener("click", choose);
@@ -721,6 +737,7 @@ function drawTunnelMap(result) {
         selectedPocketIndex = null;
         selectedPocketGroupId = null;
         selectedPortalKey = null;
+        selectedTunnelId = null;
         drawTunnelMap(result);
       };
       outline.addEventListener("click", choose);
@@ -761,6 +778,7 @@ function drawTunnelMap(result) {
         selectedPocketIndex = group.fragments[0];
         selectedPocketGroupId = group.id;
         selectedPortalKey = null;
+        selectedTunnelId = null;
         drawTunnelMap(result);
       };
       outline.addEventListener("click", choose);
@@ -783,14 +801,31 @@ function drawTunnelMap(result) {
     const coordinates = points.map(([x, y]) => px(x).toFixed(1)
       + "," + py(y).toFixed(1)).join(" ");
     const path = svg("polyline", {
-      points: coordinates, class: "tunnel-line",
-      tabindex: "0", "aria-label": "Tunnel " + tunnel.id + ", " + tunnel.type,
+      points: coordinates, class: "tunnel-line"
+        + (selectedTunnelId === tunnel.id ? " active" : ""),
+      "data-tunnel-id": tunnel.id, role: "button", tabindex: "0",
+      "aria-label": "Inspect saved tunnel " + tunnel.id + ", " + tunnel.type,
     });
     path.append(svg("title", {},
       "Tunnel #" + tunnel.id + " · " + tunnel.type
       + (band ? " · section intersecting saved Z " + band.low + " to " + band.high
         : " · " + tunnel.length.toFixed(1) + " saved-coordinate units")
       + " · centerline only, not verified walkability"));
+    const choose = () => {
+      selectedTunnelId = tunnel.id;
+      selectedCaveGroupId = null;
+      selectedPocketIndex = null;
+      selectedPocketGroupId = null;
+      selectedPortalKey = null;
+      drawTunnelMap(result);
+    };
+    path.addEventListener("click", choose);
+    path.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        choose();
+      }
+    });
     root.append(path);
   }
   drawPortalCellLayer(root, result, portalGroups, footprints, px, py, scale);
@@ -807,7 +842,8 @@ async function loadSelectedTunnels() {
   selectedPocketIndex = null;
   selectedPocketGroupId = null;
   selectedPortalKey = null;
-  $("cave-group-info").textContent = "Select a cave placement group to inspect it.";
+  selectedTunnelId = null;
+  $("cave-group-info").textContent = "Select a saved placement, portal or tunnel to inspect it.";
   const world = save?.worlds.find((item) => item.id === selected);
   const root = $("tunnel-map");
   root.replaceChildren();

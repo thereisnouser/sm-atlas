@@ -107,9 +107,9 @@
         <div id="tunnel-status" class="tunnel-status" role="status" aria-live="polite">
           Select an underground world to inspect its saved tunnel lines.
         </div>
-        <div class="map-search" role="search" aria-label="Find saved underground objects">
+        <div class="map-search" role="search" aria-label="Find underground placements and saved tunnel lines">
           <div class="map-search-heading">
-            <label for="map-search-input">Find a saved structure</label>
+            <label for="map-search-input">Find saved structures and tunnel lines</label>
             <label for="map-search-scope" class="map-search-scope-label">Search in</label>
             <select id="map-search-scope" aria-label="Saved object search scope">
               <option value="current">Current world</option>
@@ -125,12 +125,13 @@
               <option value="deposit">Deposit-named assets</option>
               <option value="resource">Resource-tagged assets</option>
               <option value="cave">Cave placement groups</option>
+              <option value="tunnel">Recorded tunnel centerlines</option>
               <option value="unknown">Unidentified placements</option>
             </select>
-            <span>Categories come from saved catalog names, not verified routes or loot.</span>
+            <span>Structure labels use saved catalog names; tunnel types come from saved records. Routes and loot are unverified.</span>
           </div>
           <input type="search" id="map-search-input" autocomplete="off"
-            placeholder="Asset name or tag · e.g. gold, deposit, elevator"
+            placeholder="Asset or tunnel type · e.g. gold, elevator, TtVeinT4"
             aria-controls="map-search-results">
           <div id="map-search-status" class="map-search-status" aria-live="polite">
             Select an underground world to search its saved objects.
@@ -151,12 +152,12 @@
             viewBox="0 0 1000 620"></svg>
         </div>
         <div id="cave-group-info" class="cave-group-info" role="status" aria-live="polite">
-          Select a dashed group outline to inspect its saved fragments and extent.
+          Select a placement, portal cell or tunnel line to inspect saved facts.
         </div>
         <div class="graph-caption">
           <span>◉</span> Solid rectangles are stored tile placements; dashed outlines show reconstructed placement extents.
           Portal outlines show <strong>saved cell coordinates, not exact doorway positions</strong>.
-          Group boundaries are bounding extents, not room walls; no walking route is verified.
+          Group boundaries are bounding extents, not room walls; saved tunnel lines are not verified walking routes.
         </div>
       </section>
 

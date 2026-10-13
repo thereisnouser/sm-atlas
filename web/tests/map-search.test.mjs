@@ -150,3 +150,41 @@ test("category-only global browse is balanced and keeps exact world identity", (
   assert.deepEqual(searchSavedObjectsAcrossWorlds(items, "", 5, "all"),
     {matches: [], total: 0});
 });
+
+test("saved tunnel search uses recorded type, ID and source-backed 3D midpoint", () => {
+  const save = fixture();
+  save.tunnels = [
+    {id:17,type:"TtVeinT4",length:40,points:[[-10,2,0],[0,2,0],[0,32,0]]},
+    {id:18,type:"TtCave",length:5,points:[[50,40,-16],[55,40,-16]]},
+  ];
+  const entries=indexSavedObjects(save);
+  assert.equal(entries.length,6);
+  const tunnels=entries.filter((e)=>e.kind==="tunnel");
+  assert.deepEqual(tunnels.map((e)=>e.id),[17,18]);
+  assert.deepEqual([tunnels[0].x,tunnels[0].y],[0,12]);
+  assert.deepEqual(tunnels[0].facets,["tunnel"]);
+  assert.deepEqual([tunnels[1].zMin,tunnels[1].zMax],[-16,-16]);
+  assert.match(tunnels[0].details,/not walking distance/);
+  assert.equal(searchSavedObjects(entries,"",30,"tunnel").total,2);
+  assert.equal(searchSavedObjects(entries,"ttveint4").matches[0].id,17);
+  assert.equal(searchSavedObjects(entries,"tunnel #18").matches[0].id,18);
+  assert.equal(searchSavedObjects(entries,"tunnel",30,"cave").total,0);
+  assert.equal(searchSavedObjects(entries,"ttveint4",30,"tunnel").total,1);
+});
+test("saved 3D midpoint handles bends and invalid or degenerate lines", async () => {
+  const {tunnelSavedMidpoint} = await import("../map-search.mjs");
+  assert.deepEqual(tunnelSavedMidpoint([[0,0,0],[0,0,10],[0,30,10]]),[0,10,10]);
+  assert.deepEqual(tunnelSavedMidpoint([[7,8,9],[7,8,9]]),[7,8,9]);
+  assert.deepEqual(tunnelSavedMidpoint([[0,0,0],[10,0,0],[10,0,0]]),[5,0,0]);
+  assert.equal(tunnelSavedMidpoint([[0,0,0]]),null);
+  assert.equal(tunnelSavedMidpoint([[0,0,0],[NaN,0,0]]),null);
+});
+test("global recorded tunnel hits retain distinct saved worlds and IDs", () => {
+  const save=fixture();
+  save.tunnels=[{id:17,type:"TtVeinT4",length:20,points:[[0,0,0],[20,0,0]]}];
+  const tunnels=indexSavedObjects(save).filter((e)=>e.kind==="tunnel");
+  const items=[{...tunnels[0],worldId:23},{...tunnels[0],worldId:25}];
+  const results=searchSavedObjectsAcrossWorlds(items,"",10,"tunnel");
+  assert.deepEqual(results.matches.map((e)=>e.worldId),[23,25]);
+  assert.equal(results.total,2);
+});
