@@ -235,6 +235,20 @@ def main() -> None:
                     page.locator("#height-mode").select_option("all")
                     assert page.locator("#tunnel-map .saved-footprint.cave").count() == 1
                     assert page.locator("#tunnel-map .tunnel-line").count() == 1
+                    # A recorded tunnel line is selectable, even without a tile catalog UUID.
+                    page.locator("#tunnel-map .tunnel-line").first.click(force=True)
+                    assert "Saved tunnel #17" in page.locator("#cave-group-info").inner_text()
+                    assert "TtVeinT4" in page.locator("#cave-group-info").inner_text()
+                    assert "NOT a verified" in page.locator("#cave-group-info").inner_text()
+                    assert page.locator("#tunnel-map .tunnel-line.active").count() == 1
+                    page.locator("#map-search-category").select_option("tunnel")
+                    page.locator("#map-search-status").get_by_text(
+                        "1 matching saved object", exact=False).wait_for()
+                    page.locator("#map-search-results .map-search-result").click()
+                    assert page.locator("#map-zoom-level").inner_text() == "400%"
+                    assert "Saved tunnel #17" in page.locator("#cave-group-info").inner_text()
+                    page.locator("#map-zoom-reset").click()
+                    page.locator("#map-search-category").select_option("all")
                     # A source-backed category can be browsed without typing.
                     page.locator("#map-search-category").select_option("passage")
                     page.locator("#map-search-status").get_by_text(
@@ -269,6 +283,17 @@ def main() -> None:
                     page.locator("#map-search-input").fill("")
                     # From an empty underground world, search another world's assets.
                     page.locator("#map-search-scope").select_option("all")
+                    page.locator("#map-search-category").select_option("tunnel")
+                    page.locator("#world-list .world-entry").filter(
+                        has_text="D2 Tutorial").click()
+                    page.locator("#map-search-results .map-search-result").get_by_text(
+                        "TtVeinT4", exact=False).wait_for(timeout=30000)
+                    page.locator("#map-search-results .map-search-result").click()
+                    page.locator("#world-details").get_by_text(
+                        "D6 Drill2", exact=False).first.wait_for(timeout=30000)
+                    assert "Saved tunnel #17" in page.locator("#cave-group-info").inner_text()
+                    assert page.locator("#tunnel-map .tunnel-line.active").count() == 1
+                    page.locator("#map-zoom-reset").click()
                     page.locator("#map-search-category").select_option("passage")
                     page.locator("#map-search-results .map-search-result").get_by_text(
                         "D6 Drill2", exact=False).wait_for(timeout=30000)

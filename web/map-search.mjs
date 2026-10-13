@@ -7,7 +7,7 @@ const RESOURCE_TAGS = new Set([
   "deposit", "gold", "sapphire", "sparkstone", "potato", "crystal", "corralium",
 ]);
 const SEARCH_FILTERS = new Set([
-  "all", "cave", "elevator", "passage", "deposit", "resource", "unknown",
+  "all", "cave", "elevator", "passage", "deposit", "resource", "unknown", "tunnel",
 ]);
 
 // Categories describe saved catalog names/tags, never observed ore or passable space.
@@ -20,6 +20,32 @@ function savedObjectFacets(asset, kind) {
   if (tags.has("deposit")) categories.push("deposit");
   if ([...tags].some((tag) => RESOURCE_TAGS.has(tag))) categories.push("resource");
   return categories;
+}
+
+/** Return a source-backed 3D arc-length midpoint, not a navigable position. */
+export function tunnelSavedMidpoint(points) {
+  if (!Array.isArray(points) || points.length < 2 ||
+    points.some((p) => !Array.isArray(p) || p.length !== 3 ||
+      !p.every(Number.isFinite))) return null;
+  const lengths = [];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const length = Math.hypot(...points[i].map((v,k) => v - points[i-1][k]));
+    if (!Number.isFinite(length)) return null;
+    lengths.push(length);
+    total += length;
+  }
+  if (!Number.isFinite(total)) return null;
+  if (total === 0) return [...points[0]];
+  let walked = 0;
+  for (let i = 0; i < lengths.length; i++) {
+    if (walked + lengths[i] >= total/2 && lengths[i] > 0) {
+      const t = (total/2 - walked) / lengths[i];
+      return points[i].map((v,k) => v + (points[i+1][k]-v)*t);
+    }
+    walked += lengths[i];
+  }
+  return [...points.at(-1)];
 }
 
 export function indexSavedObjects(result) {
@@ -71,6 +97,22 @@ export function indexSavedObjects(result) {
         "pocket", "tile " + piece.tileIndex].filter(Boolean).join(" ").toLowerCase(),
       x: piece.x + piece.width / 2,
       y: piece.y + piece.depth / 2,
+    });
+  }
+  for (const tunnel of result.tunnels || []) {
+    const center = tunnelSavedMidpoint(tunnel.points);
+    if (!center || !Number.isSafeInteger(tunnel.id) || tunnel.id < 0) continue;
+    const zs = tunnel.points.map((p) => p[2]);
+    const type = typeof tunnel.type === "string" && tunnel.type.trim()
+      ? tunnel.type.trim() : "Unknown";
+    output.push({
+      kind: "tunnel", id: tunnel.id, index: null, facets: ["tunnel"],
+      label: "Tunnel #" + tunnel.id + " · " + type,
+      details: tunnel.points.length + " saved centerline points · "
+        + (Number.isFinite(tunnel.length) ? tunnel.length.toFixed(1) : "unknown")
+        + " saved-coordinate units (not walking distance)",
+      searchText: ["tunnel", "tunnel #" + tunnel.id, type].join(" ").toLowerCase(),
+      x: center[0], y: center[1], zMin: Math.min(...zs), zMax: Math.max(...zs),
     });
   }
   return output;

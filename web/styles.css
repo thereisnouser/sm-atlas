@@ -122,7 +122,10 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 #tunnel-map { display: block; min-width: 660px; width: 100%; height: auto; }
 .tunnel-line { fill: none; stroke: #e9a55b; stroke-width: 2.5;
   stroke-linecap: round; stroke-linejoin: round; opacity: .84; }
-.tunnel-line:hover, .tunnel-line:focus { stroke: #79dbc2; stroke-width: 4; opacity: 1; }
+.tunnel-line:hover, .tunnel-line:focus-visible { stroke: #79dbc2; stroke-width: 4; opacity: 1; }
+.tunnel-line { cursor: pointer; pointer-events: stroke; }
+.tunnel-line.active { stroke: #ffe4a3; stroke-width: 4.5; opacity: 1; }
+.tunnel-line.active:hover, .tunnel-line.active:focus-visible { stroke: #d8fff3; }
 .tunnel-extents { fill: #a6bfcd; font-size: 12px; }
 
 .layout-controls { display: flex; flex-wrap: wrap; gap: 12px 22px;
