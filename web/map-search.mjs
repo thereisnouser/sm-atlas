@@ -30,7 +30,11 @@ export function indexSavedObjects(result) {
       kind: "group", id: group.id, index: null,
       facets: savedObjectFacets(group.asset, "group"),
       label: group.asset?.name || "Unidentified cave group G" + group.id,
-      details: "Cave group G" + group.id + " · " + group.fragmentCount + " cells",
+      details: "Cave group G" + group.id + " · " + group.fragmentCount + " cells"
+        + (group.sourceAware
+          ? (group.sourceComplete && group.sizeMatches
+            ? " · source placement consistent" : " · source placement incomplete/ambiguous")
+          : " · adjacency-only candidate"),
       searchText: [group.asset?.name, group.asset?.family,
         ...(group.asset?.tags || []), group.tileUuid,
         "cave group", "G" + group.id].filter(Boolean).join(" ").toLowerCase(),
