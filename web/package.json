@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check app.mjs && node --check save-worker.js && node --check save-reader.mjs && node --check portal-cells.mjs && node --check map-camera.mjs && node --check map-search.mjs && node --check elevation-slice.mjs && node --check pocket-groups.mjs"
+    "check": "node --check app.mjs && node --check save-worker.js && node --check save-reader.mjs && node --check portal-cells.mjs && node --check map-camera.mjs && node --check map-search.mjs && node --check tunnel-contacts.mjs && node --check elevation-slice.mjs && node --check pocket-groups.mjs"
   },
   "dependencies": {
     "sql.js": "1.14.2"

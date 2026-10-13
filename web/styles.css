@@ -153,6 +153,11 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 .saved-footprint.cave { fill: #d19a6030; stroke: #c08f5c; }
 .saved-footprint.pocket { fill: #76b9b049; stroke: #76b9b0; }
 .saved-footprint:hover { fill-opacity: .65; stroke-width: 2.7; }
+/* Contacts describe saved bounding boxes, not navigable tunnel openings. */
+.saved-footprint.line-contact-xyz { fill: #81e5a266; stroke: #93f3b5;
+  stroke-width: 3; }
+.saved-footprint.line-projection-only { fill: #d3987444; stroke: #eaa87d;
+  stroke-width: 2.5; stroke-dasharray: 2 5; }
 
 /* Group outlines are placement bounds, never inferred cave walls. */
 .layer-key.group { border-color: #b3a0ee; border-style: dashed; background: transparent; }
