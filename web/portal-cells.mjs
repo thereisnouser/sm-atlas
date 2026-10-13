@@ -50,3 +50,28 @@ export function portalCellOverlapsPlacement(cell, footprints) {
     Number.isFinite(piece.cellX) && Number.isFinite(piece.cellY)
     && piece.cellX === cell.cellX && piece.cellY === cell.cellY);
 }
+
+
+/**
+ * Many saved portal endpoints may share the same 64-unit grid cell.
+ * Group visual markers by XY while retaining each distinct record for
+ * inspection. A cell group does NOT imply a shared traversable doorway.
+ */
+export function groupPortalCells(cells) {
+  const byCell = new Map();
+  for (const cell of cells) {
+    const key = cell.cellX + ":" + cell.cellY;
+    let group = byCell.get(key);
+    if (!group) {
+      group = {
+        cellX: cell.cellX, cellY: cell.cellY,
+        x: cell.x, y: cell.y, width: cell.width, depth: cell.depth,
+        endpoints: [],
+      };
+      byCell.set(key, group);
+    }
+    group.endpoints.push(cell);
+  }
+  return [...byCell.values()].sort((a, b) =>
+    a.cellY - b.cellY || a.cellX - b.cellX);
+}
