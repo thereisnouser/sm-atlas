@@ -170,3 +170,19 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 .portal-cell.active { fill: #65cce54c; stroke: #d9faff; stroke-width: 3.4; }
 .portal-cell-label { font-size: 11px; font-weight: 800; fill: #b1f1ff;
   pointer-events: none; paint-order: stroke; stroke: #101923; stroke-width: 3; }
+
+
+/* One marker may represent several saved portal endpoints in the same cell. */
+.portal-detail-heading { font-weight: 700; color: #dceef5; }
+.portal-detail-note { padding-top: 5px; color: #a9bac8; font-size: 11px; }
+.portal-destinations { display: grid; gap: 6px; margin-top: 10px; }
+.portal-destination-row { display: flex; justify-content: space-between;
+  align-items: center; flex-wrap: wrap; gap: 8px 14px;
+  background: #14202c; border: 1px solid var(--border);
+  border-radius: 5px; padding: 8px 10px; }
+.portal-record-id { color: #cfdae5; }
+.portal-unresolved { color: #a4adba; font-size: 11px; }
+.portal-go { background: #244c61; border: 1px solid #467d91;
+  border-radius: 4px; color: #e1f8ff; padding: 5px 10px;
+  font-size: 11px; cursor: pointer; }
+.portal-go:hover, .portal-go:focus-visible { background: #326781; }
