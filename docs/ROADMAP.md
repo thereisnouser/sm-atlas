@@ -1,6 +1,6 @@
 # SM Atlas — Active Roadmap
 
-_Last reviewed: 2026-10-13. Update this file whenever the active milestone or the evidence changes._
+_Last reviewed: 2026-10-15. Update this file whenever the active milestone or the evidence changes._
 
 ## Product north star
 
@@ -64,6 +64,7 @@ Experiments, raw-byte hypotheses and their reproducibility details belong in
 - [x] Add an optional saved-Z elevation slice for crowded underground maps: show placement extents overlapping the selected 16-unit band and clip tunnel centerlines at band crossings. Reset slicing on world/search navigation; keep portals visible because their recorded grid-cell height is unknown. Never portray this as verified cave floors.
 - [x] Search and inspect saved tunnel lines by recorded type and ID in current-world or all-underground search. Select source-backed polylines and inspect saved length, points and Z range, using 3D arc-length midpoint for search focus; no walkability claim.
 - [x] Compare a selected saved tunnel centerline against recorded cave/pocket placement bounds: classify exact XYZ bounding-box touches versus misleading XY-only map overlaps; highlight source fragments and count distinct logical placements. Python and browser use independent geometry implementations with matching synthetic fixtures. Boundary contact is explicitly NOT proof of a physical opening, entrance or navigable route.
+- [x] Let players browse **all** saved XYZ and XY-only contacts of a selected tunnel and focus a linked logical cave or pocket placement directly. Preserve the original cave/pocket layer visibility on navigation, retaining non-navigable evidence labels for orphan fragments. This is an evidence explorer, not pathfinding.
 - [ ] Add actual traversable routing only after physics/clearance validation.
 
 ### P3 — Complete world explorer
@@ -105,6 +106,7 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-13 | Verify real-save XY/Z geometry using independent execution and add in-level saved asset search | Python and actual JavaScript agree on terrain IDs, 6,702 float32 tunnel coordinates and all placement coordinate digests on eight worlds. D4/D6 contain hundreds of named resource and pocket objects; find-by-filename is more useful than browsing a flat crowded map. |
 | 2026-10-13 | Search named saved placements across underground worlds using the local Worker | Cross-level discovery reuses decoded layout cache, transfers only index metadata, and navigates directly to the selected saved object without treating catalog names as verified walkable locations. |
 | 2026-10-13 | Port Python source-aware logical pocket reconstruction to the browser | Packed pocket records contain source chunk offsets; grouping by UUID, source origin, rotation and height avoids treating split pieces as independent structures and checks saved source coverage without inferring traversable interiors. |
+| 2026-10-15 | Make saved tunnel contact evidence directly navigable | Source-backed XYZ vs XY-only contact lists let players inspect any linked logical placement, rather than truncated summary text, without pretending the structures are connected or traversable. |
 | 2026-10-13 | Classify saved tunnel-to-placement bounding-box contacts | Distinguish actual XYZ box contacts from top-down-only overlap; deduplicate split structures and independently test 3D slab clipping in Python and JavaScript without inventing walkable connections. |
 | 2026-10-13 | Search and inspect saved tunnel centerlines by type and ID | Recorded line types, IDs and 3D points are source-backed; expose them for browsing and search without inferring safe routes. |
 | 2026-10-13 | Add optional saved-height slices to the underground browser map | Separate vertically overlapping recorded placements without inventing actual walkable floors; clip centerline geometry accurately and preserve unknown portal elevations. |
@@ -184,6 +186,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** verify cave grouping, XYZ-versus-XY tunnel contacts, search and elevation slicing against the private authentic save, then complete authentic-save Chromium visual acceptance in a browser-enabled environment; independent Python/JS coordinate comparison is already confirmed. Investigate reliable physical entrance transforms and continue voxel collision research before routing. Keep structural global search factual, and README concise.
+**Developer:** validate the contact evidence explorer, cave grouping, search and elevation slicing against the private authentic save; complete authentic-save Chromium visual acceptance when the actual save and a browser-enabled environment are available. in a browser-enabled environment; independent Python/JS coordinate comparison is already confirmed. Investigate reliable physical entrance transforms and continue voxel collision research before routing. Keep structural global search factual, and README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

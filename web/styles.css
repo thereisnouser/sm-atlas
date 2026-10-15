@@ -170,6 +170,25 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 .saved-footprint.cave.group-selected { fill: #d2c26e55; stroke: #eac164; }
 .cave-group-info { padding: 12px 18px; font-size: 12px;
   background: #1b2533; color: #bed0df; border-top: 1px solid var(--border); }
+.tunnel-contact-explorer { margin-top: 11px; padding-top: 9px;
+  border-top: 1px solid var(--border); }
+.tunnel-contact-note { color: #a8bac8; margin-bottom: 8px; }
+.tunnel-contact-section { margin-top: 6px; border: 1px solid #344859;
+  background: #152231; border-radius: 5px; }
+.tunnel-contact-section summary { cursor: pointer; font-weight: 700;
+  padding: 8px 11px; }
+.tunnel-contact-section[data-contact-category="xyz"] summary { color: #a6e9bc; }
+.tunnel-contact-section[data-contact-category="xy-only"] summary { color: #f1bd92; }
+.tunnel-contact-items { display: flex; gap: 7px; flex-wrap: wrap;
+  max-height: 220px; overflow-y: auto; padding: 0 10px 10px; }
+.tunnel-contact-target { cursor: pointer; padding: 7px 10px;
+  color: #dceef6; border: 1px solid #547286; border-radius: 5px;
+  background: #21384a; font-size: 12px; text-align: left;
+  overflow-wrap: anywhere; }
+.tunnel-contact-target:hover, .tunnel-contact-target:focus-visible {
+  background: #2d5164; border-color: #a4d9d7; }
+.tunnel-contact-empty, .tunnel-contact-unresolved {
+  color: #9cb1c1; padding: 5px; }
 
 .coverage-summary { padding: 9px 15px 13px; font-size: 11px;
   line-height: 1.6; color: #a9c0cb; border-bottom: 1px solid var(--border); }

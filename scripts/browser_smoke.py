@@ -251,6 +251,23 @@ def main() -> None:
                     assert "XY projection only at a different height: 0" in info
                     assert "does NOT verify an entrance" in info
                     assert page.locator("#tunnel-map .line-contact-xyz").count() == 3
+                    assert page.locator(
+                        '.tunnel-contact-section[data-contact-category="xyz"]'
+                    ).locator(".tunnel-contact-target").count() == 2
+                    assert page.locator(
+                        '.tunnel-contact-section[data-contact-category="xy-only"]'
+                    ).locator(".tunnel-contact-target").count() == 0
+                    # Click a contacted logical pocket: the selected tunnel is
+                    # cleared and the one logical placement is focused at 400%.
+                    page.locator(
+                        '.tunnel-contact-section[data-contact-category="xyz"] '
+                        '.tunnel-contact-target'
+                    ).filter(has_text="pocket").first.click()
+                    assert "Logical pocket placement #1" in page.locator(
+                        "#cave-group-info").inner_text()
+                    assert page.locator("#map-zoom-level").inner_text() == "400%"
+                    assert page.locator("#tunnel-map .tunnel-line.active").count() == 0
+                    page.locator("#map-zoom-reset").click()
                     page.locator("#map-search-category").select_option("tunnel")
                     page.locator("#map-search-status").get_by_text(
                         "1 matching saved object", exact=False).wait_for()

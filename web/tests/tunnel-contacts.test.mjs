@@ -40,6 +40,13 @@ test("logical placement contacts are distinct across split fragments and Z",()=>
   assert.deepEqual(hit.xyOnlyIndices,[2,3]);
   assert.deepEqual(hit.xyzPlacements,["Cave group G1","Unidentified cave tile #undefined"]);
   assert.deepEqual(hit.xyOnlyPlacements,["Cave group G2"]);
+  assert.deepEqual(hit.xyzTargets,[
+    {kind:"group",id:1,index:null,label:"Cave group G1"},
+    {kind:null,id:null,index:null,label:"Unidentified cave tile #undefined"},
+  ]);
+  assert.deepEqual(hit.xyOnlyTargets,[
+    {kind:"group",id:2,index:null,label:"Cave group G2"},
+  ]);
 });
 
 test("mixed group touching in XYZ and XY-only is counted once as XYZ",()=>{
@@ -50,7 +57,23 @@ test("mixed group touching in XYZ and XY-only is counted once as XYZ",()=>{
   assert.deepEqual(hit.xyOnlyIndices,[1]);
   assert.deepEqual(hit.xyzPlacements,["split_asset.tile"]);
   assert.deepEqual(hit.xyOnlyPlacements,[]);
+  assert.deepEqual(hit.xyzTargets,[
+    {kind:"pocket-group",id:3,index:0,label:"split_asset.tile"},
+  ]);
+  assert.deepEqual(hit.xyOnlyTargets,[]);
   assert.deepEqual(analyzeTunnelPlacementContacts(line([0,0,0]),pieces),{
     xyzIndices:[],xyOnlyIndices:[],xyzPlacements:[],xyOnlyPlacements:[],
+    xyzTargets:[],xyOnlyTargets:[],
   });
+});
+
+test("an ungrouped known pocket remains individually inspectable",()=>{
+  const pocket={...box,kind:"pocket",tileIndex:9,
+    asset:{name:"pocket_gold.tile"}};
+  const hit=analyzeTunnelPlacementContacts(
+    line([-5,8,8],[30,8,8]),[pocket]);
+  assert.deepEqual(hit.xyzTargets,[
+    {kind:"pocket",id:null,index:0,label:"pocket_gold.tile"},
+  ]);
+  assert.deepEqual(hit.xyOnlyTargets,[]);
 });
