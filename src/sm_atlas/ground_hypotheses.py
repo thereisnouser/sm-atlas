@@ -101,14 +101,16 @@ def _leave_one_track_out_diagnostic(
     models: list[dict],
     planned: list[dict],
 ) -> dict[str, object]:
-    """Select candidates on other tracks, evaluate on the held-out track.
+    """Evaluate fixed floor hypotheses with spatially blocked held-out lanes.
 
-    All hypotheses are fixed before seeing measurements. Only the choice
-    between them, and any median vertical bias, may use training hits.
-    Missing or ambiguous roots never become a zero-error prediction.
-    This test is within one small site, NOT new-terrain generalization.
+    Game raycast misses never appear in inspect_ground_density.samples,
+    so align actual hits by their ORIGINAL plan index, not list position.
+    Missing game observations and missing model crossings are distinct.
+    A trivial constant-height baseline is fitted on the training lanes
+    only and evaluated on exactly the same held-out scored observations.
+    Neither diagnostic validates new terrain or player walkability.
     """
-    offsets = []
+    offsets: list[float] = []
     for row in planned:
         if not isinstance(row, dict):
             return {"status": "unavailable_track_metadata", "folds": []}
@@ -124,15 +126,37 @@ def _leave_one_track_out_diagnostic(
             "folds": [],
         }
 
+    indexed_models: list[tuple[dict, dict[int, dict]]] = []
+    shared_indices: set[int] | None = None
+    observed_by_index: dict[int, float] = {}
     for model in models:
         samples = model.get("samples")
-        if not isinstance(samples, list) or len(samples) != len(planned):
-            raise ValueError("model sample count differs from the measured plan")
-        if any(row.get("index") != i for i, row in enumerate(samples)):
-            raise ValueError("model sample indices are not plan-aligned")
+        if not isinstance(samples, list):
+            raise ValueError("model samples must be a list")
+        by_index: dict[int, dict] = {}
+        for row in samples:
+            if not isinstance(row, dict):
+                raise ValueError("model sample must be a record")
+            index = row.get("index")
+            if type(index) is not int or not 0 <= index < len(planned):
+                raise ValueError("model sample indices must refer to the plan")
+            if index in by_index:
+                raise ValueError("duplicate model sample indices")
+            observed = row.get("observed_world_z")
+            if type(observed) not in (int, float) or not isfinite(observed):
+                raise ValueError("invalid observed ground height")
+            if index in observed_by_index and observed_by_index[index] != observed:
+                raise ValueError("model samples disagree on observed ground height")
+            observed_by_index[index] = float(observed)
+            by_index[index] = row
+        if shared_indices is None:
+            shared_indices = set(by_index)
+        elif set(by_index) != shared_indices:
+            raise ValueError("model sample indices differ between candidates")
+        indexed_models.append((model, by_index))
 
-    def residual(row: dict) -> float | None:
-        if row["status"] != "single_candidate":
+    def residual(row: dict | None) -> float | None:
+        if row is None or row["status"] != "single_candidate":
             return None
         candidates = row["candidate_world_z"]
         if len(candidates) != 1:
@@ -143,75 +167,110 @@ def _leave_one_track_out_diagnostic(
             raise ValueError("nonfinite predicted or observed ground height")
         return float(predicted - observed)
 
-    folds = []
+    folds: list[dict] = []
     for held_out in tracks:
         held = [i for i, lane in enumerate(offsets) if lane == held_out]
         train = [i for i, lane in enumerate(offsets) if lane != held_out]
-        scored = []
-        for model in models:
+        train_hits = [observed_by_index[i] for i in train
+                      if i in observed_by_index]
+        held_hits = sum(i in observed_by_index for i in held)
+        basics = {
+            "held_out_lateral_offset_m": held_out,
+            "training_samples": len(train),
+            "training_game_hits": len(train_hits),
+            "training_missing_game_observations": len(train) - len(train_hits),
+            "held_out_samples": len(held),
+            "held_out_game_hits": held_hits,
+            "held_out_missing_game_observations": len(held) - held_hits,
+        }
+        ranked = []
+        for model, by_index in indexed_models:
             errors = [e for i in train
-                      if (e := residual(model["samples"][i])) is not None]
-            if not errors:
-                continue
-            train_rmse = sqrt(mean(e * e for e in errors))
-            scored.append((
-                -len(errors), train_rmse, model["bits"],
-                tuple(model["lattice_origin_shift_xyz"]),
-                model, errors,
-            ))
-        if not scored:
+                      if (e := residual(by_index.get(i))) is not None]
+            if errors:
+                ranked.append((
+                    -len(errors), sqrt(mean(e * e for e in errors)),
+                    model["bits"], tuple(model["lattice_origin_shift_xyz"]),
+                    model, by_index, errors,
+                ))
+        if not ranked:
             folds.append({
-                "held_out_lateral_offset_m": held_out,
+                **basics,
                 "status": "no_scorable_training_candidate",
-                "training_samples": len(train),
-                "held_out_samples": len(held),
+                "training_unambiguous": 0,
+                "held_out_unambiguous": 0,
             })
             continue
-        _, train_rmse, _, _, chosen, train_errors = min(
-            scored, key=lambda entry: entry[:4]
+
+        _, train_rmse, _, _, chosen, chosen_rows, train_errors = min(
+            ranked, key=lambda entry: entry[:4]
         )
-        bias_from_train = median(train_errors)
-        holdout_errors = [
-            e for i in held
-            if (e := residual(chosen["samples"][i])) is not None
+        bias = median(train_errors)
+        # Compare a fixed training-only constant-height baseline with
+        # the candidate on IDENTICAL held-out hits; avoid coverage tricks.
+        flat_z = median(train_hits)
+        paired = [
+            (e, observed_by_index[i])
+            for i in held
+            if (e := residual(chosen_rows.get(i))) is not None
         ]
+        errors = [e for e, _ in paired]
+        corrected_rmse = (
+            sqrt(mean((e - bias) ** 2 for e in errors))
+            if errors else None
+        )
+        flat_rmse = (
+            sqrt(mean((flat_z - z) ** 2 for _, z in paired))
+            if errors else None
+        )
         folds.append({
-            "held_out_lateral_offset_m": held_out,
+            **basics,
             "status": (
-                "scored" if holdout_errors else "no_unambiguous_held_out_roots"
+                "scored" if errors else "no_unambiguous_held_out_roots"
             ),
             "chosen_bits": chosen["bits"],
             "chosen_lattice_origin_shift_xyz": chosen["lattice_origin_shift_xyz"],
-            "training_samples": len(train),
             "training_unambiguous": len(train_errors),
             "training_rmse_m": round(train_rmse, 6),
-            "training_median_bias_m": round(bias_from_train, 6),
-            "held_out_samples": len(held),
-            "held_out_unambiguous": len(holdout_errors),
-            "held_out_missing_or_ambiguous": len(held) - len(holdout_errors),
+            "training_median_bias_m": round(bias, 6),
+            "held_out_unambiguous": len(errors),
+            "held_out_missing_or_ambiguous": held_hits - len(errors),
             "held_out_rmse_m": (
-                round(sqrt(mean(e * e for e in holdout_errors)), 6)
-                if holdout_errors else None
+                round(sqrt(mean(e * e for e in errors)), 6)
+                if errors else None
             ),
             "held_out_rmse_after_training_bias_m": (
-                round(sqrt(mean(
-                    (e - bias_from_train) ** 2 for e in holdout_errors
-                )), 6) if holdout_errors else None
+                round(corrected_rmse, 6)
+                if corrected_rmse is not None else None
+            ),
+            "held_out_flat_baseline_rmse_on_scored_m": (
+                round(flat_rmse, 6) if flat_rmse is not None else None
+            ),
+            "held_out_rmse_gain_over_flat_baseline_m": (
+                round(flat_rmse - corrected_rmse, 6)
+                if corrected_rmse is not None else None
             ),
         })
     return {
         "status": (
             "within_site_diagnostic_only"
             if all(f["status"] == "scored" for f in folds)
+            and len(observed_by_index) == len(planned)
             else "incomplete_within_site_diagnostic"
         ),
         "distinct_tracks": len(tracks),
+        "planned_samples": len(planned),
+        "observed_game_hits": len(observed_by_index),
+        "missing_game_observations": len(planned) - len(observed_by_index),
         "folds": folds,
         "warning": (
-            "Each lane is held out during model choice and bias fitting, "
-            "but all lanes sample one small nearby patch. This is NOT an "
-            "independent validation tile, terrain surface or traversable "
-            "route. Coverage and failures remain explicit."
+            "Model and vertical correction are fitted without the withheld "
+            "lane. The flat-height baseline uses only training game hits "
+            "and is compared on exactly the same held-out scored points. "
+            "Positive RMSE gain favours the candidate over the flat baseline. "
+            "Missing game hits are not the same as missing model crossings. "
+            "Tracks are spatially correlated within one small patch; this "
+            "is NOT independent terrain validation or a walkable route."
         ),
     }
 

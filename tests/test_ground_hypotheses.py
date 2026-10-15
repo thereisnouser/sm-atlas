@@ -353,3 +353,103 @@ def test_lane_holdout_fails_closed_without_independent_lane_metadata():
                                    *model["samples"][1:]]}],
             [{"lateral_offset_m": i} for i in range(3)],
         )
+
+
+def test_lane_holdout_tracks_missing_game_hits_separately_from_model_failures():
+    from sm_atlas.ground_hypotheses import _leave_one_track_out_diagnostic
+    planned = [{"lateral_offset_m": lane}
+               for lane in (-1, -1, 0, 0, 1, 1)]
+    # Probe #3 was never an upward terrain hit, so its row is missing.
+    # Probe #5 had a valid game hit, but the model has no unique root.
+    complete = _fixed_lane_model(4, [0, 0, 0, 0, 0, None])
+    sparse = {**complete, "samples": [
+        row for row in complete["samples"] if row["index"] != 3
+    ]}
+    result = _leave_one_track_out_diagnostic([sparse], planned)
+    assert result["status"] == "incomplete_within_site_diagnostic"
+    assert result["planned_samples"] == 6
+    assert result["observed_game_hits"] == 5
+    assert result["missing_game_observations"] == 1
+    middle = result["folds"][1]
+    assert middle["held_out_game_hits"] == 1
+    assert middle["held_out_missing_game_observations"] == 1
+    assert middle["held_out_unambiguous"] == 1
+    assert middle["held_out_missing_or_ambiguous"] == 0
+    last = result["folds"][2]
+    assert last["held_out_game_hits"] == 2
+    assert last["held_out_missing_game_observations"] == 0
+    assert last["held_out_unambiguous"] == 1
+    assert last["held_out_missing_or_ambiguous"] == 1
+    assert last["held_out_flat_baseline_rmse_on_scored_m"] == 0
+
+
+def test_flat_baseline_fits_training_heights_only_on_same_scored_holdout():
+    from sm_atlas.ground_hypotheses import _leave_one_track_out_diagnostic
+    model = _fixed_lane_model(4, [0, 0, 0])
+    model["samples"][2]["observed_world_z"] = 20.0
+    model["samples"][2]["candidate_world_z"] = [20.0]
+    result = _leave_one_track_out_diagnostic(
+        [model], [{"lateral_offset_m": x} for x in (-1, 0, 1)],
+    )
+    held = result["folds"][2]
+    assert held["training_median_bias_m"] == 0
+    assert held["held_out_rmse_after_training_bias_m"] == 0
+    assert held["held_out_flat_baseline_rmse_on_scored_m"] == 10
+    assert held["held_out_rmse_gain_over_flat_baseline_m"] == 10
+
+
+def test_sparse_measurements_integrate_into_fixed_candidate_pipeline(monkeypatch):
+    from sm_atlas import ground_hypotheses
+    volume, dims = _volume()
+    monkeypatch.setattr(
+        ground_hypotheses, "inspect_ground_density",
+        lambda plan, log, tile: {
+            "world_id": 23, "hits": 2, "tile_path": str(tile),
+            "samples": [
+                {"index": 0, "world_hit_z": 2.5,
+                 "local_xyz": [1.5, 1.5, 2.5]},
+                {"index": 2, "world_hit_z": 2.5,
+                 "local_xyz": [1.5, 1.5, 2.5]},
+            ],
+        },
+    )
+    monkeypatch.setattr(ground_hypotheses, "_dimensions", lambda tile: dims)
+    monkeypatch.setattr(
+        ground_hypotheses, "_load_density_bytes",
+        lambda tile, dimensions, *, return_written=False: (
+            (volume, 0, bytearray([1]) * len(volume))
+            if return_written else (volume, 0)
+        ),
+    )
+    plan = {
+        "world_bounds": {"min": [0, 0, 0]},
+        "critical_edge": {"world_samples": [
+            {"estimated_surface_world_z": 2.5, "lateral_offset_m": lane}
+            for lane in (-0.5, 0.0, 0.5)
+        ]},
+    }
+    result = ground_hypotheses.compare_trilinear_hypotheses(
+        plan, "log", "dummy.tile"
+    )
+    holdout = result["cross_track_holdout"]
+    assert holdout["planned_samples"] == 3
+    assert holdout["observed_game_hits"] == 2
+    assert holdout["missing_game_observations"] == 1
+    assert holdout["status"] == "incomplete_within_site_diagnostic"
+
+
+def test_lane_holdout_rejects_repeated_and_inconsistent_source_indexes():
+    from sm_atlas.ground_hypotheses import _leave_one_track_out_diagnostic
+    planned = [{"lateral_offset_m": i} for i in range(3)]
+    a = _fixed_lane_model(4, [0, 0, 0])
+    duplicate = {**a, "samples": a["samples"] + [a["samples"][1]]}
+    with pytest.raises(ValueError, match="duplicate"):
+        _leave_one_track_out_diagnostic([duplicate], planned)
+    b = _fixed_lane_model(5, [0, 0, 0])
+    b["samples"][1]["observed_world_z"] = 12
+    with pytest.raises(ValueError, match="observed"):
+        _leave_one_track_out_diagnostic([a, b], planned)
+    b = _fixed_lane_model(5, [0, 0, 0])
+    b["samples"] = b["samples"][:-1]
+    with pytest.raises(ValueError, match="differ"):
+        _leave_one_track_out_diagnostic([a, b], planned)

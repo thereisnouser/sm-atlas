@@ -1943,10 +1943,15 @@ def run_tile_ground_hypotheses(
             f"chosen_bits={fold['chosen_bits']} "
             f"origin={fold['chosen_lattice_origin_shift_xyz']} "
             f"training_single={fold['training_unambiguous']}/{fold['training_samples']} "
-            f"held_out_single={fold['held_out_unambiguous']}/{fold['held_out_samples']} "
+            f"held_out_single={fold['held_out_unambiguous']}/{fold['held_out_game_hits']} "
+            f"missing_game_hits={fold['held_out_missing_game_observations']} "
+            f"missing_model_roots={fold['held_out_missing_or_ambiguous']} "
             f"held_out_rmse={fold['held_out_rmse_m']}m "
             f"held_out_rmse_after_training_bias="
-            f"{fold['held_out_rmse_after_training_bias_m']}m"
+            f"{fold['held_out_rmse_after_training_bias_m']}m "
+            f"flat_baseline_rmse="
+            f"{fold['held_out_flat_baseline_rmse_on_scored_m']}m "
+            f"gain_vs_flat={fold['held_out_rmse_gain_over_flat_baseline_m']}m"
         )
     print("WARNING: " + result["warning"])
     return 0

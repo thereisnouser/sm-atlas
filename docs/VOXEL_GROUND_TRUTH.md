@@ -325,6 +325,23 @@ and definitely not walkability or clearance. An apparently small held-out
 RMSE must not unlock routing. We still need distant off-grid measurements
 from the disposable game save before choosing any surface model.
 
+**Missing game raycasts vs missing candidate surfaces (2026-10-15):**
+The held-out evaluator now aligns predicted samples using their original
+plan indices. This is essential because `inspect_ground_density` includes
+only real upward ground hits: a miss in the Lua log has no predicted
+sample row. Counts explicitly distinguish `held_out_missing_game_observations`
+from `held_out_missing_or_ambiguous` **candidate roots among real hits**.
+The aggregate report becomes incomplete if any planned raycast is missing.
+Candidate prediction RMSE is never silently calculated for a non-hit.
+
+**Zero-complexity comparison:** a constant-Z "flat floor" baseline is the
+median of observed heights on the *training* tracks only. Each withheld
+candidate is compared against that baseline on **exactly the same scored
+observations**, with an RMSE gain in metres (positive means the candidate
+performs better). It is intentionally trivial: a complicated packed-voxel
+model should not impress us if a flat height guess works just as well.
+This is still an internally correlated patch; neither model is certified.
+
 ## Raw byte forensics anchored to the real cave floor
 
 **Problem:** Choosing a four-, five- or six-bit mask still assumes
