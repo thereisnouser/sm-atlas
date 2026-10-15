@@ -38,6 +38,27 @@ let pendingSearchTarget = null;
 let elevationBounds = null;
 const requests = new Map();
 
+async function enableOfflineAccess() {
+  const status = $("offline-status");
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+    status.textContent = "Offline use requires HTTPS or localhost";
+    status.dataset.state = "unavailable";
+    return;
+  }
+  try {
+    await navigator.serviceWorker.register(
+      new URL("./service-worker.js", import.meta.url), { scope: "./" });
+    await navigator.serviceWorker.ready;
+    status.textContent = "App files cached · ready for offline use";
+    status.dataset.state = "ready";
+  } catch {
+    // A failed optional cache must never prevent normal local save reading.
+    status.textContent = "Offline cache unavailable · online use still works";
+    status.dataset.state = "unavailable";
+  }
+}
+void enableOfflineAccess();
+
 function svg(tag, attributes = {}, content) {
   const element = document.createElementNS(ns, tag);
   for (const [name, value] of Object.entries(attributes)) {

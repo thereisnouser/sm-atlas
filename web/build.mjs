@@ -2,7 +2,8 @@
  * Build a self-contained static browser distribution without a backend.
  * The exact sql.js version is pinned; no third-party runtime requests remain.
  */
-import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +36,24 @@ for (const filename of vendorFiles) {
 }
 await copyFile(join(root, "..", "THIRD_PARTY_NOTICES.md"),
   join(dist, "THIRD_PARTY_NOTICES.md"));
+
+// A new asset version creates a new, self-contained offline cache. No backend,
+// CDN, user-save data or manual cache-version edits are needed.
+const precache = [
+  "./", "./index.html", ...browserFiles.map((file) => "./" + file),
+  ...vendorFiles.map((file) => "./vendor/" + file),
+];
+const digest = createHash("sha256");
+for (const filename of [...browserFiles, ...vendorFiles.map((name) => "vendor/" + name)]) {
+  digest.update(filename + "\0");
+  digest.update(await readFile(join(dist, filename)));
+}
+const cacheName = "sm-atlas-shell-" + digest.digest("hex").slice(0, 20);
+const serviceWorkerTemplate = await readFile(join(root, "service-worker.js"), "utf8");
+await writeFile(join(dist, "service-worker.js"), serviceWorkerTemplate
+  .replace("__ATLAS_CACHE_NAME__", JSON.stringify(cacheName))
+  .replace("__ATLAS_ASSETS__", JSON.stringify([...new Set(precache)])));
+
 for (const name of ["LICENSE", "LICENSE.md", "LICENSE.txt"]) {
   try {
     await copyFile(join(vendor, name), join(dist, "vendor", "LICENSE.sql.js.txt"));

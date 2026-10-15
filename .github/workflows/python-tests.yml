@@ -47,6 +47,7 @@ jobs:
         run: npm --prefix web run build
       - name: Verify static distribution
         run: |
+          test -s web/dist/service-worker.js
           test -s web/dist/vendor/sql-wasm.js
           test -s web/dist/vendor/sql-wasm.wasm
           test -s web/dist/save-worker.js
