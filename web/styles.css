@@ -241,6 +241,8 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 .map-navigation-actions button:not(:disabled):hover,
 .map-navigation-actions button:focus-visible { border-color: #74bdcf;
   background: #325164; }
+#map-export-svg { margin-left: 9px; border-color: #4d8f96;
+  color: #bce7dd; }
 #map-zoom-level { display: inline-block; min-width: 50px;
   color: #cde2eb; font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
 .map-navigation-hint { color: #97adbb; font-size: 11px; }

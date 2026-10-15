@@ -251,6 +251,28 @@ def main() -> None:
                     assert "XY projection only at a different height: 0" in info
                     assert "does NOT verify an entrance" in info
                     assert page.locator("#tunnel-map .line-contact-xyz").count() == 3
+                    # The exported map is standalone, has the current layers,
+                    # retains contact highlighting and embeds a visible warning.
+                    from xml.etree import ElementTree
+                    with page.expect_download() as download_info:
+                        page.locator("#map-export-svg").click()
+                    exported = download_info.value
+                    assert exported.suggested_filename == (
+                        "sm-atlas-underground-23-view.svg"
+                    )
+                    tree = ElementTree.fromstring(Path(exported.path()).read_bytes())
+                    ns = "{http://www.w3.org/2000/svg}"
+                    assert tree.tag == ns + "svg"
+                    assert len(tree.findall(".//" + ns + "polyline")) == 1
+                    assert len(tree.findall(".//" + ns + "rect")) >= 5
+                    assert any(
+                        "NOT VERIFIED ROUTES OR ENTRANCES" in (label.text or "")
+                        for label in tree.findall(".//" + ns + "text")
+                    )
+                    assert all(
+                        "href" not in key.lower() for node in tree.iter()
+                        for key in node.attrib
+                    )
                     assert page.locator(
                         '.tunnel-contact-section[data-contact-category="xyz"]'
                     ).locator(".tunnel-contact-target").count() == 2
@@ -266,6 +288,15 @@ def main() -> None:
                     assert "Logical pocket placement #1" in page.locator(
                         "#cave-group-info").inner_text()
                     assert page.locator("#map-zoom-level").inner_text() == "400%"
+                    # The export follows the zoomed-in viewport rather than
+                    # silently including off-screen geometry.
+                    viewbox = page.locator("#tunnel-map").get_attribute("viewBox")
+                    with page.expect_download() as zoom_download:
+                        page.locator("#map-export-svg").click()
+                    zoom_root = ElementTree.fromstring(
+                        Path(zoom_download.value.path()).read_bytes()
+                    )
+                    assert zoom_root.find(ns + "svg").attrib["viewBox"] == viewbox
                     assert page.locator("#tunnel-map .tunnel-line.active").count() == 0
                     page.locator("#map-zoom-reset").click()
                     page.locator("#map-search-category").select_option("tunnel")
