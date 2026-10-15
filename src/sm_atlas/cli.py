@@ -1929,6 +1929,25 @@ def run_tile_ground_hypotheses(
             f"rmse={model['rmse_m']}m "
             f"rmse_after_bias={model['rmse_after_median_offset_m']}m"
         )
+    holdout = result["cross_track_holdout"]
+    print("  cross_track_holdout=" + holdout["status"])
+    for fold in holdout["folds"]:
+        if "chosen_bits" not in fold:
+            print(
+                f"    held_out_lane={fold['held_out_lateral_offset_m']} "
+                f"status={fold['status']}"
+            )
+            continue
+        print(
+            f"    held_out_lane={fold['held_out_lateral_offset_m']} "
+            f"chosen_bits={fold['chosen_bits']} "
+            f"origin={fold['chosen_lattice_origin_shift_xyz']} "
+            f"training_single={fold['training_unambiguous']}/{fold['training_samples']} "
+            f"held_out_single={fold['held_out_unambiguous']}/{fold['held_out_samples']} "
+            f"held_out_rmse={fold['held_out_rmse_m']}m "
+            f"held_out_rmse_after_training_bias="
+            f"{fold['held_out_rmse_after_training_bias_m']}m"
+        )
     print("WARNING: " + result["warning"])
     return 0
 

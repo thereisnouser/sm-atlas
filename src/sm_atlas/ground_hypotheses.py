@@ -97,6 +97,125 @@ def _candidate_floor_crossings(
     return sorted(hits, reverse=True)
 
 
+def _leave_one_track_out_diagnostic(
+    models: list[dict],
+    planned: list[dict],
+) -> dict[str, object]:
+    """Select candidates on other tracks, evaluate on the held-out track.
+
+    All hypotheses are fixed before seeing measurements. Only the choice
+    between them, and any median vertical bias, may use training hits.
+    Missing or ambiguous roots never become a zero-error prediction.
+    This test is within one small site, NOT new-terrain generalization.
+    """
+    offsets = []
+    for row in planned:
+        if not isinstance(row, dict):
+            return {"status": "unavailable_track_metadata", "folds": []}
+        offset = row.get("lateral_offset_m")
+        if type(offset) not in (int, float) or not isfinite(offset):
+            return {"status": "unavailable_track_metadata", "folds": []}
+        offsets.append(float(offset))
+    tracks = sorted(set(offsets))
+    if len(tracks) < 3:
+        return {
+            "status": "insufficient_distinct_tracks",
+            "distinct_tracks": len(tracks),
+            "folds": [],
+        }
+
+    for model in models:
+        samples = model.get("samples")
+        if not isinstance(samples, list) or len(samples) != len(planned):
+            raise ValueError("model sample count differs from the measured plan")
+        if any(row.get("index") != i for i, row in enumerate(samples)):
+            raise ValueError("model sample indices are not plan-aligned")
+
+    def residual(row: dict) -> float | None:
+        if row["status"] != "single_candidate":
+            return None
+        candidates = row["candidate_world_z"]
+        if len(candidates) != 1:
+            raise ValueError("a scored sample must have exactly one crossing")
+        predicted = candidates[0]
+        observed = row["observed_world_z"]
+        if not isfinite(predicted) or not isfinite(observed):
+            raise ValueError("nonfinite predicted or observed ground height")
+        return float(predicted - observed)
+
+    folds = []
+    for held_out in tracks:
+        held = [i for i, lane in enumerate(offsets) if lane == held_out]
+        train = [i for i, lane in enumerate(offsets) if lane != held_out]
+        scored = []
+        for model in models:
+            errors = [e for i in train
+                      if (e := residual(model["samples"][i])) is not None]
+            if not errors:
+                continue
+            train_rmse = sqrt(mean(e * e for e in errors))
+            scored.append((
+                -len(errors), train_rmse, model["bits"],
+                tuple(model["lattice_origin_shift_xyz"]),
+                model, errors,
+            ))
+        if not scored:
+            folds.append({
+                "held_out_lateral_offset_m": held_out,
+                "status": "no_scorable_training_candidate",
+                "training_samples": len(train),
+                "held_out_samples": len(held),
+            })
+            continue
+        _, train_rmse, _, _, chosen, train_errors = min(
+            scored, key=lambda entry: entry[:4]
+        )
+        bias_from_train = median(train_errors)
+        holdout_errors = [
+            e for i in held
+            if (e := residual(chosen["samples"][i])) is not None
+        ]
+        folds.append({
+            "held_out_lateral_offset_m": held_out,
+            "status": (
+                "scored" if holdout_errors else "no_unambiguous_held_out_roots"
+            ),
+            "chosen_bits": chosen["bits"],
+            "chosen_lattice_origin_shift_xyz": chosen["lattice_origin_shift_xyz"],
+            "training_samples": len(train),
+            "training_unambiguous": len(train_errors),
+            "training_rmse_m": round(train_rmse, 6),
+            "training_median_bias_m": round(bias_from_train, 6),
+            "held_out_samples": len(held),
+            "held_out_unambiguous": len(holdout_errors),
+            "held_out_missing_or_ambiguous": len(held) - len(holdout_errors),
+            "held_out_rmse_m": (
+                round(sqrt(mean(e * e for e in holdout_errors)), 6)
+                if holdout_errors else None
+            ),
+            "held_out_rmse_after_training_bias_m": (
+                round(sqrt(mean(
+                    (e - bias_from_train) ** 2 for e in holdout_errors
+                )), 6) if holdout_errors else None
+            ),
+        })
+    return {
+        "status": (
+            "within_site_diagnostic_only"
+            if all(f["status"] == "scored" for f in folds)
+            else "incomplete_within_site_diagnostic"
+        ),
+        "distinct_tracks": len(tracks),
+        "folds": folds,
+        "warning": (
+            "Each lane is held out during model choice and bias fitting, "
+            "but all lanes sample one small nearby patch. This is NOT an "
+            "independent validation tile, terrain surface or traversable "
+            "route. Coverage and failures remain explicit."
+        ),
+    }
+
+
 def compare_trilinear_hypotheses(
     plan: dict, log: str, tile: str | Path, *,
     include_six_bit: bool = False,
@@ -214,6 +333,9 @@ def compare_trilinear_hypotheses(
                         ),
                         "samples": samples,
                     })
+    cross_track = _leave_one_track_out_diagnostic(
+        candidates, plan["critical_edge"]["world_samples"]
+    )
     candidates.sort(key=lambda c: (
         -c["single_candidates"],
         c["rmse_m"] if c["rmse_m"] is not None else float("inf"),
@@ -228,6 +350,7 @@ def compare_trilinear_hypotheses(
         "unknown_voxels_in_tile": unknown_count,
         "written_ff_voxels_in_tile": written_ff_count,
         "models": candidates,
+        "cross_track_holdout": cross_track,
         "warning": (
             "Exploratory trilinear model, NOT the game collision mesher. "
             "A high match count or small RMSE does not verify the density "
@@ -239,7 +362,9 @@ def compare_trilinear_hypotheses(
             "counts differences in candidate crossings against the "
             "former FF-as-unknown behaviour, not verified corrections. "
             "This does not establish the physical meaning of FF. "
-            "All 15 measurements come from a small area; no held-out "
-            "terrain has been validated."
+            "The cross_track_holdout report selects a model and vertical "
+            "offset on the other two tracks and tests the withheld third "
+            "without using its heights for selection. All tracks are still "
+            "from one tiny patch; no independent terrain has been validated."
         ),
     }

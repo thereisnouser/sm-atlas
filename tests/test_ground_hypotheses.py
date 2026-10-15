@@ -286,3 +286,70 @@ def test_ff_sensitivity_reports_changed_ground_candidates(monkeypatch):
     assert model["single_candidates"] == 1
     assert model["ff_sensitive_samples"] == 1
     assert model["samples"][0]["candidate_world_z"] == [hit_z]
+
+def _fixed_lane_model(bits, errors):
+    samples = []
+    for i, error in enumerate(errors):
+        samples.append({
+            "index": i, "status": (
+                "single_candidate" if error is not None else "no_candidate"
+            ),
+            "observed_world_z": 10.0,
+            "candidate_world_z": (
+                [10.0 + error] if error is not None else []
+            ),
+        })
+    return {
+        "bits": bits,
+        "lattice_origin_shift_xyz": [0, 0, 0],
+        "samples": samples,
+    }
+
+
+def test_lane_holdout_does_not_select_on_hidden_track_or_fit_its_bias():
+    from sm_atlas.ground_hypotheses import _leave_one_track_out_diagnostic
+    plan = [{"lateral_offset_m": lane} for lane in (-0.5, 0, 0.5)]
+    # In the +0.5 lane, the training-perfect candidate is terrible.
+    # The globally better hypothesis must not be selected by peeking.
+    a = _fixed_lane_model(4, [0, 0, 10])
+    b = _fixed_lane_model(5, [1, 1, 0])
+    result = _leave_one_track_out_diagnostic([a, b], plan)
+    assert result["status"] == "within_site_diagnostic_only"
+    fold = result["folds"][2]
+    assert fold["held_out_lateral_offset_m"] == 0.5
+    assert fold["chosen_bits"] == 4
+    assert fold["training_unambiguous"] == 2
+    assert fold["training_median_bias_m"] == 0
+    assert fold["held_out_rmse_after_training_bias_m"] == 10
+    assert fold["held_out_rmse_m"] == 10
+
+
+def test_lane_holdout_reports_missing_roots_and_training_only_offset():
+    from sm_atlas.ground_hypotheses import _leave_one_track_out_diagnostic
+    plan = [{"lateral_offset_m": v} for v in (-1, 0, 1)]
+    a = _fixed_lane_model(4, [2, 2, None])
+    result = _leave_one_track_out_diagnostic([a], plan)
+    assert result["status"] == "incomplete_within_site_diagnostic"
+    last = result["folds"][2]
+    assert last["training_median_bias_m"] == 2
+    assert last["held_out_unambiguous"] == 0
+    assert last["held_out_missing_or_ambiguous"] == 1
+    assert last["held_out_rmse_after_training_bias_m"] is None
+    assert result["folds"][0]["held_out_rmse_after_training_bias_m"] == 0
+
+
+def test_lane_holdout_fails_closed_without_independent_lane_metadata():
+    from sm_atlas.ground_hypotheses import _leave_one_track_out_diagnostic
+    model = _fixed_lane_model(4, [0, 0, 0])
+    assert _leave_one_track_out_diagnostic(
+        [model], [{"lateral_offset_m": 0}] * 3
+    )["status"] == "insufficient_distinct_tracks"
+    assert _leave_one_track_out_diagnostic(
+        [model], [{"lateral_offset_m": None}] * 3
+    )["status"] == "unavailable_track_metadata"
+    with pytest.raises(ValueError, match="indices"):
+        _leave_one_track_out_diagnostic(
+            [{**model, "samples": [{**model["samples"][0], "index": 9},
+                                   *model["samples"][1:]]}],
+            [{"lateral_offset_m": i} for i in range(3)],
+        )
