@@ -403,6 +403,38 @@ def main() -> None:
                         timeout=30000)
                     assert not errors, "Browser JavaScript errors: " + repr(errors)
                     assert not offsite, "Unexpected remote requests: " + repr(offsite)
+
+                    # Real offline run: after first successful app visit,
+                    # disconnect the entire browser context, reload the cached
+                    # app shell and parse the original local save via WASM.
+                    offline_context = browser.new_context(
+                        viewport={"width": 1440, "height": 900},
+                        service_workers="allow",
+                    )
+                    try:
+                        offline_page = offline_context.new_page()
+                        offline_page.goto(url + "/", wait_until="load")
+                        offline_page.locator(
+                            '#offline-status[data-state="ready"]'
+                        ).wait_for(timeout=30000)
+                        offline_page.wait_for_function(
+                            "() => navigator.serviceWorker.controller !== null",
+                            timeout=30000,
+                        )
+                        offline_context.set_offline(True)
+                        offline_page.reload(wait_until="load", timeout=30000)
+                        assert offline_page.locator(
+                            '#offline-status[data-state="ready"]'
+                        ).is_visible()
+                        offline_page.locator("#save-input").set_input_files(str(save))
+                        offline_page.locator("#stat-worlds").get_by_text(
+                            "3", exact=True).wait_for(timeout=30000)
+                        offline_page.locator("#tunnel-map .tunnel-line").first.wait_for(
+                            timeout=30000)
+                        assert offline_page.locator(
+                            "#tunnel-map .saved-footprint.pocket").count() == 2
+                    finally:
+                        offline_context.close()
                     page.screenshot(path=str(WEB / "smoke-result.png"), full_page=True)
                     print("PASS: Chromium loaded local SQLite WASM, parsed the "
                           "synthetic save in a Worker, found saved cave lines, "

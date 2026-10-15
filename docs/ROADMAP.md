@@ -75,6 +75,9 @@ Deliver the remainder of the [original product areas](PRODUCT_VISION.md): surfac
 
 Improve usability, performance, local privacy, error handling for corrupted/unsupported saves, documentation, offline/PWA experience and static deployment. Cloudflare Pages remains a **preferred direction**, not an existing deployment claim.
 
+- [x] Cache only the self-hosted static app shell using a build-content-versioned, same-origin Service Worker so a previously loaded copy can reopen and read local saves offline (HTTPS/localhost). Test real offline reload and SQLite WASM decoding in headless Chromium. Save contents are never written into Cache Storage; offline support does not require installation.
+- [ ] Validate offline shell upgrades and complete authentic-save browser acceptance on a browser-enabled machine with the private save, without uploading or committing it.
+
 ## Engineering and research standards
 
 - **Truth over appearance:** game-physics measurements and saved-record facts are separate from inferred geometry; never silently promote hypotheses to ground truth.
@@ -106,6 +109,7 @@ Improve usability, performance, local privacy, error handling for corrupted/unsu
 | 2026-10-13 | Verify real-save XY/Z geometry using independent execution and add in-level saved asset search | Python and actual JavaScript agree on terrain IDs, 6,702 float32 tunnel coordinates and all placement coordinate digests on eight worlds. D4/D6 contain hundreds of named resource and pocket objects; find-by-filename is more useful than browsing a flat crowded map. |
 | 2026-10-13 | Search named saved placements across underground worlds using the local Worker | Cross-level discovery reuses decoded layout cache, transfers only index metadata, and navigates directly to the selected saved object without treating catalog names as verified walkable locations. |
 | 2026-10-13 | Port Python source-aware logical pocket reconstruction to the browser | Packed pocket records contain source chunk offsets; grouping by UUID, source origin, rotation and height avoids treating split pieces as independent structures and checks saved source coverage without inferring traversable interiors. |
+| 2026-10-15 | Add optional offline browser operation without installing the app | Cache only versioned same-origin HTML, JavaScript, styles and SQLite WASM; verify that a completely offline Chromium session can reload and inspect a local save with no data upload. |
 | 2026-10-15 | Make saved tunnel contact evidence directly navigable | Source-backed XYZ vs XY-only contact lists let players inspect any linked logical placement, rather than truncated summary text, without pretending the structures are connected or traversable. |
 | 2026-10-13 | Classify saved tunnel-to-placement bounding-box contacts | Distinguish actual XYZ box contacts from top-down-only overlap; deduplicate split structures and independently test 3D slab clipping in Python and JavaScript without inventing walkable connections. |
 | 2026-10-13 | Search and inspect saved tunnel centerlines by type and ID | Recorded line types, IDs and 3D points are source-backed; expose them for browsing and search without inferring safe routes. |
@@ -186,6 +190,6 @@ generated report is committed. This command is not required for ordinary players
 
 ## Next action
 
-**Developer:** validate the contact evidence explorer, cave grouping, search and elevation slicing against the private authentic save; complete authentic-save Chromium visual acceptance when the actual save and a browser-enabled environment are available. in a browser-enabled environment; independent Python/JS coordinate comparison is already confirmed. Investigate reliable physical entrance transforms and continue voxel collision research before routing. Keep structural global search factual, and README concise.
+**Developer:** validate the contact evidence explorer, cave grouping, search and elevation slicing against the private authentic save; complete authentic-save Chromium visual acceptance in a browser-enabled environment. Validate cache upgrades on actual deployment after hosting is established. Independent Python/JS coordinate comparison is already confirmed. Continue physical entrance and voxel collision research before attempting navigable routing. Keep structural global search factual and README concise.
 
 **Player:** no action required now. When a fresh physics probe is needed, provide exact, reversible game-side instructions and use the disposable test save.

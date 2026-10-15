@@ -109,6 +109,10 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; padding
 }
 
 /* Saved underground lines: drawn in local saved XY coordinates only. */
+.offline-status { margin: -7px 0 16px; color: #a2b9c7; font-size: 12px; }
+.offline-status[data-state="ready"] { color: #9dd7bc; }
+.offline-status[data-state="unavailable"] { color: #e1bd8c; }
+
 .tunnel-section { margin-top: 14px; border: 1px solid var(--border);
   background: var(--panel); border-radius: 7px; overflow: hidden; }
 .tunnel-status { color: #aabfcb; padding: 13px 19px; background: #1a2733;
