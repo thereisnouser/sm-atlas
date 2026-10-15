@@ -8,6 +8,7 @@ import { indexSavedObjects, searchSavedObjects,
 import { availableElevationBands, elevationBand, placementOverlapsBand,
   visibleTunnelPaths } from "./elevation-slice.mjs";
 import { analyzeTunnelPlacementContacts } from "./tunnel-contacts.mjs";
+import { standaloneMapSvg } from "./map-export.mjs";
 
 const $ = (id) => document.getElementById(id);
 const ns = "http://www.w3.org/2000/svg";
@@ -246,6 +247,25 @@ function applyMapView() {
   $("map-zoom-level").textContent = mapZoomPercent(mapView) + "%";
   $("map-zoom-in").disabled = mapZoomPercent(mapView) >= MAX_MAP_ZOOM * 100;
   $("map-zoom-out").disabled = mapZoomPercent(mapView) <= 100;
+}
+
+function downloadCurrentMap() {
+  const world = save?.worlds.find((item) => item.id === selected);
+  if (!world || world.kind !== "underground" || !activeGeometry
+    || $("map-export-svg").disabled) return;
+  try {
+    const xml = standaloneMapSvg($("tunnel-map"), {
+      worldLabel:world.label, heightLabel:$("height-band-label").textContent,
+    });
+    const href = URL.createObjectURL(new Blob([xml], {type:"image/svg+xml;charset=utf-8"}));
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = "sm-atlas-underground-" + world.id + "-view.svg";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+  } catch {
+    setMessage("Map export is unavailable for this view.", true);
+  }
 }
 
 function resetMapView() {
@@ -569,11 +589,13 @@ function drawTunnelMap(result) {
     "too-large": "Saved underground geometry exceeds the current display limit.",
   };
   if (layoutUnavailable && !portalCells.length) {
+    $("map-export-svg").disabled = true;
     $("cave-group-info").textContent = "No logical cave placements or portal cells available.";
     status.textContent = explanations[result.status] || "Saved underground geometry is unavailable.";
     return;
   }
 
+  $("map-export-svg").disabled = false;
   const tunnels = layoutUnavailable ? [] : (result.tunnels || []);
   const band = activeElevationBand();
   const footprints = layoutUnavailable ? [] : (result.footprints || []);
@@ -924,6 +946,7 @@ function drawTunnelMap(result) {
 
 async function loadSelectedTunnels() {
   const epoch = ++tunnelSelectionEpoch;
+  $("map-export-svg").disabled = true;
   resetMapView();
   activeGeometry = null;
   mapProjection = null;
@@ -1103,6 +1126,7 @@ async function loadSave(file) {
   globalSearchIndex = [];
   globalIndexState = "idle";
   pendingSearchTarget = null;
+  $("map-export-svg").disabled = true;
   resetElevationControls();
   disposeWorker();
   ++tunnelSelectionEpoch;
@@ -1133,6 +1157,7 @@ $("map-search-category").addEventListener("change", updateObjectSearch);
 $("map-zoom-in").addEventListener("click", () => zoomMap(1.5));
 $("map-zoom-out").addEventListener("click", () => zoomMap(1 / 1.5));
 $("map-zoom-reset").addEventListener("click", resetMapView);
+$("map-export-svg").addEventListener("click", downloadCurrentMap);
 
 const mapSvg = $("tunnel-map");
 mapSvg.addEventListener("wheel", (event) => {
