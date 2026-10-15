@@ -303,6 +303,28 @@ Even an apparent near-perfect match at these coordinates cannot
 distinguish different unseen packing or demonstrate a walkable route.
 Repeat on distinct tiles/terrain before making any general claims.
 
+## Three-track spatial holdout of candidate surfaces (2026-10-15)
+
+The existing `tile-ground-hypotheses` command now reports
+`cross_track_holdout` alongside its original ranking of the 16 fixed
+4/5-bit density/offset hypotheses (24 only when explicitly opting into
+6-bit). For each lateral raycast track, it selects the highest-coverage,
+lowest-uncorrected-RMSE candidate **using only the other tracks**.
+Its optional median vertical correction also comes only from the training
+tracks. It then reports unambiguous held-out coverage, raw held-out RMSE,
+and RMSE after the **training-only** correction. Missing/multiple roots
+remain unscored and are shown as missing coverage; an absent or degenerate
+track layout has an explicit unavailable status.
+
+This uses the existing anchored `ground_plan.json`, `atlas_ground_hits.log`
+and original `.tile`; no new game files or experiments are created.
+The 15 old observations span only a small patch: tracks share underlying
+voxels and nearby physical geometry. This is an **internal leakage test**,
+NOT independent terrain validation, not a measurement of unseen gameplay,
+and definitely not walkability or clearance. An apparently small held-out
+RMSE must not unlock routing. We still need distant off-grid measurements
+from the disposable game save before choosing any surface model.
+
 ## Raw byte forensics anchored to the real cave floor
 
 **Problem:** Choosing a four-, five- or six-bit mask still assumes
