@@ -310,6 +310,56 @@ function focusSavedSearchResult(item) {
   return true;
 }
 
+/** Interactive map navigation among saved allocation bounds, never entrances. */
+function renderTunnelContactList(container, contacts) {
+  const explorer = element("div", "tunnel-contact-explorer");
+  explorer.append(element("div", "tunnel-contact-note",
+    "Recorded tile-allocation bounds only. Selecting a contact inspects its "
+    + "saved placement; no doorway or walkable route is established."));
+
+  for (const [category, heading, targets] of [
+    ["xyz", "XYZ bounding-box contacts", contacts.xyzTargets],
+    ["xy-only", "XY-only overlaps at different heights", contacts.xyOnlyTargets],
+  ]) {
+    const section = element("details", "tunnel-contact-section");
+    section.dataset.contactCategory = category;
+    section.open = targets.length > 0 && targets.length <= 8;
+    const summary = element("summary", "",
+      heading + " (" + targets.length + ")");
+    section.append(summary);
+    const list = element("div", "tunnel-contact-items");
+    if (!targets.length) list.append(element("div", "tunnel-contact-empty",
+      "No recorded placement bounds in this category."));
+    for (const target of targets) {
+      if (!target.kind) {
+        list.append(element("div", "tunnel-contact-unresolved",
+          target.label + " · original placement not independently identified"));
+        continue;
+      }
+      const button = element("button", "tunnel-contact-target", target.label);
+      button.type = "button";
+      button.dataset.contactKind = category;
+      button.setAttribute("aria-label",
+        "Inspect " + target.label + " from " + heading);
+      button.addEventListener("click", () => {
+        if (!activeGeometry) return;
+        const item = indexSavedObjects(activeGeometry).find((candidate) =>
+          candidate.kind === target.kind
+          && candidate.id === target.id && candidate.index === target.index);
+        if (!item) return;
+        // Make the target visible even if its optional layer was hidden.
+        if (item.kind === "group") $("show-caves").checked = true;
+        else $("show-pockets").checked = true;
+        focusSavedSearchResult(item);
+      });
+      list.append(button);
+    }
+    section.append(list);
+    explorer.append(section);
+  }
+  container.append(explorer);
+}
+
 function updateObjectSearch() {
   const list = $("map-search-results");
   list.replaceChildren();
@@ -557,6 +607,7 @@ function drawTunnelMap(result) {
         ? " (" + contacts.xyOnlyPlacements.slice(0,4).join(", ")
           + (contacts.xyOnlyPlacements.length > 4 ? ", …" : "") + ")" : "")
       + ". Bounding-box contact does NOT verify an entrance, physical opening or clearance.";
+    renderTunnelContactList(groupInfo, contacts);
   } else if (selectedGroup) {
     groupInfo.textContent = "Placement group #" + selectedGroup.id
       + " · " + (groupAsset

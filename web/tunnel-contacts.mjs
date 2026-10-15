@@ -41,18 +41,21 @@ export function analyzeTunnelPlacementContacts(tunnel, footprints=[], caveGroups
   const xyzIndices=[],xyOnlyIndices=[];
   const pointList=tunnel?.points;
   if(!Array.isArray(pointList) || pointList.length<2) {
-    return {xyzIndices,xyOnlyIndices,xyzPlacements:[],xyOnlyPlacements:[]};
+    return {xyzIndices,xyOnlyIndices,xyzPlacements:[],xyOnlyPlacements:[],
+      xyzTargets:[],xyOnlyTargets:[]};
   }
   const identity=new Map();
   for(const group of caveGroups){
     for(const index of group.fragments||[])identity.set(index,{
       key:"cave:"+group.id,label:"Cave group G"+group.id,
+      kind:"group",id:group.id,index:null,
     });
   }
   for(const group of pocketGroups){
     for(const index of group.fragments||[])identity.set(index,{
       key:"pocket-group:"+group.id,
       label:group.asset?.name || "Pocket placement PG"+group.id,
+      kind:"pocket-group",id:group.id,index:group.fragments[0],
     });
   }
   const placements=new Map();
@@ -70,15 +73,21 @@ export function analyzeTunnelPlacementContacts(tunnel, footprints=[], caveGroups
     const id=identity.get(index)||{
       key:piece.kind+":"+index,
       label:(piece.asset?.name || "Unidentified "+piece.kind+" tile #"+piece.tileIndex),
+      kind:piece.kind==="pocket"?"pocket":null,
+      id:null,index:piece.kind==="pocket"?index:null,
     };
     const current=placements.get(id.key);
     if(!current || (xyz && !current.xyz)){
-      placements.set(id.key,{label:id.label,xyz});
+      placements.set(id.key,{...id,xyz});
     }
   }
-  const xyzPlacements=[],xyOnlyPlacements=[];
+  const xyzPlacements=[],xyOnlyPlacements=[],xyzTargets=[],xyOnlyTargets=[];
   for(const item of placements.values()) {
     (item.xyz?xyzPlacements:xyOnlyPlacements).push(item.label);
+    (item.xyz?xyzTargets:xyOnlyTargets).push({
+      kind:item.kind,id:item.id,index:item.index,label:item.label,
+    });
   }
-  return {xyzIndices,xyOnlyIndices,xyzPlacements,xyOnlyPlacements};
+  return {xyzIndices,xyOnlyIndices,xyzPlacements,xyOnlyPlacements,
+    xyzTargets,xyOnlyTargets};
 }
