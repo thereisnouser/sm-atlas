@@ -146,6 +146,129 @@ def _direction_bias_diagnostic(scored_segments: list[dict]) -> dict:
     }
 
 
+def _normal_tangent_lateral_holdout(
+    observations: list[dict], *, max_anchor_distance_m: float = 1.0,
+) -> dict:
+    """Predict withheld measured heights from *training-lane* game normals.
+
+    This tests local consistency of the game's OWN observed collision
+    points and normals, not a tile decoder. One nearest measured training
+    anchor predicts a single held-out point using its tangent plane:
+        z = anchor_z - (nx * dx + ny * dy) / nz.
+    Never use a held-out normal/height to make that prediction. Neither
+    nearby-game-normal success nor a small residual establishes novel
+    terrain geometry or clearance. No raycasts are bridged over gaps.
+    """
+    from math import isfinite, sqrt
+    from statistics import median
+
+    if not 0 < max_anchor_distance_m <= 4:
+        raise ValueError("max normal anchor distance must be in (0, 4]")
+    lanes = set()
+    for row in observations:
+        lane = row.get("lateral_offset_m")
+        if type(lane) not in (int, float) or not isfinite(lane):
+            return {"status": "unavailable_track_metadata", "folds": []}
+        lanes.add(float(lane))
+    if len(lanes) < 3:
+        return {
+            "status": "insufficient_distinct_tracks",
+            "distinct_tracks": len(lanes),
+            "folds": [],
+        }
+
+    def measured(row: dict) -> bool:
+        return row["status"] == "terrain_surface_hit"
+
+    def valid_normal(row: dict) -> bool:
+        n = row.get("normal_world")
+        return (
+            isinstance(n, (list, tuple)) and len(n) == 3
+            and all(type(v) in (float, int) and isfinite(v) for v in n)
+            and n[2] > 0.1
+        )
+
+    folds = []
+    for offset in sorted(lanes):
+        train = [r for r in observations
+                 if float(r["lateral_offset_m"]) != offset and measured(r)]
+        held = [r for r in observations
+                if float(r["lateral_offset_m"]) == offset]
+        ground = [r for r in held if measured(r)]
+        anchors = [r for r in train if valid_normal(r)]
+        paired = []
+        too_far_or_invalid = 0
+        for target in ground:
+            x, y = target["world_xy"]
+            if not anchors:
+                too_far_or_invalid += 1
+                continue
+            nearest = min(anchors, key=lambda source: (
+                (source["world_xy"][0] - x) ** 2
+                + (source["world_xy"][1] - y) ** 2,
+                source["index"],
+            ))
+            ax, ay = nearest["world_xy"]
+            distance = hypot(x - ax, y - ay)
+            if distance > max_anchor_distance_m:
+                too_far_or_invalid += 1
+                continue
+            nx, ny, nz = nearest["normal_world"]
+            estimated = nearest["actual_z"] - (nx * (x - ax) + ny * (y - ay)) / nz
+            paired.append((target["actual_z"], estimated, nearest["actual_z"]))
+
+        def rmse(errors: list[float]) -> float | None:
+            return round(sqrt(mean(e * e for e in errors)), 6) if errors else None
+
+        flat_height = median(r["actual_z"] for r in train) if train else None
+        model_errors = [pred - actual for actual, pred, _ in paired]
+        flat_errors = (
+            [flat_height - actual for actual, _, _ in paired]
+            if flat_height is not None else []
+        )
+        nearest_errors = [z - actual for actual, _, z in paired]
+        folds.append({
+            "held_out_lateral_offset_m": offset,
+            "status": (
+                "scored" if paired else
+                "no_valid_training_anchor_or_normal"
+                if ground else "no_held_out_ground_hits"
+            ),
+            "planned_targets": len(held),
+            "held_out_game_hits": len(ground),
+            "missing_held_out_game_hits": len(held) - len(ground),
+            "training_game_hits": len(train),
+            "training_valid_normals": len(anchors),
+            "held_out_scored": len(paired),
+            "no_eligible_anchor": too_far_or_invalid,
+            "max_anchor_distance_m": max_anchor_distance_m,
+            "normal_tangent_rmse_m": rmse(model_errors),
+            "nearest_anchor_height_rmse_m": rmse(nearest_errors),
+            "training_median_flat_rmse_m": rmse(flat_errors),
+        })
+    return {
+        "status": (
+            "within_site_diagnostic_only"
+            if all(f["status"] == "scored"
+                   and f["missing_held_out_game_hits"] == 0
+                   and f["no_eligible_anchor"] == 0 for f in folds)
+            else "incomplete_within_site_diagnostic"
+        ),
+        "distinct_tracks": len(lanes),
+        "folds": folds,
+        "warning": (
+            "Uses only *observed game normals and heights* on other nearby "
+            "lanes, not values predicted from saved tile bytes. A normal "
+            "at a training point predicts only the local tangent plane at "
+            "a held-out point. Predictions are limited by anchor distance, "
+            "exclude misses, and are scored against measured game hits. "
+            "All lanes come from the same small cave patch: this does NOT "
+            "validate a voxel decoder, independently held-out terrain, "
+            "character clearance, or a traversable route."
+        ),
+    }
+
+
 def audit_ground_slopes(
     plan: dict, log: str, tile, *, include_six_bit: bool = False,
 ) -> dict:
@@ -327,6 +450,9 @@ def audit_ground_slopes(
         "lanes": lane_summary,
         "measured_cross_track_segments": len(cross_track_checks),
         "cross_track_normal_checks": cross_track_checks,
+        "normal_tangent_lateral_holdout": _normal_tangent_lateral_holdout(
+            observed["samples"]
+        ),
         "models_ranked_by_rise_error": models,
         "models_ranked_by_local_grade_error": sorted(models, key=lambda model: (
             -model["segments_scored"],
@@ -358,6 +484,8 @@ def audit_ground_slopes(
             "mean bias is fitted to these same observations for diagnosis "
             "only; it is NOT a validated tilt correction. These scores "
             "use only the same small region and do not establish "
-            "correct voxel packing or actual character walkability."
+            "correct voxel packing or actual character walkability. "
+            "The separate normal tangent holdout evaluates GAME normals "
+            "on nearby measured points, NOT a saved tile decoder."
         ),
     }
