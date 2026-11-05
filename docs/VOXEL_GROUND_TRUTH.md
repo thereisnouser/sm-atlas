@@ -303,6 +303,56 @@ Even an apparent near-perfect match at these coordinates cannot
 distinguish different unseen packing or demonstrate a walkable route.
 Repeat on distinct tiles/terrain before making any general claims.
 
+## Original Drill2 physics evidence replay (2026-11-05)
+
+With the user's original **private** anchored plan, game physics log and matching
+underground `.tile` available together, an **independent local Python replay**
+of the fixed-candidate interpolation and the latest training/held-out scoring
+formulas produced the results below. This was a separate replay of the
+repository's documented algorithms, **not** a direct run of its installed
+`sm-atlas tile-ground-hypotheses` CLI. No raw private game geometry, measured
+positions, per-ray data, UUID fingerprints or files were uploaded or committed.
+
+Integrity and coverage checks: tile header UUID matched the plan; the saved
+placement has four independent tunnel-socket anchors, with the expected
+rotation and tile dimensions; all 15 log indices, XY locations, world IDs and
+planned cast heights matched. All 15 recorded observations were upward
+`voxelTerrain` hits (lowest observed normal Z > 0.88); no physics hit was
+missing. The tile contained 99 independently decompressed voxel block records
+and no unwritten voxels in its recorded bounds.
+
+The experiment compared the predeclared 16 midpoint-threshold low-4-/low-5-bit
+trilinear field hypotheses with fixed (0 or 0.5) candidate origins. On the
+**same measured points**, the highest-ranked in-sample model achieved
+15/15 single-root coverage with approximately **0.376 m uncorrected height
+RMSE**. This is a fit on known data, **not** held-out validation.
+
+For each 5-ray lateral lane, model selection and any median-Z correction
+were performed on the **other 10 hits only**, followed by evaluation on the
+5 withheld hits. The flat-height baseline used the training-only median
+observed Z, and was scored on the same withheld game hits:
+
+| Withheld lane offset | Selected bits and candidate origin shift XYZ | Unique held-out predictions | Candidate RMSE after training-only Z correction | Flat-height baseline RMSE | Candidate minus flat RMSE |
+| --- | --- | ---: | ---: | ---: | ---: |
+| -0.5 m | 4-bit, (0, 0.5, 0.5) | 5/5 | 0.349 m | **0.097 m** | +0.253 m |
+| 0 m | 4-bit, (0, 0.5, 0.5) | 5/5 | 0.307 m | **0.038 m** | +0.269 m |
+| +0.5 m | 4-bit, (0, 0, 0) | 5/5 | 0.288 m | **0.120 m** | +0.168 m |
+
+**Outcome:** every held-out lane favoured the trivial flat baseline over
+the selected fixed voxel-density hypothesis, even after fitting a training-
+only vertical offset. The candidate model clearly has not earned a role in
+player-visible cave-floor geometry or routing. The baseline is a scientific
+control, not a claim the cave actually has a perfectly flat floor.
+
+**Critical limitations:** The 15 hits cover one small, correlated patch of
+one tile, so lane withholding cannot substitute for independent held-out
+game terrain. The assumed 4/5-bit packing, density midpoint, lattice origin,
+interpolation and true engine collision mesher remain unverified; raycasts
+do not prove character clearance. Do not retrofit a new model to these 15
+points and present the improvement as validation. The next decisive evidence
+must come from the preplanned spatially wider, off-grid game physics
+experiment in a disposable save, with misses preserved.
+
 ## Three-track spatial holdout of candidate surfaces (2026-10-15)
 
 The existing `tile-ground-hypotheses` command now reports
