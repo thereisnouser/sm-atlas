@@ -449,3 +449,86 @@ def test_six_bit_opt_in_passes_through_slope_audit_without_changing_default(
     assert extended["six_bit_hypothesis_opted_in"] is True
     assert legacy["models_ranked_by_patch_grade_error"][0]["bits"] == 4
     assert extended["models_ranked_by_patch_grade_error"][0]["bits"] == 6
+
+
+def test_held_out_tangent_planes_predict_exact_synthetic_plane():
+    from math import sqrt
+    from sm_atlas.ground_slope_audit import _normal_tangent_lateral_holdout
+
+    # Entirely synthetic, NOT the real user's recorded cave coordinates.
+    ax, ay = 0.2, -0.15
+    magnitude = sqrt(ax * ax + ay * ay + 1)
+    normal = (-ax / magnitude, -ay / magnitude, 1 / magnitude)
+    rows = []
+    for x in (0.0, 0.5, 1.0):
+        for y in (0.0, 0.25, 0.5):
+            rows.append({
+                "index": len(rows), "lateral_offset_m": x,
+                "world_xy": (x, y),
+                "status": "terrain_surface_hit",
+                "actual_z": 7 + ax * x + ay * y,
+                "normal_world": normal,
+            })
+    result = _normal_tangent_lateral_holdout(rows)
+    assert result["status"] == "within_site_diagnostic_only"
+    assert len(result["folds"]) == 3
+    assert all(f["held_out_scored"] == 3 for f in result["folds"])
+    assert all(f["normal_tangent_rmse_m"] == 0 for f in result["folds"])
+    assert all(f["training_median_flat_rmse_m"] > 0 for f in result["folds"])
+
+
+def test_held_out_tangent_planes_expose_missing_hits_and_reject_bad_normals():
+    from sm_atlas.ground_slope_audit import _normal_tangent_lateral_holdout
+    rows = [{
+        "index": i, "lateral_offset_m": float(i),
+        "world_xy": (float(i), 0.0),
+        "status": "terrain_surface_hit",
+        "actual_z": float(i) / 4,
+        "normal_world": (0, 0, 1),
+    } for i in range(3)]
+    rows[0]["status"] = "not_sampled"
+    rows[1]["normal_world"] = (1, 0, 0)  # non-upward: cannot be an anchor
+    result = _normal_tangent_lateral_holdout(rows, max_anchor_distance_m=1.0)
+    assert result["status"] == "incomplete_within_site_diagnostic"
+    assert result["folds"][0]["missing_held_out_game_hits"] == 1
+    assert result["folds"][0]["held_out_scored"] == 0
+    # The last held-out lane cannot borrow normal from the flat/invalid
+    # adjacent lane, nor extrapolate the more distant missing lane.
+    assert result["folds"][2]["no_eligible_anchor"] == 1
+    assert result["folds"][2]["normal_tangent_rmse_m"] is None
+
+
+def test_held_out_tangent_planes_do_not_extrapolate_far_from_training():
+    from sm_atlas.ground_slope_audit import _normal_tangent_lateral_holdout
+    rows = [{
+        "index": i, "lateral_offset_m": x,
+        "world_xy": (x, 0.0),
+        "status": "terrain_surface_hit",
+        "actual_z": 7.0, "normal_world": (0.0, 0.0, 1.0),
+    } for i, x in enumerate((0.0, 5.0, 10.0))]
+    result = _normal_tangent_lateral_holdout(rows)
+    assert all(f["held_out_scored"] == 0 for f in result["folds"])
+    assert all(f["no_eligible_anchor"] == 1 for f in result["folds"])
+    assert all(f["normal_tangent_rmse_m"] is None for f in result["folds"])
+
+
+def test_tangent_plane_check_follows_original_slope_audit_output(monkeypatch):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": len(rows),
+            "samples": rows,
+        },
+    )
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": []},
+    )
+    result = audit_ground_slopes({}, "", "synthetic.tile")
+    fold = result["normal_tangent_lateral_holdout"]["folds"][1]
+    assert fold["status"] == "scored"
+    assert fold["held_out_scored"] == 5
+    assert fold["training_game_hits"] == 10
+    assert fold["normal_tangent_rmse_m"] is not None

@@ -2113,6 +2113,19 @@ def run_tile_ground_slope_audit(
         f"models={result['models_evaluated']}"
     )
     print(f"  recorded_FF_voxels={result['written_ff_voxels_in_tile']}")
+    normal_holdout = result["normal_tangent_lateral_holdout"]
+    print(f"  normal_tangent_holdout={normal_holdout['status']}")
+    for fold in normal_holdout["folds"]:
+        print(
+            f"    withheld_lane={fold['held_out_lateral_offset_m']}m "
+            f"scored={fold['held_out_scored']}/{fold['planned_targets']} "
+            f"game_hits={fold['held_out_game_hits']} "
+            f"missing_hits={fold['missing_held_out_game_hits']} "
+            f"no_anchor={fold['no_eligible_anchor']} "
+            f"normal_tangent_rmse={fold['normal_tangent_rmse_m']}m "
+            f"nearest_height_rmse={fold['nearest_anchor_height_rmse_m']}m "
+            f"flat_rmse={fold['training_median_flat_rmse_m']}m"
+        )
     for lane in result["lanes"]:
         print(
             f"  lane={lane['lateral_offset_m']}m "
