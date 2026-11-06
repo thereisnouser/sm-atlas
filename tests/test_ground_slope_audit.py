@@ -532,3 +532,95 @@ def test_tangent_plane_check_follows_original_slope_audit_output(monkeypatch):
     assert fold["held_out_scored"] == 5
     assert fold["training_game_hits"] == 10
     assert fold["normal_tangent_rmse_m"] is not None
+
+
+def test_measured_plane_detects_noncollinear_synthetic_physics_samples():
+    from math import sqrt
+    from sm_atlas.ground_facet_evidence import audit_measured_collision_planes
+
+    dx, dy = 0.1, -0.2
+    magnitude = sqrt(dx * dx + dy * dy + 1)
+    n = (-dx / magnitude, -dy / magnitude, 1 / magnitude)
+    rows = [
+        {
+            "index": i, "world_xy": (x, y),
+            "actual_z": 4 + dx * x + dy * y, "normal_world": n,
+            "status": "terrain_surface_hit",
+        }
+        for i, (x, y) in enumerate((
+            (0, 0), (0.5, 0), (0, 0.25), (0.5, 0.25)
+        ))
+    ]
+    measured = audit_measured_collision_planes(rows)
+    assert measured["sampled_ground_hits"] == 4
+    assert measured["xy_spanning_consistent_groups"] == 1
+    assert measured["hits_in_xy_spanning_consistent_groups"] == 4
+    assert measured["groups"][0]["max_tangent_plane_height_residual_m"] == 0
+
+    # Same normals, incompatible actual collision points: fail closed.
+    rows[3]["actual_z"] += 0.07
+    warped = audit_measured_collision_planes(rows)
+    assert warped["xy_spanning_consistent_groups"] == 0
+    assert warped["groups"][0][
+        "max_tangent_plane_height_residual_m"
+    ] == pytest.approx(0.07)
+
+
+def test_measured_planes_do_not_conflate_collinear_or_distant_hits():
+    from sm_atlas.ground_facet_evidence import audit_measured_collision_planes
+    rows = [
+        {
+            "index": i, "world_xy": (x, y),
+            "actual_z": 10.0, "normal_world": (0.0, 0.0, 1.0),
+            "status": "terrain_surface_hit",
+        }
+        for i, (x, y) in enumerate((
+            (0, 0), (0.25, 0), (0.5, 0),
+            (5, 0), (5, 0.25), (5.5, 0)
+        ))
+    ]
+    summary = audit_measured_collision_planes(rows)
+    assert summary["multi_hit_groups"] == 2
+    assert summary["xy_spanning_consistent_groups"] == 1
+    assert summary["groups"][0]["spans_two_xy_directions"] is False
+    assert summary["groups"][1]["spans_two_xy_directions"] is True
+
+
+def test_collision_plane_audit_preserves_missing_raycasts_and_invalid_normals():
+    from sm_atlas.ground_facet_evidence import audit_measured_collision_planes
+    rows = [
+        {"index": 0, "world_xy": (0, 0), "actual_z": 8,
+         "normal_world": (0, 0, 1), "status": "terrain_surface_hit"},
+        {"index": 1, "status": "not_sampled"},
+        {"index": 2, "world_xy": (0, 0.25), "actual_z": 8,
+         "normal_world": (1, 0, 0), "status": "terrain_surface_hit"},
+    ]
+    result = audit_measured_collision_planes(rows)
+    assert result["sampled_ground_hits"] == 1
+    assert result["excluded_non_ground_or_invalid_hits"] == 2
+    assert result["multi_hit_groups"] == 0
+    rows[2] = {**rows[0], "index": 0}
+    with pytest.raises(ValueError, match="duplicate"):
+        audit_measured_collision_planes([rows[0], rows[2]])
+    with pytest.raises(ValueError, match="tolerances"):
+        audit_measured_collision_planes(rows, max_link_xy_m=0)
+
+
+def test_collision_plane_summary_is_exposed_by_slope_audit(monkeypatch):
+    from sm_atlas import ground_slope_audit as module
+    rows = _rows()
+    monkeypatch.setattr(
+        module, "compare_ground_observations",
+        lambda plan, log: {
+            "world_id": 23, "terrain_surface_hits": len(rows),
+            "samples": rows,
+        },
+    )
+    monkeypatch.setattr(
+        module, "compare_trilinear_hypotheses",
+        lambda plan, log, tile: {"models": []},
+    )
+    result = module.audit_ground_slopes({}, "", "dummy.tile")
+    evidence = result["measured_collision_plane_evidence"]
+    assert evidence["sampled_ground_hits"] == 15
+    assert evidence["normal_matched_neighbour_pairs"] >= 0

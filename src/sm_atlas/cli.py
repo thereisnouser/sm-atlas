@@ -2113,6 +2113,15 @@ def run_tile_ground_slope_audit(
         f"models={result['models_evaluated']}"
     )
     print(f"  recorded_FF_voxels={result['written_ff_voxels_in_tile']}")
+    collision_planes = result["measured_collision_plane_evidence"]
+    print(
+        f"  measured_collision_planes="
+        f"{collision_planes['xy_spanning_consistent_groups']} "
+        f"matching_pairs={collision_planes['normal_matched_neighbour_pairs']} "
+        f"groups={collision_planes['multi_hit_groups']} "
+        f"hits_in_spanning_groups="
+        f"{collision_planes['hits_in_xy_spanning_consistent_groups']}"
+    )
     normal_holdout = result["normal_tangent_lateral_holdout"]
     print(f"  normal_tangent_holdout={normal_holdout['status']}")
     for fold in normal_holdout["folds"]:
