@@ -303,6 +303,42 @@ Even an apparent near-perfect match at these coordinates cannot
 distinguish different unseen packing or demonstrate a walkable route.
 Repeat on distinct tiles/terrain before making any general claims.
 
+## Connected coplanar collision-raycast evidence (2026-11-06)
+
+A separate, read-only local analysis of the **same 15 original Drill2
+upward game-physics hits** grouped only nearby measured points whose
+**recorded game normals** agree within a predeclared 0.1-degree threshold.
+Neighbours must be within 0.51 m in measured world XY; disjoint clusters
+are never merged merely because their normals match. Each connected cluster
+is checked against the plane through its first measured point, using that
+point's actual game normal and all other **measured** hit heights.
+
+- All 15 game hits were usable; the diagnostic found **5 adjoining
+  normal-compatible pairs**, grouped into **3 multi-hit clusters**.
+- Two clusters had two measured hits each and supported only line-wise
+  coplanarity, **not** a 2D plane observation.
+- One cluster contained **4 measured points spanning both XY axes** with
+  consistent game normals and maximum point-to-plane height residual
+  **0.000003257 m** (about **0.0033 mm**). This passes a deliberately
+  permissive 1 mm plane-residual cutoff without fitting a plane normal
+  to these heights.
+
+**Interpretation:** a small, genuinely observed 2D patch is consistent with
+a locally planar collision surface. That is compatible with a triangle
+mesh, but **does not determine the triangle vertices, triangle count or
+topology**. Adjacent coplanar physics faces can have identical normals;
+repeated normals in a straight line are insufficient evidence of a 2D
+facet. This result neither identifies which bits of a `.tile` byte encode
+density nor proves headroom or a traversable floor elsewhere. All measured
+points remain in a single, tiny spatial patch.
+
+The reusable `audit_measured_collision_planes` helper runs from the
+existing `tile-ground-slope-audit` output, applies fixed adjacency/normal/
+plane thresholds, refuses to join missing game hits and reports coverage.
+Tests use fabricated geometric planes and failures; **no user game data is
+committed**. Continue the separate, spatially wider off-grid game raycast
+plan before validating any reconstructed geometry.
+
 ## Measured game-normal tangent-plane holdout (2026-11-05)
 
 Using the matching private 15-ray Drill2 log and plan, a **separate local

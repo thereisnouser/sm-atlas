@@ -8,6 +8,7 @@ from __future__ import annotations
 from math import hypot
 from statistics import mean
 
+from .ground_facet_evidence import audit_measured_collision_planes
 from .ground_hypotheses import compare_trilinear_hypotheses
 from .ground_truth import compare_ground_observations
 
@@ -450,6 +451,9 @@ def audit_ground_slopes(
         "lanes": lane_summary,
         "measured_cross_track_segments": len(cross_track_checks),
         "cross_track_normal_checks": cross_track_checks,
+        "measured_collision_plane_evidence": audit_measured_collision_planes(
+            observed["samples"]
+        ),
         "normal_tangent_lateral_holdout": _normal_tangent_lateral_holdout(
             observed["samples"]
         ),
@@ -486,6 +490,8 @@ def audit_ground_slopes(
             "use only the same small region and do not establish "
             "correct voxel packing or actual character walkability. "
             "The separate normal tangent holdout evaluates GAME normals "
-            "on nearby measured points, NOT a saved tile decoder."
+            "on nearby measured points, NOT a saved tile decoder. "
+            "The measured collision plane evidence describes coherent "
+            "sampled game physics facets, not reconstructed triangles."
         ),
     }
